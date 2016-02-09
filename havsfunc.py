@@ -39,7 +39,7 @@ def daa(c):
 def maa(input, aa=48, aac=-1, noring=False):
     core = vs.get_core()
     
-    if not isinstance(input, vs.VideoNode) or input.format.bits_per_sample !=8 or input.format.color_family not in [vs.YUV, vs.GRAY]:
+    if not isinstance(input, vs.VideoNode) or input.format.bits_per_sample != 8 or input.format.color_family not in [vs.YUV, vs.GRAY]:
         raise ValueError('maa: This is not an 8-bit YUV or GRAY clip')
     
     if aac <= -1 and input.format.color_family != vs.GRAY:
@@ -48,7 +48,7 @@ def maa(input, aa=48, aac=-1, noring=False):
     else:
         input_src = None
     
-    mask = core.generic.Sobel(input, min=48, max=48, planes=[0]).generic.Inflate(planes=[0])
+    mask = core.std.Sobel(input, min=48, max=48, planes=[0]).std.Inflate(planes=[0])
     aa_clip = Resize(
       core.sangnom.SangNomMod(
         core.std.Transpose(
@@ -100,8 +100,8 @@ def SharpAAMCmod(orig, dark=38, thin=10, sharp=150, smooth=-1, stabilize=False, 
         return min(round((x / 128) ** 0.86 * 255), 255)
     
     orig_y = core.std.ShufflePlanes(orig, planes=[0], colorfamily=vs.GRAY)
-    m = core.std.Lut(core.std.Expr([core.generic.Convolution(orig_y, [5, 10, 5, 0, 0, 0, -5, -10, -5], divisor=4, saturate=False),
-                                    core.generic.Convolution(orig_y, [5, 0, -5, 10, 0, -10, 5, 0, -5], divisor=4, saturate=False)],
+    m = core.std.Lut(core.std.Expr([core.std.Convolution(orig_y, matrix=[5, 10, 5, 0, 0, 0, -5, -10, -5], divisor=4, saturate=False),
+                                    core.std.Convolution(orig_y, matrix=[5, 0, -5, 10, 0, -10, 5, 0, -5], divisor=4, saturate=False)],
                                    ['x y max']),
                      function=get_lut)
     if thin == 0 and dark == 0:
@@ -302,8 +302,8 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
     oy = clp.height
     
     halos = Resize(Resize(clp, m4(ox/rx), m4(oy/ry), kernel='bicubic'), ox, oy, kernel='bicubic', a1=1, a2=0)
-    are = core.std.Expr([core.generic.Maximum(clp), core.generic.Minimum(clp)], ['x y -'])
-    ugly = core.std.Expr([core.generic.Maximum(halos), core.generic.Minimum(halos)], ['x y -'])
+    are = core.std.Expr([core.std.Maximum(clp), core.std.Minimum(clp)], ['x y -'])
+    ugly = core.std.Expr([core.std.Maximum(halos), core.std.Minimum(halos)], ['x y -'])
     expr = 'y {multiple} / x {multiple} / - y {multiple} / 0.001 + / 255 * {LOS} - y {multiple} / 256 + 512 / {HIS} + * {multiple} *'.format(multiple=multiple, LOS=lowsens, HIS=highsens/100)
     so = core.std.Expr([ugly, are], [expr])
     lets = core.std.MaskedMerge(halos, clp, so)
@@ -313,9 +313,9 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
         remove = Resize(
           core.std.Expr(
             [core.std.Expr([Resize(clp, m4(ox*ss), m4(oy*ss), kernel='spline64' if noring else 'spline36', noring=noring),
-                            Resize(core.generic.Maximum(lets), m4(ox*ss), m4(oy*ss), kernel='bicubic')],
+                            Resize(core.std.Maximum(lets), m4(ox*ss), m4(oy*ss), kernel='bicubic')],
                            ['x y min']),
-             Resize(core.generic.Minimum(lets), m4(ox*ss), m4(oy*ss), kernel='bicubic')],
+             Resize(core.std.Minimum(lets), m4(ox*ss), m4(oy*ss), kernel='bicubic')],
             ['x y max']),
           ox, oy)
     them = core.std.Expr([clp, remove], ['x y < x x y - {DRK} * - x x y - {BRT} * - ?'.format(DRK=darkstr, BRT=brightstr)])
@@ -489,7 +489,7 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     
     # Post-Process: Ringing Mask Generating
     if ringmask is None:
-        sobelm = core.generic.Sobel(core.std.ShufflePlanes(input, planes=[0], colorfamily=vs.GRAY), min=mthr<<(input.format.bits_per_sample-8))
+        sobelm = core.std.Sobel(core.std.ShufflePlanes(input, planes=[0], colorfamily=vs.GRAY), min=mthr<<(input.format.bits_per_sample-8))
         fmask = core.generic.Hysteresis(core.rgvs.RemoveGrain(sobelm, 4), sobelm)
         if mrad > 0:
             omask = mt_expand_multi(fmask, sw=mrad, sh=mrad)
@@ -501,13 +501,13 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
             ringmask = omask
         else:
             if minp > 3:
-                imask = core.generic.Minimum(core.generic.Minimum(fmask))
+                imask = core.std.Minimum(core.std.Minimum(fmask))
             elif minp > 2:
-                imask = core.generic.Minimum(core.generic.Minimum(core.generic.Inflate(fmask)))
+                imask = core.std.Minimum(core.std.Minimum(core.std.Inflate(fmask)))
             elif minp > 1:
-                imask = core.generic.Minimum(fmask)
+                imask = core.std.Minimum(fmask)
             elif minp > 0:
-                imask = core.generic.Minimum(core.generic.Inflate(fmask))
+                imask = core.std.Minimum(core.std.Inflate(fmask))
             else:
                 imask = fmask
             ringmask = core.std.Expr([omask, imask], ['x {peak} y - * {peak} /'.format(peak=(1<<input.format.bits_per_sample)-1)])
@@ -543,11 +543,10 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
 #
 # Core plugins:
 #	MVTools
-#	GenericFilters
 #	nnedi3
 #	RemoveGrain/Repair
-#   fmtconv
-#   SceneChange
+#	fmtconv
+#	SceneChange
 #
 # Additional plugins:
 #	eedi3 - if selected directly or via a source-match preset
@@ -867,7 +866,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     elif InputType == 1:
         bobbed = clip
     else:
-        bobbed = core.generic.Blur(clip, 0, 0.5)
+        bobbed = core.std.Convolution(clip, matrix=[1, 2, 1], mode='v')
     
     CMts = 255 if ChromaMotion else 0
     CMrg = 12 if ChromaMotion else 0
@@ -1096,8 +1095,8 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     
     # Resharpen to counteract temporal blurs. Little sharpening needed for source-match mode since it has already recovered sharpness from source
     if SMode >= 2:
-        vresharp1 = core.std.Merge(core.generic.Maximum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]),
-                                   core.generic.Minimum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]))
+        vresharp1 = core.std.Merge(core.std.Maximum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]),
+                                   core.std.Minimum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]))
         if Precise:     # Precise mode: reduce tiny overshoot
             expr = 'x y < x {i} + x y > x {i} - x ? ?'.format(i=1<<shift)
             vresharp = core.std.Expr([vresharp1, lossed1], [expr])
@@ -1115,7 +1114,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if SVThin > 0:
         expr = 'y x - {SVThinSc} * {median} +'.format(SVThinSc=SVThinSc, median=median)
         vertMedD = core.std.Expr([lossed1, core.rgvs.VerticalCleaner(lossed1, [1] if isGray else [1, 0])], [expr] if isGray else [expr, ''])
-        vertMedD = core.generic.Blur(vertMedD, 0.5, 0)
+        vertMedD = core.std.Convolution(vertMedD, matrix=[1, 2, 1], mode='h')
         expr = 'y {median} - abs x {median} - abs > y {median} ?'.format(median=median)
         neighborD = core.std.Expr([vertMedD, core.rgvs.RemoveGrain(vertMedD, [rgBlur] if isGray else [rgBlur, 0])], [expr] if isGray else [expr, ''])
         thin = core.std.MergeDiff(resharp, neighborD, planes=[0])
@@ -1345,45 +1344,45 @@ def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
     
     diff = core.std.MakeDiff(Ref, Input)
     
-    # Areas of positive difference                                                                          # ed = 0 1 2 3 4 5 6 7
-    choke1 = core.generic.Minimum(diff, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])                #      x x x x x x x x    1 pixel   \
-    if ed > 2: choke1 = core.generic.Minimum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])   #      . . . x x x x x    1 pixel    |  Deflate to remove thin areas
-    if ed > 5: choke1 = core.generic.Minimum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])   #      . . . . . . x x    1 pixel   /
-    if ed % 3 != 0: choke1 = core.generic.Deflate(choke1, planes=planes)                                    #      . x x . x x . x    A bit more deflate & some horizonal effect
-    if ed in [2, 5]: choke1 = core.rgvs.RemoveGrain(choke1, 4)                                              #      . . x . . x . .    Local median
-    choke1 = core.generic.Maximum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])              #      x x x x x x x x    1 pixel  \
-    if ed > 1: choke1 = core.generic.Maximum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])   #      . . x x x x x x    1 pixel   | Reflate again
-    if ed > 4: choke1 = core.generic.Maximum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])   #      . . . . . x x x    1 pixel  /
+    # Areas of positive difference                                                                      # ed = 0 1 2 3 4 5 6 7
+    choke1 = core.std.Minimum(diff, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])                #      x x x x x x x x    1 pixel   \
+    if ed > 2: choke1 = core.std.Minimum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])   #      . . . x x x x x    1 pixel    |  Deflate to remove thin areas
+    if ed > 5: choke1 = core.std.Minimum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])   #      . . . . . . x x    1 pixel   /
+    if ed % 3 != 0: choke1 = core.std.Deflate(choke1, planes=planes)                                    #      . x x . x x . x    A bit more deflate & some horizonal effect
+    if ed in [2, 5]: choke1 = core.rgvs.RemoveGrain(choke1, 4)                                          #      . . x . . x . .    Local median
+    choke1 = core.std.Maximum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])              #      x x x x x x x x    1 pixel  \
+    if ed > 1: choke1 = core.std.Maximum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])   #      . . x x x x x x    1 pixel   | Reflate again
+    if ed > 4: choke1 = core.std.Maximum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])   #      . . . . . x x x    1 pixel  /
     
     # Over-dilation - extra reflation up to about 1 pixel
     if od == 1:
-        choke1 = core.generic.Inflate(choke1, planes=planes)
+        choke1 = core.std.Inflate(choke1, planes=planes)
     elif od == 2:
-        choke1 = core.generic.Inflate(core.generic.Inflate(choke1, planes=planes), planes=planes)
+        choke1 = core.std.Inflate(core.std.Inflate(choke1, planes=planes), planes=planes)
     elif od >= 3:
-        choke1 = core.generic.Maximum(choke1, planes=planes)
+        choke1 = core.std.Maximum(choke1, planes=planes)
     
     # Areas of negative difference (similar to above)
-    choke2 = core.generic.Maximum(diff, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+    choke2 = core.std.Maximum(diff, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
     if ed > 2:
-        choke2 = core.generic.Maximum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+        choke2 = core.std.Maximum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
     if ed > 5:
-        choke2 = core.generic.Maximum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+        choke2 = core.std.Maximum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
     if ed % 3 != 0:
-        choke2 = core.generic.Inflate(choke2, planes=planes)
+        choke2 = core.std.Inflate(choke2, planes=planes)
     if ed in [2, 5]:
         choke2 = core.rgvs.RemoveGrain(choke2, 4)
-    choke2 = core.generic.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+    choke2 = core.std.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
     if ed > 1:
-        choke2 = core.generic.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+        choke2 = core.std.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
     if ed > 4:
-        choke2 = core.generic.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+        choke2 = core.std.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
     if od == 1:
-        choke2 = core.generic.Deflate(choke2, planes=planes)
+        choke2 = core.std.Deflate(choke2, planes=planes)
     elif od == 2:
-        choke2 = core.generic.Deflate(core.generic.Deflate(choke2, planes=planes), planes=planes)
+        choke2 = core.std.Deflate(core.std.Deflate(choke2, planes=planes), planes=planes)
     elif od >= 3:
-        choke2 = core.generic.Minimum(choke2, planes=planes)
+        choke2 = core.std.Minimum(choke2, planes=planes)
     
     # Combine above areas to find those areas of difference to restore
     expr1 = 'x {i} < x y {median} < {median} y ? ?'.format(i=129<<shift, median=median)
@@ -1402,8 +1401,8 @@ def QTGMC_Generate2ndFieldNoise(Input, InterleavedClip, ChromaNoise=False, TFF=N
     isGray = Input.format.color_family == vs.GRAY
     planes = [0, 1, 2] if ChromaNoise and not isGray else [0]
     origNoise = core.std.SeparateFields(Input, TFF)
-    noiseMax = core.generic.Maximum(core.generic.Maximum(origNoise, planes=planes), planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
-    noiseMin = core.generic.Minimum(core.generic.Minimum(origNoise, planes=planes), planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
+    noiseMax = core.std.Maximum(core.std.Maximum(origNoise, planes=planes), planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
+    noiseMin = core.std.Minimum(core.std.Minimum(origNoise, planes=planes), planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
     random = core.grain.Add(core.std.BlankClip(core.std.SeparateFields(InterleavedClip, TFF), color=[128] if isGray else [128, 128, 128]),
                             var=1800, uvar=1800 if ChromaNoise else 0)
     expr = 'x {multiple} / 128 - y {multiple} / * 256 / 128 + {multiple} *'.format(multiple=multiple)
@@ -1596,9 +1595,9 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
     else:
         clp_src = None
     
-    vblur = core.generic.Convolution(clp, [50, 99, 50], mode='v')
+    vblur = core.std.Convolution(clp, matrix=[50, 99, 50], mode='v')
     vblurD = core.std.MakeDiff(clp, vblur)
-    vshrp = core.std.Expr([vblur, core.generic.Convolution(vblur, [1, 4, 6, 4, 1], mode='v')], ['x x y - {STR} * +'.format(STR=sstr)])
+    vshrp = core.std.Expr([vblur, core.std.Convolution(vblur, matrix=[1, 4, 6, 4, 1], mode='v')], ['x x y - {STR} * +'.format(STR=sstr)])
     vshrpD = core.std.MakeDiff(vshrp, vblur)
     expr = 'x {median} - y {median} - * 0 < x {median} - abs y {median} - abs < x y ? {median} - 0.25 * {median} + x {median} - abs y {median} - abs < x y ? ?'.format(median=1<<(clp.format.bits_per_sample-1))
     vlimD = core.std.Expr([vshrpD, vblurD], [expr])
@@ -1628,7 +1627,7 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
     
     vblur = sbrV(clp)
     vblurD = core.std.MakeDiff(clp, vblur)
-    vshrp = core.std.Expr([vblur, core.generic.Convolution(vblur, [1, 2, 1], mode='v')], ['x x y - {STR} * +'.format(STR=sstr)])
+    vshrp = core.std.Expr([vblur, core.std.Convolution(vblur, matrix=[1, 2, 1], mode='v')], ['x x y - {STR} * +'.format(STR=sstr)])
     vshrpD = core.std.MakeDiff(vshrp, vblur)
     expr = 'x {median} - y {median} - * 0 < x {median} - abs y {median} - abs < x y ? {median} - 0.25 * {median} + x {median} - abs y {median} - abs < x y ? ?'.format(median=1<<(clp.format.bits_per_sample-1))
     vlimD = core.std.Expr([vshrpD, vblurD], [expr])
@@ -1690,7 +1689,6 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
 ###
 ### -> Bilateral
 ### -> FluxSmooth
-### -> GenericFilters
 ### -> RemoveGrain/Repair
 ###
 ### +-----------+
@@ -1723,7 +1721,7 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0):
     
     clp_nr = core.bilateral.Bilateral(last, sigmaS=3).flux.SmoothT(temporal_threshold=1<<(dlg.format.bits_per_sample-8))
     expr = 'x y - abs 16 *'
-    logoM = core.generic.Deflate(core.rgvs.RemoveGrain(mt_expand_multi(core.std.Expr([last, src], [expr]), mode='losange', sw=3, sh=3), 19))
+    logoM = core.std.Deflate(core.rgvs.RemoveGrain(mt_expand_multi(core.std.Expr([last, src], [expr]), mode='losange', sw=3, sh=3), 19))
     clp_nr = core.std.MaskedMerge(last, clp_nr, logoM)
     
     if b_crop:
@@ -1818,14 +1816,13 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
     average_u = core.std.Expr([input_minus_u, input_plus_u], ['x y - abs {cthr} < {peak} 0 ?'.format(cthr=cthresh, peak=peak)])
     average_v = core.std.Expr([input_minus_v, input_plus_v], ['x y - abs {cthr} < {peak} 0 ?'.format(cthr=cthresh, peak=peak)])
     
-    ymask = core.generic.Binarize(average_y, threshold=1<<shift)
+    ymask = core.std.Binarize(average_y, threshold=1<<shift)
     if usemaxdiff:
         diffplus_y = core.std.Expr([input_plus_y, input_y], ['x y - abs {md} < {peak} 0 ?'.format(md=maxdiff, peak=peak)])
         diffminus_y = core.std.Expr([input_minus_y, input_y], ['x y - abs {md} < {peak} 0 ?'.format(md=maxdiff, peak=peak)])
         diffs_y = core.std.Lut2(diffplus_y, diffminus_y, function=lambda x, y: x & y)
         ymask = core.std.Lut2(ymask, diffs_y, function=lambda x, y: x & y)
-    cmask = core.std.Lut2(core.generic.Binarize(average_u, threshold=129<<shift), core.generic.Binarize(average_v, threshold=129<<shift),
-                          function=lambda x, y: x & y)
+    cmask = core.std.Lut2(core.std.Binarize(average_u, threshold=129<<shift), core.std.Binarize(average_v, threshold=129<<shift), function=lambda x, y: x & y)
     cmask = Resize(cmask, input.width, input.height, kernel='point')
     
     themask = core.std.Lut2(ymask, cmask, function=lambda x, y: x & y)
@@ -1944,8 +1941,8 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
     average_u = core.std.Expr([input_minus_u, input_plus_u], ['x y - abs {cthr} < x y + 2 / 0 ?'.format(cthr=cthresh)])
     average_v = core.std.Expr([input_minus_v, input_plus_v], ['x y - abs {cthr} < x y + 2 / 0 ?'.format(cthr=cthresh)])
     
-    umask = core.generic.Binarize(average_u, threshold=21<<shift)
-    vmask = core.generic.Binarize(average_v, threshold=21<<shift)
+    umask = core.std.Binarize(average_u, threshold=21<<shift)
+    vmask = core.std.Binarize(average_v, threshold=21<<shift)
     themask = core.std.Lut2(umask, vmask, function=lambda x, y: x & y)
     if y:
         umask = core.std.Lut2(umask, average_y, function=lambda x, y: x & y)
@@ -1970,7 +1967,7 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
 ###
 ### GrainStabilizeMC v1.0      by mawen1250      2014.03.22
 ###
-### Requirements: GenericFilters, MVTools, RemoveGrain/Repair
+### Requirements: MVTools, RemoveGrain/Repair
 ###
 ### Temporal-only on-top grain stabilizer
 ### Only stabilize the difference ( on-top grain ) between source clip and spatial-degrained clip
@@ -2077,7 +2074,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, Y=T
         if adapt == 0:
             Lmask = core.rgvs.RemoveGrain(input_y, 19)
         elif adapt >= 255:
-            Lmask = core.rgvs.RemoveGrain(core.generic.Invert(input_y), 19)
+            Lmask = core.rgvs.RemoveGrain(core.std.Invert(input_y), 19)
         else:
             expr = 'x {multiple} / {adapt} - abs 255 * {adapt} 128 - abs 128 + / {multiple} *'.format(multiple=2**(input.format.bits_per_sample-8), adapt=adapt)
             Lmask = core.rgvs.RemoveGrain(core.std.Expr([input_y], [expr]), 19)
@@ -2342,7 +2339,7 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
 #########################################################################################
 ### 
 ### 
-### /!\ Needed filters : GenericFilters, RemoveGrain/Repair, f3kdb
+### /!\ Needed filters : RemoveGrain/Repair, f3kdb
 ### --------------------
 ###
 ###
@@ -2673,15 +2670,15 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
     thr = threshold << shift
     thn = thinning / 16
     
-    exin = core.generic.Minimum(core.generic.Maximum(c, threshold=int(peak/(protection+1))))
+    exin = core.std.Minimum(core.std.Maximum(c, threshold=int(peak/(protection+1))))
     thick = core.std.Expr([c, exin], ['y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {Str} * x +'.format(lum=lum, thr=thr, Str=Str)])
     
     if thinning <= 0:
         last = thick
     else:
         diff = core.std.Expr([c, exin], ['y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {i} +'.format(lum=lum, thr=thr, i=127<<shift)])
-        linemask = core.rgvs.RemoveGrain(core.std.Expr([core.generic.Minimum(diff)], ['x {i} - {thn} * {j} +'.format(i=127<<shift, thn=thn, j=255<<shift)]), 20)
-        thin = core.std.Expr([core.generic.Maximum(c), diff], ['x y {i} - {Str} 1 + * +'.format(i=127<<shift, Str=Str)])
+        linemask = core.rgvs.RemoveGrain(core.std.Expr([core.std.Minimum(diff)], ['x {i} - {thn} * {j} +'.format(i=127<<shift, thn=thn, j=255<<shift)]), 20)
+        thin = core.std.Expr([core.std.Maximum(c), diff], ['x y {i} - {Str} 1 + * +'.format(i=127<<shift, Str=Str)])
         last = core.std.MaskedMerge(thin, thick, linemask)
     
     if c_src is not None:
@@ -2919,7 +2916,7 @@ def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
 ### | DEPENDENCIES |
 ### +--------------+
 ###
-### -> GenericFilters
+### -> fmtconv
 ### -> RemoveGrain/Repair
 ###
 ###
@@ -3308,8 +3305,8 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         diff3 = core.std.Expr([diff1, diff2], ['x {median} - y {median} - * 0 < {median} x {median} - abs y {median} - abs < x y ? ?'.format(median=median)])
         pre = core.std.MakeDiff(tmp, diff3)
     
-    dark_limit = core.generic.Minimum(pre)
-    bright_limit = core.generic.Maximum(pre)
+    dark_limit = core.std.Minimum(pre)
+    bright_limit = core.std.Maximum(pre)
     minmaxavg = core.std.Merge(dark_limit, bright_limit)
     
     if Smethod <= 1:
@@ -3338,12 +3335,12 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     zero = Clamp(normsharp, bright_limit, dark_limit, 0, 0)
     
     if edgemaskHQ:
-        edge = core.std.Lut(core.std.Expr([core.generic.Convolution(tmp, [8, 16, 8, 0, 0, 0, -8, -16, -8], divisor=4, saturate=False),
-                                           core.generic.Convolution(tmp, [8, 0, -8, 16, 0, -16, 8, 0, -8], divisor=4, saturate=False)],
+        edge = core.std.Lut(core.std.Expr([core.std.Convolution(tmp, matrix=[8, 16, 8, 0, 0, 0, -8, -16, -8], divisor=4, saturate=False),
+                                           core.std.Convolution(tmp, matrix=[8, 0, -8, 16, 0, -16, 8, 0, -8], divisor=4, saturate=False)],
                                           ['x y max']),
                             function=get_lut2)
     else:
-        edge = core.std.Lut(core.generic.Sobel(tmp, rshift=2), function=get_lut3)
+        edge = core.std.Lut(core.std.Sobel(tmp, rshift=2), function=get_lut3)
     
     if Lmode < 0:
         limit1 = core.rgvs.Repair(normsharp, tmp, abs(Lmode))
@@ -3352,18 +3349,18 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     elif Lmode == 1:
         limit1 = normal
     elif Lmode == 2:
-        limit1 = core.std.MaskedMerge(normsharp, normal, core.generic.Inflate(edge))
+        limit1 = core.std.MaskedMerge(normsharp, normal, core.std.Inflate(edge))
     elif Lmode == 3:
-        limit1 = core.std.MaskedMerge(normal, zero, core.generic.Inflate(edge))
+        limit1 = core.std.MaskedMerge(normal, zero, core.std.Inflate(edge))
     else:
-        limit1 = core.std.MaskedMerge(second, normal, core.generic.Inflate(edge))
+        limit1 = core.std.MaskedMerge(second, normal, core.std.Inflate(edge))
     
     if edgemode <= 0:
         limit2 = limit1
     elif edgemode == 1:
-        limit2 = core.std.MaskedMerge(tmp, limit1, core.rgvs.RemoveGrain(core.generic.Inflate(core.generic.Inflate(edge)), 11))
+        limit2 = core.std.MaskedMerge(tmp, limit1, core.rgvs.RemoveGrain(core.std.Inflate(core.std.Inflate(edge)), 11))
     else:
-        limit2 = core.std.MaskedMerge(limit1, tmp, core.rgvs.RemoveGrain(core.generic.Inflate(core.generic.Inflate(edge)), 11))
+        limit2 = core.std.MaskedMerge(limit1, tmp, core.rgvs.RemoveGrain(core.std.Inflate(core.std.Inflate(edge)), 11))
     
     ### SOFT
     if soft == 0:
@@ -3865,20 +3862,20 @@ def sbrV(clp, r=1, planes=[0, 1, 2]):
     Vexpr = expr if 2 in planes else ''
     
     if r <= 1:
-        RG11 = core.generic.Convolution(clp, [1, 2, 1], mode='v', planes=planes)
+        RG11 = core.std.Convolution(clp, matrix=[1, 2, 1], planes=planes, mode='v')
     elif r == 2:
-        RG11 = core.generic.Convolution(core.generic.Convolution(clp, [1, 2, 1], mode='v', planes=planes), [1, 4, 6, 4, 1], mode='v', planes=planes)
+        RG11 = core.std.Convolution(core.std.Convolution(clp, matrix=[1, 2, 1], planes=planes, mode='v'), matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
     else:
-        RG11 = core.generic.Convolution(core.generic.Convolution(core.generic.Convolution(clp, [1, 2, 1], mode='v', planes=planes),
-                                                                 [1, 4, 6, 4, 1], mode='v', planes=planes), [1, 4, 6, 4, 1], mode='v', planes=planes)
+        RG11 = core.std.Convolution(core.std.Convolution(core.std.Convolution(clp, matrix=[1, 2, 1], planes=planes, mode='v'),
+                                                         matrix=[1, 4, 6, 4, 1], planes=planes, mode='v'), matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
     RG11D = core.std.MakeDiff(clp, RG11, planes=planes)
     if r <= 1:
-        RG11DS = core.generic.Convolution(RG11D, [1, 2, 1], mode='v', planes=planes)
+        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1], planes=planes, mode='v')
     elif r == 2:
-        RG11DS = core.generic.Convolution(core.generic.Convolution(RG11D, [1, 2, 1], mode='v', planes=planes), [1, 4, 6, 4, 1], mode='v', planes=planes)
+        RG11DS = core.std.Convolution(core.std.Convolution(RG11D, matrix=[1, 2, 1], planes=planes, mode='v'), matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
     else:
-        RG11DS = core.generic.Convolution(core.generic.Convolution(core.generic.Convolution(RG11D, [1, 2, 1], mode='v', planes=planes),
-                                                                   [1, 4, 6, 4, 1], mode='v', planes=planes), [1, 4, 6, 4, 1], mode='v', planes=planes)
+        RG11DS = core.std.Convolution(core.std.Convolution(core.std.Convolution(RG11D, matrix=[1, 2, 1], planes=planes, mode='v'),
+                                                           matrix=[1, 4, 6, 4, 1], planes=planes, mode='v'), matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
     RG11DD = core.std.Expr([RG11D, RG11DS], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
     return core.std.MakeDiff(clp, RG11DD, planes=planes)
 
@@ -3949,7 +3946,7 @@ def mt_expand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
         mode_m = None
     
     if mode_m is not None:
-        return mt_expand_multi(core.generic.Maximum(src, planes=planes, coordinates=mode_m), mode=mode, planes=planes, sw=sw-1, sh=sh-1)
+        return mt_expand_multi(core.std.Maximum(src, planes=planes, coordinates=mode_m), mode=mode, planes=planes, sw=sw-1, sh=sh-1)
     else:
         return src
 
@@ -3969,7 +3966,7 @@ def mt_inpand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
         mode_m = None
     
     if mode_m is not None:
-        return mt_inpand_multi(core.generic.Minimum(src, planes=planes, coordinates=mode_m), mode=mode, planes=planes, sw=sw-1, sh=sh-1)
+        return mt_inpand_multi(core.std.Minimum(src, planes=planes, coordinates=mode_m), mode=mode, planes=planes, sw=sw-1, sh=sh-1)
     else:
         return src
 
@@ -3980,7 +3977,7 @@ def mt_inflate_multi(src, planes=[0, 1, 2], radius=1):
         planes = [0]
     
     if radius > 0:
-        return mt_inflate_multi(core.generic.Inflate(src, planes=planes), planes=planes, radius=radius-1)
+        return mt_inflate_multi(core.std.Inflate(src, planes=planes), planes=planes, radius=radius-1)
     else:
         return src
 
@@ -3991,6 +3988,6 @@ def mt_deflate_multi(src, planes=[0, 1, 2], radius=1):
         planes = [0]
     
     if radius > 0:
-        return mt_deflate_multi(core.generic.Deflate(src, planes=planes), planes=planes, radius=radius-1)
+        return mt_deflate_multi(core.std.Deflate(src, planes=planes), planes=planes, radius=radius-1)
     else:
         return src
