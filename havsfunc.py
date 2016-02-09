@@ -141,23 +141,23 @@ class HAvsFunc():
         if stabilize:
             sD = self.core.std.MakeDiff(orig, merged)
             
-            origsuper = self.core.avs.MSuper(orig, pel=aapel)
-            sDsuper = self.core.avs.MSuper(sD, pel=aapel, levels=1)
+            origsuper = self.core.mv.Super(orig, pel=aapel)
+            sDsuper = self.core.mv.Super(sD, pel=aapel, levels=1)
             
-            fv1 = self.core.avs.MAnalyse(origsuper, blksize=aablk, isb=False, delta=1, overlap=aaov)
-            bv1 = self.core.avs.MAnalyse(origsuper, blksize=aablk, isb=True, delta=1, overlap=aaov)
+            fv1 = self.core.mv.Analyse(origsuper, blksize=aablk, isb=False, delta=1, overlap=aaov)
+            bv1 = self.core.mv.Analyse(origsuper, blksize=aablk, isb=True, delta=1, overlap=aaov)
             if tradius > 1:
-                fv2 = self.core.avs.MAnalyse(origsuper, blksize=aablk, isb=False, delta=2, overlap=aaov)
-                bv2 = self.core.avs.MAnalyse(origsuper, blksize=aablk, isb=True, delta=2, overlap=aaov)
+                fv2 = self.core.mv.Analyse(origsuper, blksize=aablk, isb=False, delta=2, overlap=aaov)
+                bv2 = self.core.mv.Analyse(origsuper, blksize=aablk, isb=True, delta=2, overlap=aaov)
             if tradius > 2:
-                fv3 = self.core.avs.MAnalyse(origsuper, blksize=aablk, isb=False, delta=3, overlap=aaov)
-                bv3 = self.core.avs.MAnalyse(origsuper, blksize=aablk, isb=True, delta=3, overlap=aaov)
+                fv3 = self.core.mv.Analyse(origsuper, blksize=aablk, isb=False, delta=3, overlap=aaov)
+                bv3 = self.core.mv.Analyse(origsuper, blksize=aablk, isb=True, delta=3, overlap=aaov)
             if tradius == 1:
-                sDD = self.core.avs.MDegrain1(sD, sDsuper, bv1, fv1)
+                sDD = self.core.mv.Degrain1(sD, sDsuper, bv1, fv1)
             elif tradius == 2:
-                sDD = self.core.avs.MDegrain2(sD, sDsuper, bv1, fv1, bv2, fv2)
+                sDD = self.core.mv.Degrain2(sD, sDsuper, bv1, fv1, bv2, fv2)
             else:
-                sDD = self.core.avs.MDegrain3(sD, sDsuper, bv1, fv1, bv2, fv2, bv3, fv3)
+                sDD = self.core.mv.Degrain3(sD, sDsuper, bv1, fv1, bv2, fv2, bv3, fv3)
             
             reduc = .4
             sDD = self.core.std.Merge(self.core.std.Expr([sD, sDD], 'x 128 - abs y 128 - abs < x y ?'), sDD, weight=[1-reduc, 0])
@@ -663,6 +663,7 @@ class HAvsFunc():
     #
     # Core plugins:
     #	MVTools2 (2.5.11.2 or above)
+    #	GenericFilters
     #	NNEDI3
     #	RemoveGrain/Repair
     #
@@ -674,7 +675,7 @@ class HAvsFunc():
     #	FFT3dGPU - if selected for noise processing
     #		For FFT3DFilter & ddftest you also need the FFTW3 library (FFTW.org). On Windows the file needed for both is libfftw3f-3.dll. However, for FFT3DFilter
     #		the file needs to be called FFTW3.dll, so you will need two copies and rename one. On Windows put the files in your System32 or SysWow64 folder
-    #	AddGrainC - if NoiseDeint="Generate" selected for noise bypass
+    #	AddGrain - if NoiseDeint="Generate" selected for noise bypass
     #
     # --- GETTING STARTED ---
     #
@@ -1198,25 +1199,25 @@ class HAvsFunc():
         
         # Calculate forward and backward motion vectors from motion search clip
         if maxTR > 0:
-            srchSuper = self.core.avs.MSuper(srchClip, pel=SubPel, sharp=SubPelInterp, hpad=hpad, vpad=vpad, chroma=ChromaMotion)
-            bVec1 = self.core.avs.MAnalyse(
+            srchSuper = self.core.mv.Super(srchClip, pel=SubPel, sharp=SubPelInterp, hpad=hpad, vpad=vpad, chroma=ChromaMotion)
+            bVec1 = self.core.mv.Analyse(
               srchSuper, isb=True, delta=1, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
               truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
-            fVec1 = self.core.avs.MAnalyse(
+            fVec1 = self.core.mv.Analyse(
               srchSuper, isb=False, delta=1, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
               truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
         if maxTR > 1:
-            bVec2 = self.core.avs.MAnalyse(
+            bVec2 = self.core.mv.Analyse(
               srchSuper, isb=True, delta=2, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
               truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
-            fVec2 = self.core.avs.MAnalyse(
+            fVec2 = self.core.mv.Analyse(
               srchSuper, isb=False, delta=2, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
               truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
         if maxTR > 2:
-            bVec3 = self.core.avs.MAnalyse(
+            bVec3 = self.core.mv.Analyse(
               srchSuper, isb=True, delta=3, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
               truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
-            fVec3 = self.core.avs.MAnalyse(
+            fVec3 = self.core.mv.Analyse(
               srchSuper, isb=False, delta=3, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
               truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
         
@@ -1230,22 +1231,22 @@ class HAvsFunc():
             else:
                 fullClip = self.Bob(clip, 0, 1, TFF)
         if NoiseTR > 0:
-            fullSuper = self.core.avs.MSuper(fullClip, pel=SubPel, levels=1, hpad=hpad, vpad=vpad, chroma=ChromaNoise)  #TEST chroma OK?
+            fullSuper = self.core.mv.Super(fullClip, pel=SubPel, levels=1, hpad=hpad, vpad=vpad, chroma=ChromaNoise)    #TEST chroma OK?
         
         # Create a motion compensated temporal window around current frame and use to guide denoisers
         if NoiseProcess > 0:
             if not DenoiseMC or NoiseTR == 0:
                 noiseWindow = fullClip
             elif NoiseTR == 1:
-                noiseWindow = self.core.std.Interleave([self.core.avs.MCompensate(fullClip, fullSuper, fVec1, thSCD1=ThSCD1, thSCD2=ThSCD2),
+                noiseWindow = self.core.std.Interleave([self.core.mv.Compensate(fullClip, fullSuper, fVec1, thscd1=ThSCD1, thscd2=ThSCD2),
                                                         fullClip,
-                                                        self.core.avs.MCompensate(fullClip, fullSuper, bVec1, thSCD1=ThSCD1, thSCD2=ThSCD2)])
+                                                        self.core.mv.Compensate(fullClip, fullSuper, bVec1, thscd1=ThSCD1, thscd2=ThSCD2)])
             else:
-                noiseWindow = self.core.std.Interleave([self.core.avs.MCompensate(fullClip, fullSuper, fVec2, thSCD1=ThSCD1, thSCD2=ThSCD2),
-                                                        self.core.avs.MCompensate(fullClip, fullSuper, fVec1, thSCD1=ThSCD1, thSCD2=ThSCD2),
+                noiseWindow = self.core.std.Interleave([self.core.mv.Compensate(fullClip, fullSuper, fVec2, thscd1=ThSCD1, thscd2=ThSCD2),
+                                                        self.core.mv.Compensate(fullClip, fullSuper, fVec1, thscd1=ThSCD1, thscd2=ThSCD2),
                                                         fullClip,
-                                                        self.core.avs.MCompensate(fullClip, fullSuper, bVec1, thSCD1=ThSCD1, thSCD2=ThSCD2),
-                                                        self.core.avs.MCompensate(fullClip, fullSuper, bVec2, thSCD1=ThSCD1, thSCD2=ThSCD2)])
+                                                        self.core.mv.Compensate(fullClip, fullSuper, bVec1, thscd1=ThSCD1, thscd2=ThSCD2),
+                                                        self.core.mv.Compensate(fullClip, fullSuper, bVec2, thscd1=ThSCD1, thscd2=ThSCD2)])
             if Denoiser == 'dfttest':
                 dnWindow = self.core.avs.dfttest(noiseWindow, U=ChromaNoise, V=ChromaNoise, sigma=Sigma*4, tbsize=noiseTD, threads=DenoiseThreads)
             elif Denoiser == 'fft3dgpu':
@@ -1284,8 +1285,8 @@ class HAvsFunc():
             
             # Motion-compensated stabilization of generated noise
             if StabilizeNoise:
-                noiseSuper = self.core.avs.MSuper(deintNoise, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad, chroma=ChromaNoise)
-                mcNoise = self.core.avs.MCompensate(deintNoise, noiseSuper, bVec1, thSCD1=ThSCD1, thSCD2=ThSCD2)
+                noiseSuper = self.core.mv.Super(deintNoise, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad, chroma=ChromaNoise)
+                mcNoise = self.core.mv.Compensate(deintNoise, noiseSuper, bVec1, thscd1=ThSCD1, thscd2=ThSCD2)
                 expr = 'x 128 - abs y 128 - abs > x y ? 0.6 * x y + 0.2 * +'
                 finalNoise = self.core.std.Expr([deintNoise, mcNoise], expr if ChromaNoise else [expr, ''])
             else:
@@ -1321,15 +1322,15 @@ class HAvsFunc():
         
         # Get the max/min value for each pixel over neighboring motion-compensated frames - used for temporal sharpness limiting
         if TR1 > 0 or temporalSL:
-            ediSuper = self.core.avs.MSuper(edi, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
+            ediSuper = self.core.mv.Super(edi, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
         if temporalSL:
-            bComp1 = self.core.avs.MCompensate(edi, ediSuper, bVec1, thSCD1=ThSCD1, thSCD2=ThSCD2)
-            fComp1 = self.core.avs.MCompensate(edi, ediSuper, fVec1, thSCD1=ThSCD1, thSCD2=ThSCD2)
+            bComp1 = self.core.mv.Compensate(edi, ediSuper, bVec1, thscd1=ThSCD1, thscd2=ThSCD2)
+            fComp1 = self.core.mv.Compensate(edi, ediSuper, fVec1, thscd1=ThSCD1, thscd2=ThSCD2)
             tMax = self.Logic(self.Logic(edi, fComp1, 'max'), bComp1, 'max')
             tMin = self.Logic(self.Logic(edi, fComp1, 'min'), bComp1, 'min')
             if SLRad > 1:
-                bComp3 = self.core.avs.MCompensate(edi, ediSuper, bVec3, thSCD1=ThSCD1, thSCD2=ThSCD2)
-                fComp3 = self.core.avs.MCompensate(edi, ediSuper, fVec3, thSCD1=ThSCD1, thSCD2=ThSCD2)
+                bComp3 = self.core.mv.Compensate(edi, ediSuper, bVec3, thscd1=ThSCD1, thscd2=ThSCD2)
+                fComp3 = self.core.mv.Compensate(edi, ediSuper, fVec3, thscd1=ThSCD1, thscd2=ThSCD2)
                 tMax = self.Logic(self.Logic(tMax, fComp3, 'max'), bComp3, 'max')
                 tMin = self.Logic(self.Logic(tMin, fComp3, 'min'), bComp3, 'min')
         
@@ -1339,9 +1340,9 @@ class HAvsFunc():
         # Use motion vectors to blur interpolated image (edi) with motion-compensated previous and next frames. As above, this is done to remove shimmer from
         # alternate frames so the same binomial kernels are used. However, by using motion-compensated smoothing this time we avoid motion blur. The use of
         # MDegrain1 (motion compensated) rather than TemporalSmooth makes the weightings *look* different, but they evaluate to the same values
-        # Create linear weightings of neighbors first                                                                                 -2    -1    0     1     2
-        if TR1 > 0: degrain1 = self.core.avs.MDegrain1(edi, ediSuper, bVec1, fVec1, thSAD=ThSAD1, thSCD1=ThSCD1, thSCD2=ThSCD2)     # 0.00  0.33  0.33  0.33  0.00
-        if TR1 > 1: degrain2 = self.core.avs.MDegrain1(edi, ediSuper, bVec2, fVec2, thSAD=ThSAD1, thSCD1=ThSCD1, thSCD2=ThSCD2)     # 0.33  0.00  0.33  0.00  0.33
+        # Create linear weightings of neighbors first                                                                               -2    -1    0     1     2
+        if TR1 > 0: degrain1 = self.core.mv.Degrain1(edi, ediSuper, bVec1, fVec1, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)   # 0.00  0.33  0.33  0.33  0.00
+        if TR1 > 1: degrain2 = self.core.mv.Degrain1(edi, ediSuper, bVec2, fVec2, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)   # 0.33  0.00  0.33  0.00  0.33
         
         # Combine linear weightings to give binomial weightings - TR1=0: (1), TR1=1: (1:2:1), TR1=2: (1:4:6:4:1)
         if TR1 == 0:
@@ -1442,15 +1443,15 @@ class HAvsFunc():
         
         # Final light linear temporal smooth for denoising
         if TR2 > 0:
-            stableSuper = self.core.avs.MSuper(addNoise1, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
+            stableSuper = self.core.mv.Super(addNoise1, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
         if TR2 == 0:
             stable = addNoise1
         elif TR2 == 1:
-            stable = self.core.avs.MDegrain1(addNoise1, stableSuper, bVec1, fVec1, thSAD=ThSAD2, thSCD1=ThSCD1, thSCD2=ThSCD2)
+            stable = self.core.mv.Degrain1(addNoise1, stableSuper, bVec1, fVec1, thsad=ThSAD2, thscd1=ThSCD1, thscd2=ThSCD2)
         elif TR2 == 2:
-            stable = self.core.avs.MDegrain2(addNoise1, stableSuper, bVec1, fVec1, bVec2, fVec2, thSAD=ThSAD2, thSCD1=ThSCD1, thSCD2=ThSCD2)
+            stable = self.core.mv.Degrain2(addNoise1, stableSuper, bVec1, fVec1, bVec2, fVec2, thsad=ThSAD2, thscd1=ThSCD1, thscd2=ThSCD2)
         else:
-            stable = self.core.avs.MDegrain3(addNoise1, stableSuper, bVec1, fVec1, bVec2, fVec2, bVec3, fVec3, thSAD=ThSAD2, thSCD1=ThSCD1, thSCD2=ThSCD2)
+            stable = self.core.mv.Degrain3(addNoise1, stableSuper, bVec1, fVec1, bVec2, fVec2, bVec3, fVec3, thsad=ThSAD2, thscd1=ThSCD1, thscd2=ThSCD2)
         
         # Remove areas of difference between final output & basic interpolated image that are not bob-shimmer fixes: repairs motion blur caused by temporal smooth
         if Rep2 == 0:
@@ -1506,17 +1507,17 @@ class HAvsFunc():
         rBlockDivide = int(BlockSize / rBlockSize)
         rLambda = int(Lambda / rBlockDivide ** 2)
         if ShutterBlur > 1:
-            sbBVec1 = self.core.avs.MRecalculate(srchSuper, bVec1, thSAD=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam,
-                                                 truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT, chroma=ChromaMotion)
-            sbFVec1 = self.core.avs.MRecalculate(srchSuper, fVec1, thSAD=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam,
-                                                 truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT, chroma=ChromaMotion)
+            sbBVec1 = self.core.mv.Recalculate(srchSuper, bVec1, thsad=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam,
+                                               truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT, chroma=ChromaMotion)
+            sbFVec1 = self.core.mv.Recalculate(srchSuper, fVec1, thsad=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam,
+                                               truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT, chroma=ChromaMotion)
         elif ShutterBlur > 0:
             sbBVec1 = bVec1
             sbFVec1 = fVec1
         
         # Shutter motion blur - use MFlowBlur to blur along motion vectors
         if ShutterBlur > 0:
-            sblurSuper = self.core.avs.MSuper(addNoise2, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
+            sblurSuper = self.core.mv.Super(addNoise2, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
             sblur = self.core.avs.MFlowBlur(addNoise2, sblurSuper, sbBVec1, sbFVec1, blur=blurLevel, thSCD1=ThSCD1, thSCD2=ThSCD2)
         
         # Shutter motion blur - use motion mask to reduce blurring in areas of low motion - also helps reduce blur "bleeding" into static areas, then select blur type
@@ -1681,8 +1682,8 @@ class HAvsFunc():
         origNoise = self.core.std.SeparateFields(Input, TFF)
         noiseMax = self.core.generic.Maximum(self.core.generic.Maximum(origNoise, planes=planes), planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
         noiseMin = self.core.generic.Minimum(self.core.generic.Minimum(origNoise, planes=planes), planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
-        random = self.core.avs.AddGrainC(self.core.std.BlankClip(self.core.std.SeparateFields(InterleavedClip, TFF), color=[128, 128, 128]),
-                                         var=1800, uvar=1800 if ChromaNoise else 0)
+        random = self.core.grain.Add(self.core.std.BlankClip(self.core.std.SeparateFields(InterleavedClip, TFF), color=[128, 128, 128]),
+                                     var=1800, uvar=1800 if ChromaNoise else 0)
         expr = 'x 128 - y * 256 / 128 +'
         varRandom = self.core.std.Expr([self.core.std.MakeDiff(noiseMax, noiseMin, planes=planes), random], expr if ChromaNoise else [expr, ''])
         newNoise = self.core.std.MergeDiff(noiseMin, varRandom, planes=planes)
@@ -1748,10 +1749,10 @@ class HAvsFunc():
         if SourceMatch > 0:
             match1Edi = self.QTGMC_Interpolate(match1Update, InputType, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, EdiThreads, TFF=TFF)
             if MatchTR1 > 0:
-                match1Super = self.core.avs.MSuper(match1Edi, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
-                match1Degrain1 = self.core.avs.MDegrain1(match1Edi, match1Super, bVec1, fVec1, thSAD=ThSAD1, thSCD1=ThSCD1, thSCD2=ThSCD2)
+                match1Super = self.core.mv.Super(match1Edi, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
+                match1Degrain1 = self.core.mv.Degrain1(match1Edi, match1Super, bVec1, fVec1, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)
             if MatchTR1 > 1:
-                match1Degrain2 = self.core.avs.MDegrain1(match1Edi, match1Super, bVec2, fVec2, thSAD=ThSAD1, thSCD1=ThSCD1, thSCD2=ThSCD2)
+                match1Degrain2 = self.core.mv.Degrain1(match1Edi, match1Super, bVec2, fVec2, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)
         if SourceMatch < 1:
             match1 = Deinterlace
         elif MatchTR1 == 0:
@@ -1781,10 +1782,10 @@ class HAvsFunc():
             match2Diff = self.core.std.MakeDiff(Source, match2Clip)
             match2Edi = self.QTGMC_Interpolate(match2Diff, InputType, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, EdiThreads, TFF=TFF)
             if MatchTR2 > 0:
-                match2Super = self.core.avs.MSuper(match2Edi, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
-                match2Degrain1 = self.core.avs.MDegrain1(match2Edi, match2Super, bVec1, fVec1, thSAD=ThSAD1, thSCD1=ThSCD1, thSCD2=ThSCD2)
+                match2Super = self.core.mv.Super(match2Edi, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
+                match2Degrain1 = self.core.mv.Degrain1(match2Edi, match2Super, bVec1, fVec1, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)
             if MatchTR2 > 1:
-                match2Degrain2 = self.core.avs.MDegrain1(match2Edi, match2Super, bVec2, fVec2, thSAD=ThSAD1, thSCD1=ThSCD1, thSCD2=ThSCD2)
+                match2Degrain2 = self.core.mv.Degrain1(match2Edi, match2Super, bVec2, fVec2, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)
         if SourceMatch < 2:
             match2 = match1
         elif MatchTR2 == 0:
@@ -1802,10 +1803,10 @@ class HAvsFunc():
             match3Update = self.core.std.Expr([match2Edi, match2], 'x '+repr(errorAdjust2+1)+' * y '+repr(errorAdjust2)+' * -')
         if SourceMatch > 2:
             if MatchTR2 > 0:
-                match3Super = self.core.avs.MSuper(match3Update, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
-                match3Degrain1 = self.core.avs.MDegrain1(match3Update, match3Super, bVec1, fVec1, thSAD=ThSAD1, thSCD1=ThSCD1, thSCD2=ThSCD2)
+                match3Super = self.core.mv.Super(match3Update, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
+                match3Degrain1 = self.core.mv.Degrain1(match3Update, match3Super, bVec1, fVec1, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)
             if MatchTR2 > 1:
-                match3Degrain2 = self.core.avs.MDegrain1(match3Update, match3Super, bVec2, fVec2, thSAD=ThSAD1, thSCD1=ThSCD1, thSCD2=ThSCD2)
+                match3Degrain2 = self.core.mv.Degrain1(match3Update, match3Super, bVec2, fVec2, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)
         if SourceMatch < 3:
             match3 = match2
         elif MatchTR2 == 0:
@@ -4200,12 +4201,12 @@ class HAvsFunc():
                 bv1 = self.bv1
                 fv1 = self.fv1
             except:
-                Super = self.core.avs.MSuper(original8, rfilter=4)
-                bv1 = self.core.avs.MAnalyse(Super, blksize=16, isb=True, delta=1, overlap=8)
-                fv1 = self.core.avs.MAnalyse(Super, blksize=16, isb=False, delta=1, overlap=8)
+                Super = self.core.mv.Super(original8, rfilter=4)
+                bv1 = self.core.mv.Analyse(Super, blksize=16, isb=True, delta=1, overlap=8)
+                fv1 = self.core.mv.Analyse(Super, blksize=16, isb=False, delta=1, overlap=8)
             
-            cb1 = self.core.avs.MCompensate(original8, Super, bv1)
-            cf1 = self.core.avs.MCompensate(original8, Super, fv1)
+            cb1 = self.core.mv.Compensate(original8, Super, bv1)
+            cf1 = self.core.mv.Compensate(original8, Super, fv1)
             if lsb_in:
                 cb1 = self.core.fmtc.stack16tonative(self.core.avs.Dither_limit_dif16(original, self.Dither_convert_8_to_16(cb1), thr=1, elast=2))
                 cf1 = self.core.fmtc.stack16tonative(self.core.avs.Dither_limit_dif16(original, self.Dither_convert_8_to_16(cf1), thr=1, elast=2))
