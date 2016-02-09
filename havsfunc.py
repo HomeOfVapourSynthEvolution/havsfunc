@@ -12,7 +12,7 @@ def ediaa(a):
     if not isinstance(a, vs.VideoNode):
         raise ValueError('ediaa: This is not a clip')
     
-    return Resize(core.std.Transpose(core.eedi2.EEDI2(core.std.Transpose(core.eedi2.EEDI2(a, field=1)), field=1)), a.width, a.height, -0.5, -0.5)
+    return Resize(core.eedi2.EEDI2(a, field=1).std.Transpose().eedi2.EEDI2(field=1).std.Transpose(), a.width, a.height, -0.5, -0.5)
 
 
 # Anti-aliasing with contra-sharpening by Didée
@@ -2113,6 +2113,9 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
     if not isinstance(input, vs.VideoNode):
         raise ValueError('SMDegrain: This is not a clip')
     
+    shift = input.format.bits_per_sample - 8
+    peak = (1 << input.format.bits_per_sample) - 1
+    
     if input.format.color_family == vs.GRAY:
         chroma = False
     
@@ -2159,8 +2162,11 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
         hpad = 0 if if4 else blksize
     if vpad is None:
         vpad = 0 if if4 else blksize
+    limit = peak if limit >= 255 else limit << shift
     if limitc is None:
         limitc = limit
+    else:
+        limitc = peak if limitc >= 255 else limitc << shift
     
     # Error Report
     if not (ifC or isinstance(contrasharp, int)):
@@ -3546,9 +3552,7 @@ def Bob(clip, b=1/3, c=1/3, tff=None):
         raise ValueError("Bob: 'tff' must be set. Setting tff to true means top field first and false means bottom field first")
     
     clip = core.std.SeparateFields(clip, tff)
-    clip = core.fmtc.resample(clip, scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0, tff=tff)
-    
-    return core.fmtc.bitdepth(clip, bits=clip.format.bits_per_sample)
+    return core.fmtc.resample(clip, scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0, tff=tff).fmtc.bitdepth(bits=clip.format.bits_per_sample)
 
 def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 1, 2]):
     core = vs.get_core()
