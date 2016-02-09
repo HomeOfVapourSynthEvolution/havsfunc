@@ -10,7 +10,7 @@ def ediaa(a):
     core = vs.get_core()
     
     if not isinstance(a, vs.VideoNode):
-        raise ValueError('ediaa: This is not a clip !')
+        raise ValueError('ediaa: This is not a clip')
     
     return Resize(core.std.Transpose(core.eedi2.EEDI2(core.std.Transpose(core.eedi2.EEDI2(a, field=1)), field=1)), a.width, a.height, -0.5, -0.5)
 
@@ -20,7 +20,7 @@ def daa(c):
     core = vs.get_core()
     
     if not isinstance(c, vs.VideoNode):
-        raise ValueError('daa: This is not a clip !')
+        raise ValueError('daa: This is not a clip')
     
     nn = core.nnedi3.nnedi3(c, field=3)
     dbl = core.std.Merge(core.std.SelectEvery(nn, 2, [0]), core.std.SelectEvery(nn, 2, [1]))
@@ -33,21 +33,36 @@ def daa(c):
 # Anti-aliasing with edge masking by martino, mask using "sobel" taken from Kintaro's useless filterscripts and modded by thetoof for spline36
 #
 # Parameters:
+#  aa [int]      - Strength of luma anti-aliasing. Default is 48
+#  aac [int]     - Strength of chroma anti-aliasing. Set aac to -1 to completely skip processing on chroma planes. Default is -1
 #  noring [bool] - In case of supersampling, indicates that a non-ringing algorithm must be used. Default is false
-def maa(input, noring=False):
+def maa(input, aa=48, aac=-1, noring=False):
     core = vs.get_core()
     
-    if not isinstance(input, vs.VideoNode) or input.format.id != vs.YUV420P8:
-        raise ValueError('maa: This is not a YUV420P8 clip !')
+    if not isinstance(input, vs.VideoNode) or input.format.bits_per_sample !=8 or input.format.color_family not in [vs.YUV, vs.GRAY]:
+        raise ValueError('maa: This is not an 8-bit YUV or GRAY clip')
     
-    mask = core.generic.Inflate(core.generic.Sobel(core.std.ShufflePlanes(input, planes=[0], colorfamily=vs.GRAY), min=40, max=40))
+    if aac <= -1 and input.format.color_family != vs.GRAY:
+        input_src = input
+        input = core.std.ShufflePlanes(input, planes=[0], colorfamily=vs.GRAY)
+    else:
+        input_src = None
+    
+    mask = core.generic.Sobel(input, min=48, max=48, planes=[0]).generic.Inflate(planes=[0])
     aa_clip = Resize(
-      core.avs.SangNom(
+      core.sangnom.SangNomMod(
         core.std.Transpose(
-          core.avs.SangNom(
-            core.std.Transpose(Resize(input, input.width*2, input.height*2, kernel='spline64' if noring else 'spline36', planes=[3, 1, 1], noring=noring))))),
-      input.width, input.height, planes=[3, 1, 1])
-    return core.std.MaskedMerge(input, aa_clip, mask, planes=[0])
+          core.sangnom.SangNomMod(
+            core.std.Transpose(Resize(input, input.width*2, input.height*2, kernel='spline64' if noring else 'spline36', noring=noring)),
+            aa=aa, aac=aac)),
+        aa=aa, aac=aac),
+      input.width, input.height)
+    last = core.std.MaskedMerge(input, aa_clip, mask, first_plane=True)
+    
+    if input_src is not None:
+        return core.std.ShufflePlanes([last, input_src], planes=[0, 1, 2], colorfamily=input_src.format.color_family)
+    else:
+        return last
 
 
 # Developped in the "fine anime antialiasing thread"
@@ -68,7 +83,7 @@ def SharpAAMCmod(orig, dark=38, thin=10, sharp=150, smooth=-1, stabilize=False, 
     core = vs.get_core()
     
     if not isinstance(orig, vs.VideoNode) or orig.format.id != vs.YUV420P8:
-        raise ValueError('SharpAAMCmod: This is not a YUV420P8 clip !')
+        raise ValueError('SharpAAMCmod: This is not a YUV420P8 clip')
     aatype = aatype.lower()
     if aatype not in ['sangnom', 'eedi2']:
         raise ValueError("SharpAAMCmod: Please use SangNom or EEDI2 for 'aatype'")
@@ -99,8 +114,8 @@ def SharpAAMCmod(orig, dark=38, thin=10, sharp=150, smooth=-1, stabilize=False, 
         preaa = core.avs.aWarpSharp2(FastLineDarkenMOD(orig, strength=dark), depth=thin)
     if aatype == 'sangnom':
         aa = Resize(
-          core.avs.SangNom(
-            core.std.Transpose(core.avs.SangNom(core.std.Transpose(Resize(preaa, w*2, h*2, kernel='spline64' if noring else 'spline36', noring=noring))))),
+          core.sangnom.SangNomMod(
+            core.std.Transpose(core.sangnom.SangNomMod(core.std.Transpose(Resize(preaa, w*2, h*2, kernel='spline64' if noring else 'spline36', noring=noring))))),
           w, h)
     else:
         aa = ediaa(preaa)
@@ -174,16 +189,13 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     core = vs.get_core()
     
     if not isinstance(clp, vs.VideoNode):
-        raise ValueError('Deblock_QED: This is not a clip !')
-    
-    isGray = clp.format.color_family == vs.GRAY
+        raise ValueError('Deblock_QED: This is not a clip')
     
     median = 1 << (clp.format.bits_per_sample - 1)
     peak = (1 << clp.format.bits_per_sample) - 1
     
-    if isGray:
-        uv = 2
-    planes = [0, 1, 2] if uv == 3 else [0]
+    isGray = clp.format.color_family == vs.GRAY
+    planes = [0, 1, 2] if uv == 3 and not isGray else [0]
     
     # add borders if clp is not mod 8
     w = clp.width
@@ -210,8 +222,8 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     block = core.std.Loop(block, clp.num_frames)
     
     # create normal deblocking (for block borders) and strong deblocking (for block interiour)
-    normal = core.deblock.Deblock(clp, quant=quant1, aoffset=aOff1, boffset=bOff1, planes=[0, 1, 2] if uv!=2 else [0])
-    strong = core.deblock.Deblock(clp, quant=quant2, aoffset=aOff2, boffset=bOff2, planes=[0, 1, 2] if uv!=2 else [0])
+    normal = core.deblock.Deblock(clp, quant=quant1, aoffset=aOff1, boffset=bOff1, planes=[0, 1, 2] if uv!=2 and not isGray else [0])
+    strong = core.deblock.Deblock(clp, quant=quant2, aoffset=aOff2, boffset=bOff2, planes=[0, 1, 2] if uv!=2 and not isGray else [0])
     
     # build difference maps of both
     normalD = core.std.MakeDiff(clp, normal, planes=planes)
@@ -276,18 +288,18 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
     core = vs.get_core()
     
     if not isinstance(clp, vs.VideoNode):
-        raise ValueError('DeHalo_alpha: This is not a clip !')
+        raise ValueError('DeHalo_alpha: This is not a clip')
     
     multiple = 2 ** (clp.format.bits_per_sample - 8)
     
-    ox = clp.width
-    oy = clp.height
-    
-    if clp.format.num_planes == 3:
+    if clp.format.color_family != vs.GRAY:
         clp_src = clp
         clp = core.std.ShufflePlanes(clp, planes=[0], colorfamily=vs.GRAY)
     else:
         clp_src = None
+    
+    ox = clp.width
+    oy = clp.height
     
     halos = Resize(Resize(clp, m4(ox/rx), m4(oy/ry), kernel='bicubic'), ox, oy, kernel='bicubic', a1=1, a2=0)
     are = core.std.Expr([core.generic.Maximum(clp), core.generic.Minimum(clp)], ['x y -'])
@@ -319,7 +331,7 @@ def YAHR(clp):
     core = vs.get_core()
     
     if not isinstance(clp, vs.VideoNode) or clp.format.id != vs.YUV420P8:
-        raise ValueError('YAHR: This is not a YUV420P8 clip !')
+        raise ValueError('YAHR: This is not a YUV420P8 clip')
     
     b1 = core.rgvs.RemoveGrain(MinBlur(clp, 2, planes=[0]), [11, 0])
     b1D = core.std.MakeDiff(clp, b1, planes=[0])
@@ -366,11 +378,11 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     core = vs.get_core()
     
     if not isinstance(input, vs.VideoNode):
-        raise ValueError('HQDeringmod: This is not a clip !')
+        raise ValueError('HQDeringmod: This is not a clip')
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
-        raise ValueError("HQDeringmod: 'p' must be the same format as input !")
+        raise ValueError("HQDeringmod: 'p' must be the same format as input")
     if ringmask is not None and not isinstance(ringmask, vs.VideoNode):
-        raise ValueError("HQDeringmod: 'ringmask' is not a clip !")
+        raise ValueError("HQDeringmod: 'ringmask' is not a clip")
     
     if nrmode is None:
         nrmode = 2 if input.width > 1024 or input.height > 576 else 1
@@ -698,9 +710,9 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # Settings
     
     if not isinstance(Input, vs.VideoNode):
-        raise ValueError('QTGMC: This is not a clip !')
+        raise ValueError('QTGMC: This is not a clip')
     if EdiExt is not None and (not isinstance(EdiExt, vs.VideoNode) or EdiExt.format.id != Input.format.id):
-        raise ValueError("QTGMC: 'EdiExt' must be the same format as input !")
+        raise ValueError("QTGMC: 'EdiExt' must be the same format as input")
     if not isinstance(TFF, bool):
         raise ValueError("QTGMC: 'TFF' must be set. Setting TFF to true means top field first and false means bottom field first")
     
@@ -1532,7 +1544,7 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None):
     core = vs.get_core()
     
     if not isinstance(src, vs.VideoNode):
-        raise ValueError('ivtc_txt60mc: This is not a clip !')
+        raise ValueError('ivtc_txt60mc: This is not a clip')
     if not (srcbob or isinstance(tff, bool)):
         raise ValueError("ivtc_txt60mc: 'tff' must be set if srcbob is not true. Setting tff to true means top field first and false means bottom field first")
     
@@ -1558,9 +1570,10 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None):
         jitter = core.std.AssumeFPS(core.std.Trim(last, 0, 0)+core.std.SelectEvery(last, 5, [4-invpos, 8-invpos]), fpsnum=24000, fpsden=1001)
     else:
         jitter = core.std.SelectEvery(last, 5, [3-invpos, 4-invpos])
-    jsup = core.mv.Super(DitherLumaRebuild(jitter, s0=1), pel=pel)
-    vect_f = core.mv.Analyse(jsup, blksize=blksize, isb=False, delta=1, overlap=overlap)
-    vect_b = core.mv.Analyse(jsup, blksize=blksize, isb=True, delta=1, overlap=overlap)
+    jsup_pre = core.mv.Super(DitherLumaRebuild(jitter, s0=1), pel=pel)
+    jsup = core.mv.Super(jitter, pel=pel, levels=1)
+    vect_f = core.mv.Analyse(jsup_pre, blksize=blksize, isb=False, delta=1, overlap=overlap)
+    vect_b = core.mv.Analyse(jsup_pre, blksize=blksize, isb=True, delta=1, overlap=overlap)
     comp = core.mv.FlowInter(jitter, jsup, vect_b, vect_f)
     fixed = core.std.SelectEvery(comp, 2, [0])
     last = core.std.Interleave([clean, fixed])
@@ -1575,12 +1588,9 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
     core = vs.get_core()
     
     if not isinstance(clp, vs.VideoNode):
-        raise ValueError('Vinverse: This is not a clip !')
+        raise ValueError('Vinverse: This is not a clip')
     
-    if clp.format.num_planes == 1:
-        chroma = False
-    
-    if not chroma and clp.format.num_planes == 3:
+    if not chroma and clp.format.color_family != vs.GRAY:
         clp_src = clp
         clp = core.std.ShufflePlanes(clp, planes=[0], colorfamily=vs.GRAY)
     else:
@@ -1598,7 +1608,7 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
     elif amnt < 255:
         last = core.std.Expr([clp, last], ['x {AMN} + y < x {AMN} + x {AMN} - y > x {AMN} - y ? ?'.format(AMN=amnt<<(clp.format.bits_per_sample-8))])
     
-    if not chroma and clp_src is not None:
+    if clp_src is not None:
         return core.std.ShufflePlanes([last, clp_src], planes=[0, 1, 2], colorfamily=clp_src.format.color_family)
     else:
         return last
@@ -1608,12 +1618,9 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
     core = vs.get_core()
     
     if not isinstance(clp, vs.VideoNode):
-        raise ValueError('Vinverse2: This is not a clip !')
+        raise ValueError('Vinverse2: This is not a clip')
     
-    if clp.format.num_planes == 1:
-        chroma = False
-    
-    if not chroma and clp.format.num_planes == 3:
+    if not chroma and clp.format.color_family != vs.GRAY:
         clp_src = clp
         clp = core.std.ShufflePlanes(clp, planes=[0], colorfamily=vs.GRAY)
     else:
@@ -1631,8 +1638,101 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
     elif amnt < 255:
         last = core.std.Expr([clp, last], ['x {AMN} + y < x {AMN} + x {AMN} - y > x {AMN} - y ? ?'.format(AMN=amnt<<(clp.format.bits_per_sample-8))])
     
-    if not chroma and clp_src is not None:
+    if clp_src is not None:
         return core.std.ShufflePlanes([last, clp_src], planes=[0, 1, 2], colorfamily=clp_src.format.color_family)
+    else:
+        return last
+
+
+#################################################
+###                                           ###
+###                  logoNR                   ###
+###                                           ###
+###      by 06_taro - astrataro@gmail.com     ###
+###                                           ###
+###            v0.1 - 22 March 2012           ###
+###                                           ###
+#################################################
+###
+### Post-denoise filter of EraseLogo.
+### Only process logo areas in logo frames, even if l/t/r/b are not set. Non-logo areas are left untouched.
+###
+###
+### +---------+
+### |  USAGE  |
+### +---------+
+###
+### dlg [clip]
+### ------------------
+###    Clip after delogo.
+###
+### src [clip]
+### ------------------
+###    Clip before delogo.
+###
+### chroma [bool, default: True]
+### ------------------
+###    Process chroma plane or not.
+###
+### l/t/r/b [int, default: 0]
+### ------------------
+###    left/top/right/bottom pixels to be cropped for logo area.
+###    Have the same restriction as CropRel, e.g., no odd value for YV12.
+###    logoNR only filters the logo areas in logo frames, no matter l/t/r/b are set or not.
+###    So if you have other heavy filters running in a pipeline and don't care much about the speed of logoNR,
+###    it is safe to left these values unset.
+###    Setting these values only makes logoNR run faster, with rarely noticeable difference in result,
+###    unless you set wrong values and the logo is not covered in your cropped target area.
+###
+### +----------------+
+### |  REQUIREMENTS  |
+### +----------------+
+###
+### -> Bilateral
+### -> FluxSmooth
+### -> GenericFilters
+### -> RemoveGrain/Repair
+###
+### +-----------+
+### | CHANGELOG |
+### +-----------+
+###
+### v0.1 - 22 Mar 2012
+###      - First release
+def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0):
+    core = vs.get_core()
+    
+    if not (isinstance(dlg, vs.VideoNode) and isinstance(src, vs.VideoNode)):
+        raise ValueError('logoNR: This is not a clip')
+    if dlg.format.id != src.format.id:
+        raise ValueError('logoNR: clips must have the same format')
+    
+    if not chroma and dlg.format.color_family != vs.GRAY:
+        dlg_src = dlg
+        dlg = core.std.ShufflePlanes(dlg, planes=[0], colorfamily=vs.GRAY)
+        src = core.std.ShufflePlanes(src, planes=[0], colorfamily=vs.GRAY)
+    else:
+        dlg_src = None
+    
+    b_crop = l != 0 or t != 0 or r != 0 or b != 0
+    if b_crop:
+        src = core.std.CropRel(src, left=l, top=t, right=r, bottom=b)
+        last = core.std.CropRel(dlg, left=l, top=t, right=r, bottom=b)
+    else:
+        last = dlg
+    
+    clp_nr = core.bilateral.Bilateral(last, sigmaS=3).flux.SmoothT(temporal_threshold=1<<(dlg.format.bits_per_sample-8))
+    expr = 'x y - abs 16 *'
+    logoM = core.generic.Deflate(core.rgvs.RemoveGrain(mt_expand_multi(core.std.Expr([last, src], [expr]), mode='losange', sw=3, sh=3), 19))
+    clp_nr = core.std.MaskedMerge(last, clp_nr, logoM)
+    
+    if b_crop:
+        last = ECOverlay(dlg, clp_nr, l, t)
+    else:
+        last = clp_nr
+    
+    if dlg_src is not None:
+        return core.std.ShufflePlanes([last, dlg_src], planes=[0, 1, 2], colorfamily=dlg_src.format.color_family)
     else:
         return last
 
@@ -1692,8 +1792,8 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
 def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=True, mask=False):
     core = vs.get_core()
     
-    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 10:
-        raise ValueError('LUTDeCrawl: This is not an 8-10 bits YUV clip !')
+    if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
+        raise ValueError('LUTDeCrawl: This is not an 8-10 bits YUV or YCOCG clip')
     
     shift = input.format.bits_per_sample - 8
     peak = (1 << input.format.bits_per_sample) - 1
@@ -1818,8 +1918,8 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
 def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False):
     core = vs.get_core()
     
-    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 10:
-        raise ValueError('LUTDeRainbow: This is not an 8-10 bits YUV clip !')
+    if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
+        raise ValueError('LUTDeRainbow: This is not an 8-10 bits YUV or YCOCG clip')
     
     shift = input.format.bits_per_sample - 8
     peak = (1 << input.format.bits_per_sample) - 1
@@ -1887,20 +1987,20 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, Y=T
     core = vs.get_core()
     
     if not isinstance(input, vs.VideoNode):
-        raise ValueError('GSMC: This is not a clip !')
+        raise ValueError('GSMC: This is not a clip')
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
-        raise ValueError("GSMC: 'p' must be the same format as input !")
+        raise ValueError("GSMC: 'p' must be the same format as input")
     if Lmask is not None and not isinstance(Lmask, vs.VideoNode):
-        raise ValueError("GSMC: 'Lmask' is not a clip !")
+        raise ValueError("GSMC: 'Lmask' is not a clip")
+    
+    HD = input.width > 1024 or input.height > 576
+    if nrmode is None:
+        nrmode = 2 if HD else 1
     
     isGray = input.format.color_family == vs.GRAY
     if isGray:
         U = False
         V = False
-    
-    HD = input.width > 1024 or input.height > 576
-    if nrmode is None:
-        nrmode = 2 if HD else 1
     
     if Y and U and V:
         planes = [0, 1, 2]
@@ -1992,29 +2092,29 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, Y=T
 ###                                                                                          ###
 ###          Special Thanks: Sagekilla, Didée, cretindesalpes, Gavino and MVtools people     ###
 ###                                                                                          ###
-###                       v2.2d (Dogway's mod) - 05 March 2013                               ###
+###                       v3.0d (Dogway's mod) - 27 March 2015                               ###
 ###                                                                                          ###
 ################################################################################################
 ###
 ### General purpose simple degrain function. Pure temporal denoiser. Basically a wrapper(function)/frontend of mvtools2+mdegrain
-### with some common related options added. Aim is at accessibility and quality but not targeted to any specific kind of source.
+### with some added common related options. Goal is accessibility and quality but not targeted to any specific kind of source.
 ### The reason behind is to keep it simple so aside masktools2 you will only need MVTools2.
 ###
 ### Check documentation for deep explanation on settings and defaults.
-### Doom10 thread: (http://doom10.org/index.php?topic=2178.0)
+### VideoHelp thread: (http://forum.videohelp.com/threads/369142)
 ###
 ################################################################################################
 
 # Globals
 bv6 = bv4 = bv3 = bv2 = bv1 = fv1 = fv2 = fv3 = fv4 = fv6 = None
 
-def SMDegrain(input, tr=3, thSAD=400, thSADC=None, RefineMotion=False, contrasharp=None, CClip=None, interlaced=False, tff=None, plane=4, Globals=0,
-              pel=None, subpixel=2, prefilter=0, blksize=None, overlap=None, search=4, truemotion=None, MVglobal=None, dct=0, limit=255, limitc=None,
-              thSCD1=None, thSCD2=130, chroma=True, hpad=None, vpad=None, Str=1., Amp=0.0625):
+def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasharp=None, CClip=None, interlaced=False, tff=None, plane=4, Globals=0,
+              pel=None, subpixel=2, prefilter=-1, mfilter=None, blksize=None, overlap=None, search=4, truemotion=None, MVglobal=None, dct=0,
+              limit=255, limitc=None, thSCD1=None, thSCD2=130, chroma=True, hpad=None, vpad=None, Str=1., Amp=0.0625):
     core = vs.get_core()
     
     if not isinstance(input, vs.VideoNode):
-        raise ValueError('SMDegrain: This is not a clip !')
+        raise ValueError('SMDegrain: This is not a clip')
     
     if input.format.color_family == vs.GRAY:
         chroma = False
@@ -2036,7 +2136,7 @@ def SMDegrain(input, tr=3, thSAD=400, thSADC=None, RefineMotion=False, contrasha
     preclip = isinstance(prefilter, vs.VideoNode)
     ifC = isinstance(contrasharp, bool)
     if0 = contrasharp if ifC else contrasharp > 0
-    if4 = w > 1279 or h > 719
+    if4 = w > 1024 or h > 576
     
     if pel is None:
         pel = 1 if if4 else 2
@@ -2069,7 +2169,7 @@ def SMDegrain(input, tr=3, thSAD=400, thSADC=None, RefineMotion=False, contrasha
     if not (ifC or isinstance(contrasharp, int)):
         raise ValueError("SMDegrain: 'contrasharp' only accepts bool and integer inputs")
     if if1 and (not isinstance(CClip, vs.VideoNode) or CClip.format.id != input.format.id):
-        raise ValueError("SMDegrain: 'CClip' must be the same format as input !")
+        raise ValueError("SMDegrain: 'CClip' must be the same format as input")
     if interlaced and h & 3:
         raise ValueError('SMDegrain: Interlaced source requires mod 4 height sizes')
     if interlaced and not isinstance(tff, bool):
@@ -2077,7 +2177,9 @@ def SMDegrain(input, tr=3, thSAD=400, thSADC=None, RefineMotion=False, contrasha
     if not (isinstance(prefilter, int) or preclip):
         raise ValueError("SMDegrain: 'prefilter' only accepts integer and clip inputs")
     if preclip and prefilter.format.id != input.format.id:
-        raise ValueError("SMDegrain: 'prefilter' must be the same format as input !")
+        raise ValueError("SMDegrain: 'prefilter' must be the same format as input")
+    if mfilter is not None and (not isinstance(mfilter, vs.VideoNode) or mfilter.format.id != input.format.id):
+        raise ValueError("SMDegrain: 'mfilter' must be the same format as input")
     if RefineMotion and blksize < 8:
         raise ValueError('SMDegrain: For RefineMotion you need a blksize of at least 8')
     
@@ -2093,12 +2195,17 @@ def SMDegrain(input, tr=3, thSAD=400, thSADC=None, RefineMotion=False, contrasha
     else:
         inputP = core.std.SeparateFields(input, tff)
     
-    # Prefilter
+    # Prefilter & Motion Filter
+    if mfilter is None:
+        mfilter = inputP
+    
     if not GlobalR:
         if preclip:
             pref = prefilter
-        elif prefilter <= 0:
+        elif prefilter <= -1:
             pref = inputP
+        elif prefilter == 0:
+            pref = MinBlur(inputP, 0, planes=planes)
         else:
             pref = sbr(inputP, prefilter, planes=planes)
     else:
@@ -2110,9 +2217,9 @@ def SMDegrain(input, tr=3, thSAD=400, thSADC=None, RefineMotion=False, contrasha
     
     # Subpixel 3
     if pelclip:
-        pclip = core.nnedi3.nnedi3_rpow2(pref, rfactor=pel, nns=4, qual=2)
+        pclip = core.nnedi3.nnedi3_rpow2(pref, rfactor=pel, correct_shift=True, nns=4)
         if not GlobalR:
-            pclip2 = core.nnedi3.nnedi3_rpow2(inputP, rfactor=pel, nns=4, qual=2)
+            pclip2 = core.nnedi3.nnedi3_rpow2(inputP, rfactor=pel, correct_shift=True, nns=4)
     
     # Motion vectors search
     global bv6, bv4, bv3, bv2, bv1, fv1, fv2, fv3, fv4, fv6
@@ -2177,23 +2284,23 @@ def SMDegrain(input, tr=3, thSAD=400, thSADC=None, RefineMotion=False, contrasha
     if not GlobalO:
         if interlaced:
             if tr >= 3:
-                output = core.mv.Degrain3(inputP, super_render, bv2, fv2, bv4, fv4, bv6, fv6, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
+                output = core.mv.Degrain3(mfilter, super_render, bv2, fv2, bv4, fv4, bv6, fv6, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
                                           limit=limit, limitc=limitc, plane=plane)
             elif tr == 2:
-                output = core.mv.Degrain2(inputP, super_render, bv2, fv2, bv4, fv4, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
+                output = core.mv.Degrain2(mfilter, super_render, bv2, fv2, bv4, fv4, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
                                           limit=limit, limitc=limitc, plane=plane)
             else:
-                output = core.mv.Degrain1(inputP, super_render, bv2, fv2, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
+                output = core.mv.Degrain1(mfilter, super_render, bv2, fv2, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
                                           limit=limit, limitc=limitc, plane=plane)
         else:
             if tr >= 3:
-                output = core.mv.Degrain3(inputP, super_render, bv1, fv1, bv2, fv2, bv3, fv3, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
+                output = core.mv.Degrain3(mfilter, super_render, bv1, fv1, bv2, fv2, bv3, fv3, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
                                           limit=limit, limitc=limitc, plane=plane)
             elif tr == 2:
-                output = core.mv.Degrain2(inputP, super_render, bv1, fv1, bv2, fv2, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
+                output = core.mv.Degrain2(mfilter, super_render, bv1, fv1, bv2, fv2, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
                                           limit=limit, limitc=limitc, plane=plane)
             else:
-                output = core.mv.Degrain1(inputP, super_render, bv1, fv1, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
+                output = core.mv.Degrain1(mfilter, super_render, bv1, fv1, thsad=thSAD, thsadc=thSADC, thscd1=thSCD1, thscd2=thSCD2,
                                           limit=limit, limitc=limitc, plane=plane)
     
     # Contrasharp (only sharpens luma)
@@ -2222,6 +2329,291 @@ def SMDegrain(input, tr=3, thSAD=400, thSADC=None, RefineMotion=False, contrasha
             return output
     else:
         return input
+
+
+#########################################################################################
+###                                                                                   ###
+###                      function Smooth Levels : SmoothLevels()                      ###
+###                                                                                   ###
+###                                v1.02 by "LaTo INV."                               ###
+###                                                                                   ###
+###                                  28 January 2009                                  ###
+###                                                                                   ###
+#########################################################################################
+### 
+### 
+### /!\ Needed filters : GenericFilters, RemoveGrain/Repair, f3kdb
+### --------------------
+###
+###
+###
+### +---------+
+### | GENERAL |
+### +---------+
+###
+### Levels options:
+### ---------------
+### input_low, gamma, input_high, output_low, output_high [default: 0, 1.0, maximum value of input format, 0, maximum value of input format]
+### /!\ The value is not internally normalized on an 8-bit scale, and must be adapted to the bitdepth of input format accordingly by users
+### 
+### chroma [default: 50]
+### ---------------------
+### 0   = no chroma processing     (similar as Ylevels)
+### xx  = intermediary
+### 100 = normal chroma processing (similar as Levels)
+### 
+### limiter [default: 0]
+### --------------------
+### 0 = no limiter             (similar as Ylevels)
+### 1 = input limiter
+### 2 = output limiter         (similar as Levels: coring=false)
+### 3 = input & output limiter (similar as Levels: coring=true)
+###
+###
+###
+### +----------+
+### | LIMITING |
+### +----------+
+###
+### Lmode [default: 0]
+### ------------------
+### 0 = no limit
+### 1 = limit conversion on dark & bright areas (apply conversion @0%   at luma=0 & @100% at luma=Ecenter & @0% at luma=255)
+### 2 = limit conversion on dark areas          (apply conversion @0%   at luma=0 & @100% at luma=255)
+### 3 = limit conversion on bright areas        (apply conversion @100% at luma=0 & @0%   at luma=255)
+###
+### DarkSTR [default: 100]
+### ----------------------
+### Strength for limiting: the higher, the more conversion are reduced on dark areas (for Lmode=1&2)
+###
+### BrightSTR [default: 100]
+### ------------------------
+### Strength for limiting: the higher, the more conversion are reduced on bright areas (for Lmode=1&3)
+###
+### Ecenter [default: median value of input format]
+### ----------------------
+### Center of expression for Lmode=1
+### /!\ The value is not internally normalized on an 8-bit scale, and must be adapted to the bitdepth of input format accordingly by users
+### 
+### protect [default: -1]
+### ---------------------
+### -1  = protect off
+### >=0 = pure black protection
+###       ---> don't apply conversion on pixels egal or below this value 
+###            (ex: with 16, the black areas like borders and generic are untouched so they don't look washed out)
+### /!\ The value is not internally normalized on an 8-bit scale, and must be adapted to the bitdepth of input format accordingly by users
+###
+### Ecurve [default: 0]
+### -------------------
+### Curve used for limit & protect:
+### 0 = use sine curve
+### 1 = use linear curve
+###
+###
+###
+### +-----------+
+### | SMOOTHING |
+### +-----------+
+###
+### Smode [default: -2]
+### -------------------
+### 2  = smooth on, maxdiff must be < to "255/Mfactor"
+### 1  = smooth on, maxdiff must be < to "128/Mfactor"
+### 0  = smooth off
+### -1 = smooth on if maxdiff < "128/Mfactor", else off
+### -2 = smooth on if maxdiff < "255/Mfactor", else off
+###
+### Mfactor [default: 2]
+### --------------------
+### The higher, the more precise but the less maxdiff alowed: 
+### maxdiff=128/Mfactor for Smode1&-1 and maxdiff=255/Mfactor for Smode2&-2
+###
+### RGmode [default: 12]
+### --------------------
+### In strength order: + 19 > 12 >> 20 > 11 -
+###
+### useDB [default: true]
+### ---------------------
+### Use f3kdb on top of removegrain: prevent posterize when doing levels conversion
+### 
+###
+###
+### +-----------+
+### | CHANGELOG |
+### +-----------+ 
+###
+### v1.02    : changed show clip (with screenW & screenH)
+###
+### v1.01    : fixed a bug in Lmode=1&3 (pi approx)
+###
+### v1.00    : first stable release
+###            optimized limiting code (faster and less rounding error)
+###            added new parameters for limiting (Ecenter,Ecurve)
+###            changed strength parameter for 2 others (DarkSTR & BrightSTR)
+###            changed code of protect option (hard->soft threshold)
+###
+### 1.0beta2 : changed Lmode parameter (added Ecenter & strength)
+###            updated the documentation + cosmetic
+###
+### 1.0beta1 : changed chroma parameter (more precise)
+###            cosmetic changes
+###
+### 1.0alpha : changed name Ulevels() --> SmoothLevels()
+###            *big* bugfix with limiter>0
+###            changed smooth --> RGmode
+###            added useGF, useful to prevent posterize
+###            changed all Smode code, deleted unuseful mode and added new one
+###            deleted SS parameter
+###            added Mfactor parameter
+###            some cosmetic change & speed up
+###            updated the documentation
+### 
+### v0.9.00a : new Smode (-1,-2,-3)
+###            speed optimization & cosmetic change
+###            mode ---> Lmode & smooth ---> Smode
+###            smooth setting
+### 
+### v0.8.05f : no more mt_lutxyz for smooth=-3
+### 
+### v0.8.05e : fix another chroma problem
+### 
+### v0.8.05d : fix chroma shift problem
+### 
+### v0.8.05c : first public release
+###
+###
+#########################################################################################
+def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, output_high=None, chroma=50, limiter=0, Lmode=0, DarkSTR=100, BrightSTR=100,
+                 Ecenter=None, protect=-1, Ecurve=0, Smode=-2, Mfactor=2, RGmode=12, useDB=True):
+    core = vs.get_core()
+    
+    if not isinstance(input, vs.VideoNode):
+        raise ValueError('SmoothLevels: This is not a clip')
+    if input.format.color_family == vs.RGB:
+        raise ValueError('SmoothLevels: RGB input is not supported')
+    
+    shift = input.format.bits_per_sample - 8
+    median = 1 << (input.format.bits_per_sample - 1)
+    peak = (1 << input.format.bits_per_sample) - 1
+    
+    isGray = input.format.color_family == vs.GRAY
+    if chroma <= 0 and not isGray:
+        input_src = input
+        input = core.std.ShufflePlanes(input, planes=[0], colorfamily=vs.GRAY)
+    else:
+        input_src = None
+    
+    if input_high is None:
+        input_high = peak
+    if output_high is None:
+        output_high = peak
+    if Ecenter is None:
+        Ecenter = median
+    
+    Dstr = DarkSTR / 100
+    Bstr = BrightSTR / 100
+    
+    ### EXPRESSION
+    def get_lut(x):
+        exprY = ((x - input_low) / (input_high - input_low)) ** (1 / gamma) * (output_high - output_low) + output_low
+        
+        if Lmode == 1 and Ecurve <= 0:
+            if x < Ecenter:
+                exprL = math.sin((x * (333 / 106)) / (2 * Ecenter)) ** Dstr
+            elif x > Ecenter:
+                exprL = math.sin((333 / 106) / 2 + (x - Ecenter) * (333 / 106) / (2 * (peak - Ecenter))) ** Bstr
+            else:
+                exprL = 1
+        elif Lmode == 2 and Ecurve <= 0:
+            exprL = math.sin(x * (333 / 106) / (2 * peak)) ** Dstr
+        elif Lmode >= 3 and Ecurve <= 0:
+            exprL = math.sin((333 / 106) / 2 + x * (333 / 106) / (2 * peak)) ** Bstr
+        elif Lmode == 1 and Ecurve >= 1:
+            if x < Ecenter:
+                exprL = abs(x / Ecenter) ** Dstr
+            elif x > Ecenter:
+                exprL = (1 - abs((x - Ecenter) / (peak - Ecenter))) ** Bstr
+            else:
+                exprL = 1
+        elif Lmode == 2 and Ecurve >= 1:
+            exprL = (1 - abs((x - peak) / peak)) ** Dstr
+        elif Lmode >= 3 and Ecurve >= 1:
+            exprL = abs((x - peak) / peak) ** Bstr
+        else:
+            exprL = 1
+        
+        if protect <= -1:
+            exprP = 1
+        elif Ecurve <= 0:
+            if x <= protect:
+                exprP = 0
+            elif x >= protect + (16 << shift):
+                exprP = 1
+            else:
+                exprP = math.sin((x - protect) * (333 / 106) / (2 * (16 << shift)))
+        else:
+            if x <= protect:
+                exprP = 0
+            elif x >= protect + (16 << shift):
+                exprP = 1
+            else:
+                exprP = abs((x - protect) / (16 << shift))
+        
+        return min(max(round(exprL * exprP * (exprY - x) + x), 0), peak)
+    
+    ### PROCESS
+    if limiter == 1 or limiter >= 3:
+        limitI = core.std.Expr([input], ['x {input_low} < {input_low} x {input_high} > {input_high} x ? ?'.format(input_low=input_low, input_high=input_high)])
+    else:
+        limitI = input
+    
+    level = core.std.Lut(limitI, planes=[0], function=get_lut)
+    if chroma > 0 and not isGray:
+        scaleC = ((output_high - output_low) / (input_high - input_low) + 100 / chroma - 1) / (100 / chroma)
+        level = core.std.Expr([level], ['', 'x {median} - {scaleC} * {median} +'.format(median=median, scaleC=scaleC)])
+    diff = core.std.Expr([limitI, level], ['x y - {Mfactor} * {median} +'.format(Mfactor=Mfactor, median=median)])
+    process = core.rgvs.RemoveGrain(diff, RGmode)
+    if useDB:
+        process = core.std.Expr([process], ['x {median} - {Mfactor} / {median} +'.format(median=median, Mfactor=Mfactor)]) \
+                  .f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
+        smth = core.std.MakeDiff(limitI, process)
+    else:
+        smth = core.std.Expr([limitI, process], ['x y {median} - {Mfactor} / -'.format(median=median, Mfactor=Mfactor)])
+    
+    level2 = core.std.Expr([limitI, diff], ['x y {median} - {Mfactor} / -'.format(median=median, Mfactor=Mfactor)])
+    diff2 = core.std.Expr([level2, level], ['x y - {Mfactor} * {median} +'.format(Mfactor=Mfactor, median=median)])
+    process2 = core.rgvs.RemoveGrain(diff2, RGmode)
+    if useDB:
+        process2 = core.std.Expr([process2], ['x {median} - {Mfactor} / {median} +'.format(median=median, Mfactor=Mfactor)]) \
+                   .f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
+        smth2 = core.std.MakeDiff(smth, process2)
+    else:
+        smth2 = core.std.Expr([smth, process2], ['x y {median} - {Mfactor} / -'.format(median=median, Mfactor=Mfactor)])
+    
+    mask1 = core.std.Expr([limitI, level], ['x y - abs {median} {Mfactor} / >= {peak} 0 ?'.format(median=median, Mfactor=Mfactor, peak=peak)])
+    mask2 = core.std.Expr([limitI, level], ['x y - abs {peak} {Mfactor} / >= {peak} 0 ?'.format(peak=peak, Mfactor=Mfactor)])
+    
+    if Smode >= 2:
+        Slevel = smth2
+    elif Smode == 1:
+        Slevel = smth
+    elif Smode == -1:
+        Slevel = core.std.MaskedMerge(smth, level, mask1)
+    elif Smode <= -2:
+        Slevel = core.std.MaskedMerge(smth, smth2, mask1).std.MaskedMerge(level, mask2)
+    else:
+        Slevel = level
+    
+    if limiter >= 2:
+        expr = 'x {output_low} < {output_low} x {output_high} > {output_high} x ? ?'.format(output_low=output_low, output_high=output_high)
+        limitO = core.std.Expr([Slevel], [expr])
+    else:
+        limitO = Slevel
+    
+    if input_src is not None:
+        return core.std.ShufflePlanes([limitO, input_src], planes=[0, 1, 2], colorfamily=input_src.format.color_family)
+    else:
+        return limitO
 
 
 ##############################
@@ -2265,21 +2657,21 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
     core = vs.get_core()
     
     if not isinstance(c, vs.VideoNode):
-        raise ValueError('FastLineDarkenMOD: This is not a clip !')
+        raise ValueError('FastLineDarkenMOD: This is not a clip')
     
     shift = c.format.bits_per_sample - 8
     peak = (1 << c.format.bits_per_sample) - 1
+    
+    if c.format.color_family != vs.GRAY:
+        c_src = c
+        c = core.std.ShufflePlanes(c, planes=[0], colorfamily=vs.GRAY)
+    else:
+        c_src = None
     
     Str = strength / 128
     lum = peak if luma_cap >= 255 else luma_cap << shift
     thr = threshold << shift
     thn = thinning / 16
-    
-    if c.format.num_planes == 3:
-        c_src = c
-        c = core.std.ShufflePlanes(c, planes=[0], colorfamily=vs.GRAY)
-    else:
-        c_src = None
     
     exin = core.generic.Minimum(core.generic.Maximum(c, threshold=int(peak/(protection+1))))
     thick = core.std.Expr([c, exin], ['y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {Str} * x +'.format(lum=lum, thr=thr, Str=Str)])
@@ -2303,7 +2695,7 @@ def Resize(src, w, h, sx=0., sy=0., sw=0., sh=0., kernel='spline36', taps=4, a1=
     core = vs.get_core()
     
     if not isinstance(src, vs.VideoNode):
-        raise ValueError('Resize: This is not a clip !')
+        raise ValueError('Resize: This is not a clip')
     
     kernel = kernel.lower()
     if bits is None:
@@ -2343,7 +2735,7 @@ def Resize(src, w, h, sx=0., sy=0., sw=0., sh=0., kernel='spline36', taps=4, a1=
         # To do: use a simple frame blending instead of Merge
         last = core.rgvs.Repair(main, nrng, 1)
         if nrb:
-            nrm = core.std.BlankClip(main, color=[nrv] if main.format.num_planes==1 else [nrv, nrv, nrv])
+            nrm = core.std.BlankClip(main, color=[nrv] if main.format.color_family==vs.GRAY else [nrv, nrv, nrv])
             last = core.std.MaskedMerge(main, last, nrm)
     else:
         last = main
@@ -2354,14 +2746,14 @@ def Resize(src, w, h, sx=0., sy=0., sw=0., sh=0., kernel='spline36', taps=4, a1=
 # Convert the luma channel to linear light
 def GammaToLinear(src, fulls=True, fulld=True, curve='709', planes=[0, 1, 2], gcor=1., sigmoid=False, thr=0.5, cont=6.5):
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
-        raise ValueError('GammaToLinear: This is not a 16-bit clip !')
+        raise ValueError('GammaToLinear: This is not a 16-bit clip')
     
     return LinearAndGamma(src, False, fulls, fulld, curve.lower(), planes, gcor, sigmoid, thr, cont)
 
 # Convert back a clip to gamma-corrected luma
 def LinearToGamma(src, fulls=True, fulld=True, curve='709', planes=[0, 1, 2], gcor=1., sigmoid=False, thr=0.5, cont=6.5):
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
-        raise ValueError('LinearToGamma: This is not a 16-bit clip !')
+        raise ValueError('LinearToGamma: This is not a 16-bit clip')
     
     return LinearAndGamma(src, True, fulls, fulld, curve.lower(), planes, gcor, sigmoid, thr, cont)
 
@@ -2377,9 +2769,9 @@ def LinearAndGamma(src, l2g_flag, fulls, fulld, curve, planes, gcor, sigmoid, th
     elif curve == '2020':
         c_num = 3
     else:
-        raise ValueError('LinearAndGamma: wrong curve value.')
+        raise ValueError('LinearAndGamma: wrong curve value')
     
-    if src.format.num_planes == 1:
+    if src.format.color_family == vs.GRAY:
         planes = [0]
     
     #                 BT-709/601
@@ -2432,9 +2824,9 @@ def SigmoidInverse(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
     core = vs.get_core()
     
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
-        raise ValueError('SigmoidInverse: This is not a 16-bit clip !')
+        raise ValueError('SigmoidInverse: This is not a 16-bit clip')
     
-    if src.format.num_planes == 1:
+    if src.format.color_family == vs.GRAY:
         planes = [0]
     
     def get_lut(x):
@@ -2449,9 +2841,9 @@ def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
     core = vs.get_core()
     
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
-        raise ValueError('SigmoidDirect: This is not a 16-bit clip !')
+        raise ValueError('SigmoidDirect: This is not a 16-bit clip')
     
-    if src.format.num_planes == 1:
+    if src.format.color_family == vs.GRAY:
         planes = [0]
     
     def get_lut(x):
@@ -2812,22 +3204,22 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     core = vs.get_core()
     
     if not isinstance(input, vs.VideoNode):
-        raise ValueError('LSFmod: This is not a clip !')
+        raise ValueError('LSFmod: This is not a clip')
     if source is not None and (not isinstance(source, vs.VideoNode) or source.format.id != input.format.id):
-        raise ValueError("LSFmod: 'source' must be the same format as input !")
-    
-    isGray = input.format.color_family == vs.GRAY
+        raise ValueError("LSFmod: 'source' must be the same format as input")
     
     shift = input.format.bits_per_sample - 8
     multiple = 2 ** shift
     median = 1 << (input.format.bits_per_sample - 1)
     peak = (1 << input.format.bits_per_sample) - 1
     
+    isGray = input.format.color_family == vs.GRAY
+    
     ### DEFAULTS
     try:
         num = ['old', 'slow', 'fast'].index(defaults.lower())
     except:
-        raise ValueError('LSFmod: Defaults must be "old" or "slow" or "fast" !')
+        raise ValueError('LSFmod: Defaults must be "old" or "slow" or "fast"')
     
     ox = input.width
     oy = input.height
@@ -3046,10 +3438,16 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
     core = vs.get_core()
     
     if not isinstance(clp, vs.VideoNode):
-        raise ValueError('GrainFactory3: This is not a clip !')
+        raise ValueError('GrainFactory3: This is not a clip')
     
     shift = clp.format.bits_per_sample - 8
     peak = (1 << clp.format.bits_per_sample) - 1
+    
+    if clp.format.color_family != vs.GRAY:
+        clp_src = clp
+        clp = core.std.ShufflePlanes(clp, planes=[0], colorfamily=vs.GRAY)
+    else:
+        clp_src = None
     
     ox = clp.width
     oy = clp.height
@@ -3083,12 +3481,6 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
     th2 <<= shift
     th3 <<= shift
     th4 <<= shift
-    
-    if clp.format.num_planes == 3:
-        clp_src = clp
-        clp = core.std.ShufflePlanes(clp, planes=[0], colorfamily=vs.GRAY)
-    else:
-        clp_src = None
     
     grainlayer1 = core.grain.Add(core.std.BlankClip(clp, width=sx1, height=sy1, color=128<<shift), g1str)
     if g1size != 1 and (sx1 != ox or sy1 != oy):
@@ -3150,28 +3542,73 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
 # HELPER FUNCTIONS #
 #                  #
 ####################
+def Bob(clip, b=1/3, c=1/3, tff=None):
+    core = vs.get_core()
+    
+    if not isinstance(tff, bool):
+        raise ValueError("Bob: 'tff' must be set. Setting tff to true means top field first and false means bottom field first")
+    
+    clip = core.std.SeparateFields(clip, tff)
+    clip = core.fmtc.resample(clip, scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0, tff=tff)
+    
+    return core.fmtc.bitdepth(clip, bits=clip.format.bits_per_sample)
+
 def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 1, 2]):
     core = vs.get_core()
     
     if clip.format.id != bright_limit.format.id or clip.format.id != dark_limit.format.id:
-        raise ValueError('Clamp: clips must have the same format !')
+        raise ValueError('Clamp: clips must have the same format')
     if isinstance(planes, int):
         planes = [planes]
     
     bright_expr = 'x y {overshoot} + > y {overshoot} + x ?'.format(overshoot=overshoot)
     dark_expr = 'x y {undershoot} - < y {undershoot} - x ?'.format(undershoot=undershoot)
-    if clip.format.num_planes == 3:
+    if clip.format.color_family != vs.GRAY:
         bright_expr = [bright_expr if 0 in planes else '', bright_expr if 1 in planes else '', bright_expr if 2 in planes else '']
         dark_expr = [dark_expr if 0 in planes else '', dark_expr if 1 in planes else '', dark_expr if 2 in planes else '']
     
     clip = core.std.Expr([clip, bright_limit], bright_expr)
     return core.std.Expr([clip, dark_limit], dark_expr)
 
+def ECOverlay(clip_outline, clip_sliced, l=0, t=0):
+    core = vs.get_core()
+    
+    clip_left = clip_right = clip_top = clip_bottom = None
+    r = clip_outline.width - clip_sliced.width - l
+    b = clip_outline.height - clip_sliced.height - t
+    
+    # Slicing
+    if l > 0:
+        clip_left = core.std.CropAbs(clip_outline, x=0, y=0, width=l, height=clip_outline.height)
+    if r > 0:
+        clip_right = core.std.CropAbs(clip_outline, x=clip_outline.width-r, y=0, width=r, height=clip_outline.height)
+    if t > 0:
+        clip_top = core.std.CropAbs(clip_outline, x=l, y=0, width=clip_outline.width-l-r, height=t)
+    if b > 0:
+        clip_bottom = core.std.CropAbs(clip_outline, x=l, y=clip_outline.height-b, width=clip_outline.width-l-r, height=b)
+    
+    # Merging
+    Verticals = [clip for clip in [clip_top, clip_sliced, clip_bottom] if clip is not None]
+    
+    if len(Verticals) == 1:
+        clip_middle = Verticals[0]
+    else:
+        clip_middle = core.std.StackVertical(Verticals)
+    
+    Horizontals = [clip for clip in [clip_left, clip_middle, clip_right] if clip is not None]
+    
+    if len(Horizontals) == 1:
+        newclip = Horizontals[0]
+    else:
+        newclip = core.std.StackHorizontal(Horizontals)
+    
+    return newclip
+
 def LimitDiff(filtered, original, smooth=True, thr=1., elast=None, darkthr=None, planes=[0, 1, 2]):
     core = vs.get_core()
     
     if filtered.format.id != original.format.id:
-        raise ValueError('LimitDiff: clips must have the same format !')
+        raise ValueError('LimitDiff: clips must have the same format')
     
     shift = filtered.format.bits_per_sample - 8
     median = 128 << shift
@@ -3181,7 +3618,7 @@ def LimitDiff(filtered, original, smooth=True, thr=1., elast=None, darkthr=None,
     if darkthr is None:
         darkthr = thr
     
-    if filtered.format.num_planes == 1:
+    if filtered.format.color_family == vs.GRAY:
         planes = [0]
     if isinstance(planes, int):
         planes = [planes]
@@ -3237,22 +3674,11 @@ def LimitDiff(filtered, original, smooth=True, thr=1., elast=None, darkthr=None,
     if 1 in planes or 2 in planes:
         diff = core.std.Lut(diff, planes=[1, 2] if 1 in planes and 2 in planes else [1] if 1 in planes else [2], function=get_lut2)
     merged = core.std.MergeDiff(original, diff, planes=planes)
-    if filtered.format.num_planes == 3:
+    if filtered.format.color_family != vs.GRAY:
         return core.std.ShufflePlanes([merged if 0 in planes else filtered, merged if 1 in planes else filtered, merged if 2 in planes else filtered],
                                       planes=[0, 1, 2], colorfamily=filtered.format.color_family)
     else:
         return merged
-
-def Bob(clip, b=1/3, c=1/3, tff=None):
-    core = vs.get_core()
-    
-    if not isinstance(tff, bool):
-        raise ValueError("Bob: 'tff' must be set. Setting tff to true means top field first and false means bottom field first")
-    
-    clip = core.std.SeparateFields(clip, tff)
-    clip = core.fmtc.resample(clip, scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0, tff=tff)
-    
-    return core.fmtc.bitdepth(clip, bits=clip.format.bits_per_sample)
 
 def TemporalSoften(clip, radius=4, luma_threshold=4, chroma_threshold=8, scenechange=15, mode=2):
     core = vs.get_core()
@@ -3294,9 +3720,9 @@ def ContraSharpening(denoised, original):
     core = vs.get_core()
     
     if denoised.format.id != original.format.id:
-        raise ValueError('ContraSharpening: clips must have the same format !')
+        raise ValueError('ContraSharpening: clips must have the same format')
     
-    if denoised.format.num_planes == 3:
+    if denoised.format.color_family != vs.GRAY:
         denoised_src = denoised
         denoised = core.std.ShufflePlanes(denoised, planes=[0], colorfamily=vs.GRAY)
         original = core.std.ShufflePlanes(original, planes=[0], colorfamily=vs.GRAY)
@@ -3466,6 +3892,13 @@ def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
     
     shift = src.format.bits_per_sample - 8
     
+    isGray = src.format.color_family == vs.GRAY
+    if not chroma and not isGray:
+        src_src = src
+        src = core.std.ShufflePlanes(src, planes=[0], colorfamily=vs.GRAY)
+    else:
+        src_src = None
+    
     def get_lut(x):
         tmp1 = 16 << shift
         tmp2 = 219 << shift
@@ -3475,7 +3908,10 @@ def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
         return min(round((k * (1 + c - (1 + c) * c / (t + c)) + t * (1 - k)) * tmp3), (1 << src.format.bits_per_sample) - 1)
     
     last = core.std.Lut(src, planes=[0], function=get_lut)
-    if chroma and src.format.num_planes == 3:
+    if src_src is not None:
+        last = core.std.ShufflePlanes([last, src_src], planes=[0, 1, 2], colorfamily=src_src.format.color_family)
+    
+    if chroma and not isGray:
         return core.std.Expr(last, ['', 'x {median} - 128 * 112 / {median} +'.format(median=128<<shift)])
     else:
         return last
@@ -3500,7 +3936,7 @@ def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
 def mt_expand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
     core = vs.get_core()
     
-    if src.format.num_planes == 1:
+    if src.format.color_family == vs.GRAY:
         planes = [0]
     
     if sw > 0 and sh > 0:
@@ -3512,7 +3948,7 @@ def mt_expand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
     else:
         mode_m = None
     
-    if mode_m:
+    if mode_m is not None:
         return mt_expand_multi(core.generic.Maximum(src, planes=planes, coordinates=mode_m), mode=mode, planes=planes, sw=sw-1, sh=sh-1)
     else:
         return src
@@ -3520,7 +3956,7 @@ def mt_expand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
 def mt_inpand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
     core = vs.get_core()
     
-    if src.format.num_planes == 1:
+    if src.format.color_family == vs.GRAY:
         planes = [0]
     
     if sw > 0 and sh > 0:
@@ -3532,7 +3968,7 @@ def mt_inpand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
     else:
         mode_m = None
     
-    if mode_m:
+    if mode_m is not None:
         return mt_inpand_multi(core.generic.Minimum(src, planes=planes, coordinates=mode_m), mode=mode, planes=planes, sw=sw-1, sh=sh-1)
     else:
         return src
@@ -3540,7 +3976,7 @@ def mt_inpand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
 def mt_inflate_multi(src, planes=[0, 1, 2], radius=1):
     core = vs.get_core()
     
-    if src.format.num_planes == 1:
+    if src.format.color_family == vs.GRAY:
         planes = [0]
     
     if radius > 0:
@@ -3551,7 +3987,7 @@ def mt_inflate_multi(src, planes=[0, 1, 2], radius=1):
 def mt_deflate_multi(src, planes=[0, 1, 2], radius=1):
     core = vs.get_core()
     
-    if src.format.num_planes == 1:
+    if src.format.color_family == vs.GRAY:
         planes = [0]
     
     if radius > 0:
