@@ -30,10 +30,12 @@ Main functions:
 
 Utility functions:
     Bob
+    ChangeFPS
     Clamp
     KNLMeansCL
     LimitDiff
     Overlay
+    Padding
     Resize
     TemporalSoften
     Weave
@@ -358,17 +360,28 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
 def YAHR(clp):
     core = vs.get_core()
     
-    if not isinstance(clp, vs.VideoNode) or clp.format.id != vs.YUV420P8:
-        raise TypeError('YAHR: This is not a YUV420P8 clip')
+    if not isinstance(clp, vs.VideoNode):
+        raise TypeError('YAHR: This is not a clip')
     
-    b1 = core.rgvs.RemoveGrain(MinBlur(clp, 2, planes=[0]), [11, 0])
-    b1D = core.std.MakeDiff(clp, b1, planes=[0])
-    w1 = core.avs.aWarpSharp2(clp, depth=32, chroma=3)
-    w1b1 = core.rgvs.RemoveGrain(MinBlur(w1, 2, planes=[0]), [11, 0])
-    w1b1D = core.std.MakeDiff(w1, w1b1, planes=[0])
-    DD = core.rgvs.Repair(b1D, w1b1D, [13, 0])
-    DD2 = core.std.MakeDiff(b1D, DD, planes=[0])
-    return core.std.MakeDiff(clp, DD2, planes=[0])
+    if clp.format.color_family != vs.GRAY:
+        clp_src = clp
+        clp = core.std.ShufflePlanes([clp], planes=[0], colorfamily=vs.GRAY)
+    else:
+        clp_src = None
+    
+    b1 = core.rgvs.RemoveGrain(MinBlur(clp, 2), 11)
+    b1D = core.std.MakeDiff(clp, b1)
+    w1 = Padding(clp, 6, 6, 6, 6).warp.AWarpSharp2(depth=32).std.CropRel(6, 6, 6, 6)
+    w1b1 = core.rgvs.RemoveGrain(MinBlur(w1, 2), 11)
+    w1b1D = core.std.MakeDiff(w1, w1b1)
+    DD = core.rgvs.Repair(b1D, w1b1D, 13)
+    DD2 = core.std.MakeDiff(b1D, DD)
+    last = core.std.MakeDiff(clp, DD2)
+    
+    if clp_src is not None:
+        return core.std.ShufflePlanes([last, clp_src], planes=[0, 1, 2], colorfamily=clp_src.format.color_family)
+    else:
+        return last
 
 
 ######
@@ -724,6 +737,8 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     
     isGray = Input.format.color_family == vs.GRAY
     
+    SOvs = scale(SOvs, bits)
+    
     # Core and Interpolation defaults
     if SourceMatch > 0 and TR2 is None:
         TR2 = 1 if TR2X <= 0 else TR2X # ***TR2 defaults always at least 1 when using source-match***
@@ -798,7 +813,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if totalRestore <= 0:
         StabilizeNoise = False
     noiseTD = [1, 3, 5][NoiseTR]
-    noiseCentre = repr(128.5 * 2 ** shift) if Denoiser in ['fft3df', 'fft3dfilter'] else repr(neutral)
+    noiseCentre = 128.5 * 2 ** shift if Denoiser in ['fft3df', 'fft3dfilter'] else neutral
     
     # MVTools settings
     if Lambda is None:
@@ -3415,8 +3430,8 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         normsharp = core.std.MergeDiff(method, sharpdiff)
     
     ### LIMIT
-    normal = Clamp(normsharp, bright_limit, dark_limit, overshoot, undershoot)
-    second = Clamp(normsharp, bright_limit, dark_limit, overshoot2, undershoot2)
+    normal = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot, bits), scale(undershoot, bits))
+    second = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot2, bits), scale(undershoot2, bits))
     zero = Clamp(normsharp, bright_limit, dark_limit, 0, 0)
     
     if edgemaskHQ:
@@ -3460,7 +3475,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if soothe:
         diff = core.std.MakeDiff(tmp, PP1)
         diff2 = TemporalSoften(diff, 1, 255 << shift, 0, 32 << shift, 2)
-        diff3 = core.std.Expr([diff, diff2], ['x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y 100 {keep} - * + 100 / x ? ?'.format(neutral=neutral, keep=keep)])
+        diff3 = core.std.Expr([diff, diff2], ['x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {i} * + 100 / x ? ?'.format(neutral=neutral, keep=keep, i=100 - keep)])
         PP2 = core.std.MakeDiff(tmp, diff3)
     else:
         PP2 = PP1
@@ -3524,6 +3539,23 @@ def Bob(clip, b=1/3, c=1/3, tff=None):
         return clip
 
 
+def ChangeFPS(clip, fpsnum, fpsden=1):
+    core = vs.get_core()
+    
+    if not isinstance(clip, vs.VideoNode):
+        raise TypeError('ChangeFPS: This is not a clip')
+    
+    multiple = fpsnum / fpsden * clip.fps_den / clip.fps_num
+    
+    def frame_adjuster(n, clip):
+        real_n = math.floor(n / multiple)
+        one_frame_clip = clip[real_n] * (len(clip) + 100)
+        return one_frame_clip
+    
+    attribute_clip = core.std.BlankClip(clip, length=math.floor(len(clip) * multiple), fpsnum=fpsnum, fpsden=fpsden)
+    return core.std.FrameEval(attribute_clip, eval=functools.partial(frame_adjuster, clip=clip))
+
+
 def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 1, 2]):
     core = vs.get_core()
     
@@ -3534,14 +3566,11 @@ def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 
     if isinstance(planes, int):
         planes = [planes]
     
-    bright_expr = 'x y {overshoot} + > y {overshoot} + x ?'.format(overshoot=overshoot)
-    dark_expr = 'x y {undershoot} - < y {undershoot} - x ?'.format(undershoot=undershoot)
+    expr = 'x y {overshoot} + > y {overshoot} + x ? z {undershoot} - < z {undershoot} - x ?'.format(overshoot=overshoot, undershoot=undershoot)
     if clip.format.color_family != vs.GRAY:
-        bright_expr = [bright_expr if 0 in planes else '', bright_expr if 1 in planes else '', bright_expr if 2 in planes else '']
-        dark_expr = [dark_expr if 0 in planes else '', dark_expr if 1 in planes else '', dark_expr if 2 in planes else '']
+        expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
     
-    clip = core.std.Expr([clip, bright_limit], bright_expr)
-    return core.std.Expr([clip, dark_limit], dark_expr)
+    return core.std.Expr([clip, bright_limit, dark_limit], expr)
 
 
 def KNLMeansCL(clip, d=None, a=None, s=None, wmode=None, h=None, device_type=None, device_id=None, info=None):
@@ -3549,10 +3578,22 @@ def KNLMeansCL(clip, d=None, a=None, s=None, wmode=None, h=None, device_type=Non
     
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('KNLMeansCL: This is not a clip')
+    if clip.format.color_family not in [vs.YUV, vs.YCOCG]:
+        raise TypeError('KNLMeansCL: This wrapper is intended to be used for color family of YUV and YCOCG only')
     
-    Y = core.std.ShufflePlanes([clip], planes=[0], colorfamily=vs.GRAY).knlm.KNLMeansCL(d=d, a=a, s=s, wmode=wmode, h=h, device_type=device_type, device_id=device_id, info=info)
-    U = core.std.ShufflePlanes([clip], planes=[1], colorfamily=vs.GRAY).knlm.KNLMeansCL(d=d, a=a, s=s, wmode=wmode, h=h, device_type=device_type, device_id=device_id)
-    V = core.std.ShufflePlanes([clip], planes=[2], colorfamily=vs.GRAY).knlm.KNLMeansCL(d=d, a=a, s=s, wmode=wmode, h=h, device_type=device_type, device_id=device_id)
+    Y = core.std.ShufflePlanes([clip], planes=[0], colorfamily=vs.GRAY)
+    U = core.std.ShufflePlanes([clip], planes=[1], colorfamily=vs.GRAY)
+    V = core.std.ShufflePlanes([clip], planes=[2], colorfamily=vs.GRAY)
+    
+    if clip.format.subsampling_w > 0 or clip.format.subsampling_h > 0:
+        rclip = Resize(Y, U.width, U.height, sx=-0.5 * (1 << clip.format.subsampling_w) + 0.5, kernel='bicubic', a1=0, a2=0.5)
+    else:
+        rclip = Y
+    
+    Y = core.knlm.KNLMeansCL(Y, d=d, a=a, s=s, wmode=wmode, h=h, device_type=device_type, device_id=device_id, info=info)
+    U = core.knlm.KNLMeansCL(U, d=d, a=a, s=s, wmode=wmode, h=h, rclip=rclip, device_type=device_type, device_id=device_id)
+    V = core.knlm.KNLMeansCL(V, d=d, a=a, s=s, wmode=wmode, h=h, rclip=rclip, device_type=device_type, device_id=device_id)
+    
     return core.std.ShufflePlanes([Y, U, V], planes=[0, 0, 0], colorfamily=clip.format.color_family)
 
 
@@ -3667,6 +3708,17 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None):
     mask = core.std.AddBorders(mask, pl, pr, pt, pb)
     # Return padded clip
     return core.std.MaskedMerge(clipa, clipb, mask)
+
+
+def Padding(clip, left=0, right=0, top=0, bottom=0):
+    core = vs.get_core()
+    
+    if not isinstance(clip, vs.VideoNode):
+        raise TypeError('Padding: This is not a clip')
+    if left < 0 or right < 0 or top < 0 or bottom < 0:
+        raise ValueError('Padding: border size to pad must be positive')
+    
+    return Resize(clip, clip.width + left + right, clip.height + top + bottom, -left, -top, clip.width + left + right, clip.height + top + bottom, kernel='point')
 
 
 def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None, a1=None, a2=None, invks=None, invkstaps=None, css=None, planes=None,
@@ -3803,13 +3855,15 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('MinBlur: This is not a clip')
     
+    bits = clp.format.bits_per_sample
+    
     isGray = clp.format.color_family == vs.GRAY
     if isGray:
         planes = [0]
     if isinstance(planes, int):
         planes = [planes]
     
-    expr = 'x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=1 << (clp.format.bits_per_sample - 1))
+    expr = 'x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=1 << (bits - 1))
     if 0 in planes:
         Y4 = 4
         Y11 = 11
@@ -3846,10 +3900,22 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
         RG4 = core.rgvs.RemoveGrain(clp, M4)
     elif r == 2:
         RG11 = core.rgvs.RemoveGrain(clp, M11).rgvs.RemoveGrain(M20)
-        RG4 = core.ctmf.CTMF(clp, radius=2, planes=planes)
+        if bits == 16:
+            s16 = clp
+            RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=2, planes=planes)
+        else:
+            RG4 = core.ctmf.CTMF(clp, radius=2, planes=planes)
+        if bits == 16:
+            RG4 = LimitDiff(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
     else:
         RG11 = core.rgvs.RemoveGrain(clp, M11).rgvs.RemoveGrain(M20).rgvs.RemoveGrain(M20)
-        RG4 = core.ctmf.CTMF(clp, radius=3, planes=planes)
+        if bits == 16:
+            s16 = clp
+            RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=3, planes=planes)
+        else:
+            RG4 = core.ctmf.CTMF(clp, radius=3, planes=planes)
+        if bits == 16:
+            RG4 = LimitDiff(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
     RG11D = core.std.MakeDiff(clp, RG11, planes=planes)
     RG4D = core.std.MakeDiff(clp, RG4, planes=planes)
     DD = core.std.Expr([RG11D, RG4D], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
