@@ -9,8 +9,8 @@ import math
 def ediaa(a):
     core = vs.get_core()
     
-    if not isinstance(a, vs.VideoNode) or a.format.bits_per_sample != 8:
-        raise ValueError('ediaa: This is not a 8-bit clip !')
+    if not isinstance(a, vs.VideoNode):
+        raise ValueError('ediaa: This is not a clip !')
     
     return Resize(core.std.Transpose(core.eedi2.EEDI2(core.std.Transpose(core.eedi2.EEDI2(a, field=1)), field=1)), a.width, a.height, -0.5, -0.5)
 
@@ -113,7 +113,7 @@ def SharpAAMCmod(orig, dark=38, thin=10, sharp=150, smooth=-1, stabilize=False, 
     if stabilize:
         sD = core.std.MakeDiff(orig, merged)
         
-        origsuper = core.mv.Super(orig, pel=aapel)
+        origsuper = core.mv.Super(DitherLumaRebuild(orig, s0=1), pel=aapel)
         sDsuper = core.mv.Super(sD, pel=aapel, levels=1)
         
         fv1 = core.mv.Analyse(origsuper, blksize=aablk, isb=False, delta=1, overlap=aaov)
@@ -373,7 +373,7 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
         raise ValueError("HQDeringmod: 'ringmask' is not a clip !")
     
     if nrmode is None:
-        nrmode = 2 if input.width >= 1280 or input.height >= 720 else 1
+        nrmode = 2 if input.width > 1024 or input.height > 576 else 1
     if nrmodec is None:
         nrmodec = nrmode
     if darkthr is None:
@@ -529,8 +529,6 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
 #
 # --- REQUIREMENTS ---
 #
-# Input colorspaces: YUV420P8, YUV422P8
-#
 # Core plugins:
 #	MVTools
 #	GenericFilters
@@ -542,10 +540,10 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
 # Additional plugins:
 #	eedi3 - if selected directly or via a source-match preset
 #	FFT3DFilter - if selected for noise processing
-#	dfttest - if selected for noise processing
+#	DFTTest - if selected for noise processing
 #	FFT3dGPU - if selected for noise processing
-#		For FFT3DFilter & ddftest you also need the FFTW3 library (FFTW.org). On Windows the file needed for both is libfftw3f-3.dll. However, for FFT3DFilter
-#		the file needs to be called FFTW3.dll, so you will need two copies and rename one. On Windows put the files in your System32 or SysWow64 folder
+#		For FFT3DFilter & DFTTest you also need the FFTW3 library (FFTW.org). On Windows the file needed for both is libfftw3f-3.dll.
+#		Put the file in your System32 or SysWow64 folder
 #	AddGrain - if NoiseDeint="Generate" selected for noise bypass
 #
 # --- GETTING STARTED ---
@@ -563,7 +561,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
           SubPel=None, SubPelInterp=2, BlockSize=None, Overlap=None, Search=None, SearchParam=None, PelSearch=None, ChromaMotion=None, TrueMotion=False,
           Lambda=None, LSAD=None, PNew=None, PLevel=None, GlobalMotion=True, DCT=0, ThSAD1=640, ThSAD2=256, ThSCD1=180, ThSCD2=98, SourceMatch=0,
           MatchPreset=None, MatchEdi=None, MatchPreset2=None, MatchEdi2=None, MatchTR2=1, MatchEnhance=0.5, Lossless=0, NoiseProcess=None, EZDenoise=None,
-          EZKeepGrain=None, NoisePreset='Fast', Denoiser=None, DenoiseThreads=0, DenoiseMC=None, NoiseTR=None, Sigma=None, ChromaNoise=False, ShowNoise=0.,
+          EZKeepGrain=None, NoisePreset='Fast', Denoiser=None, DenoiseThreads=1, DenoiseMC=None, NoiseTR=None, Sigma=None, ChromaNoise=False, ShowNoise=0.,
           GrainRestore=None, NoiseRestore=None, NoiseDeint=None, StabilizeNoise=None, InputType=0, ProgSADMask=None, FPSDivisor=1, ShutterBlur=0,
           ShutterAngleSrc=180, ShutterAngleOut=180, SBlurLimit=4, Border=False, Precise=None, Tuning='None', ShowSettings=False, ForceTR=0, TFF=None):
     core = vs.get_core()
@@ -773,8 +771,6 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
             Sigma = 4. * EZKeepGrain
         else:
             Sigma = 2.
-    if Denoiser in ['fft3df', 'fft3dfilter'] and DenoiseThreads <= 0:
-        DenoiseThreads = 1  # FFT3DFilter doesn't support autodetection of number of logical processors on system
     if isinstance(ShowNoise, bool):
         ShowNoise = 10. if ShowNoise else 0.
     if ShowNoise > 0:
@@ -907,7 +903,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     
     # Calculate forward and backward motion vectors from motion search clip
     if maxTR > 0:
-        srchSuper = core.mv.Super(srchClip, pel=SubPel, sharp=SubPelInterp, hpad=hpad, vpad=vpad, chroma=ChromaMotion)
+        srchSuper = core.mv.Super(DitherLumaRebuild(srchClip, s0=1, chroma=ChromaMotion), pel=SubPel, sharp=SubPelInterp, hpad=hpad, vpad=vpad, chroma=ChromaMotion)
         bVec1 = core.mv.Analyse(
           srchSuper, isb=True, delta=1, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
           truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
@@ -960,7 +956,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         elif Denoiser == 'fft3dgpu':
             dnWindow = core.avs.fft3dGPU(noiseWindow, plane=4 if ChromaNoise else 0, sigma=Sigma, bt=noiseTD, precision=2)
         else:
-            dnWindow = core.avs.FFT3DFilter(noiseWindow, plane=4 if ChromaNoise else 0, sigma=Sigma, bt=noiseTD, ncpu=DenoiseThreads)
+            dnWindow = core.fft3dfilter.FFT3DFilter(noiseWindow, plane=4 if ChromaNoise else 0, sigma=Sigma, bt=noiseTD, ncpu=DenoiseThreads)
     
         # Rework denoised clip to match source format - various code paths here: discard the motion compensation window, discard doubled lines (from point resize)
         # Also reweave to get interlaced noise if source was interlaced (could keep the full frame of noise, but it will be poor quality from the point resize)
@@ -1544,7 +1540,7 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None):
     field_ref %= 5
     invpos = (5 - field_ref) % 5
     pel = 1 if draft else 2
-    blksize = 16 if src.width >= 1280 or src.height >= 720 else 8
+    blksize = 16 if src.width > 1024 or src.height > 576 else 8
     overlap = int(blksize / 2)
     
     if srcbob:
@@ -1562,7 +1558,7 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None):
         jitter = core.std.AssumeFPS(core.std.Trim(last, 0, 0)+core.std.SelectEvery(last, 5, [4-invpos, 8-invpos]), fpsnum=24000, fpsden=1001)
     else:
         jitter = core.std.SelectEvery(last, 5, [3-invpos, 4-invpos])
-    jsup = core.mv.Super(jitter, pel=pel)
+    jsup = core.mv.Super(DitherLumaRebuild(jitter, s0=1), pel=pel)
     vect_f = core.mv.Analyse(jsup, blksize=blksize, isb=False, delta=1, overlap=overlap)
     vect_b = core.mv.Analyse(jsup, blksize=blksize, isb=True, delta=1, overlap=overlap)
     comp = core.mv.FlowInter(jitter, jsup, vect_b, vect_f)
@@ -1948,7 +1944,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, Y=T
     dif_nr = core.std.MakeDiff(input, pre_nr, planes=planes)
     
     # Kernel: MC Grain Stabilize
-    psuper = core.mv.Super(pre_nr, pel=1, chroma=chromamv)
+    psuper = core.mv.Super(DitherLumaRebuild(pre_nr, s0=1, chroma=chromamv), pel=1, chroma=chromamv)
     difsuper = core.mv.Super(dif_nr, pel=1, levels=1, chroma=chromamv)
     
     fv1 = core.mv.Analyse(psuper, blksize=blksize, isb=False, chroma=chromamv, delta=1, truemotion=False, _global=True, overlap=overlap)
@@ -2110,7 +2106,7 @@ def SMDegrain(input, tr=3, thSAD=400, thSADC=None, RefineMotion=False, contrasha
     
     # Default Auto-Prefilter - Luma expansion TV->PC (up to 16% more values for motion estimation)
     if not GlobalR:
-        pref = Dither_Luma_Rebuild(pref, s0=Str, c=Amp, chroma=chroma)
+        pref = DitherLumaRebuild(pref, s0=Str, c=Amp, chroma=chroma)
     
     # Subpixel 3
     if pelclip:
@@ -2358,14 +2354,14 @@ def Resize(src, w, h, sx=0., sy=0., sw=0., sh=0., kernel='spline36', taps=4, a1=
         return last
 
 
-# Converts the luma channel to linear light
+# Convert the luma channel to linear light
 def GammaToLinear(src, fulls=True, fulld=True, curve='709', planes=[0, 1, 2], gcor=1., sigmoid=False, thr=0.5, cont=6.5):
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
         raise ValueError('GammaToLinear: This is not a 16-bit clip !')
     
     return LinearAndGamma(src, False, fulls, fulld, curve.lower(), planes, gcor, sigmoid, thr, cont)
 
-# Converts back a clip to gamma-corrected luma
+# Convert back a clip to gamma-corrected luma
 def LinearToGamma(src, fulls=True, fulld=True, curve='709', planes=[0, 1, 2], gcor=1., sigmoid=False, thr=0.5, cont=6.5):
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
         raise ValueError('LinearToGamma: This is not a 16-bit clip !')
@@ -2432,6 +2428,41 @@ def LinearAndGamma(src, l2g_flag, fulls, fulld, curve, planes, gcor, sigmoid, th
             return min(max(round(expr * 56064 + 4096), 0), 65535)
     
     return core.std.Lut(src, planes=planes, function=l2g if l2g_flag else g2l)
+
+
+# Apply the inverse sigmoid curve to a clip in linear luminance
+def SigmoidInverse(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
+    core = vs.get_core()
+    
+    if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
+        raise ValueError('SigmoidInverse: This is not a 16-bit clip !')
+    
+    if src.format.num_planes == 1:
+        planes = [0]
+    
+    def get_lut(x):
+        x0 = 1 / (1 + math.exp(cont * thr))
+        x1 = 1 / (1 + math.exp(cont * (thr - 1)))
+        return min(max(round((thr - math.log(max(1 / max(x / 65536 * (x1 - x0) + x0, 0.000001) - 1, 0.000001)) / cont) * 65536), 0), 65535)
+    
+    return core.std.Lut(src, planes=planes, function=get_lut)
+
+# Convert back a clip to linear luminance
+def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
+    core = vs.get_core()
+    
+    if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
+        raise ValueError('SigmoidDirect: This is not a 16-bit clip !')
+    
+    if src.format.num_planes == 1:
+        planes = [0]
+    
+    def get_lut(x):
+        x0 = 1 / (1 + math.exp(cont * thr))
+        x1 = 1 / (1 + math.exp(cont * (thr - 1)))
+        return min(max(round(((1 / (1 + math.exp(cont * (thr - x / 65536))) - x0) / (x1 - x0)) * 65536), 0), 65535)
+    
+    return core.std.Lut(src, planes=planes, function=get_lut)
 
 
 ################################################################################################
@@ -3438,7 +3469,7 @@ def sbrV(clp, r=1, planes=[0, 1, 2]):
 #
 # Converts luma (and chroma) to PC levels, and optionally allows tweaking for pumping up the darks. (for the clip to be fed to motion search only)
 # By courtesy of cretindesalpes. (http://forum.doom9.org/showthread.php?p=1548318#post1548318)
-def Dither_Luma_Rebuild(src, s0=2., c=0.0625, chroma=True):
+def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
     core = vs.get_core()
     
     shift = src.format.bits_per_sample - 8
