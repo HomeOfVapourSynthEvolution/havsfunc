@@ -40,7 +40,7 @@ def maa(input, noring=False):
     if not isinstance(input, vs.VideoNode) or input.format.id != vs.YUV420P8:
         raise ValueError('maa: This is not a YUV420P8 clip !')
     
-    mask = core.generic.Inflate(core.generic.Sobel(core.std.ShufflePlanes(input, planes=[0], colorfamily=vs.GRAY), 40, 40))
+    mask = core.generic.Inflate(core.generic.Sobel(core.std.ShufflePlanes(input, planes=[0], colorfamily=vs.GRAY), min=40, max=40))
     aa_clip = Resize(
       core.avs.SangNom(
         core.std.Transpose(
@@ -477,7 +477,7 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     
     # Post-Process: Ringing Mask Generating
     if ringmask is None:
-        sobelm = core.generic.Sobel(core.std.ShufflePlanes(input, planes=[0], colorfamily=vs.GRAY), mthr)
+        sobelm = core.generic.Sobel(core.std.ShufflePlanes(input, planes=[0], colorfamily=vs.GRAY), min=mthr<<(input.format.bits_per_sample-8))
         fmask = core.generic.Hysteresis(core.rgvs.RemoveGrain(sobelm, 4), sobelm)
         if mrad > 0:
             omask = mt_expand_multi(fmask, sw=mrad, sh=mrad)
@@ -863,9 +863,9 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # The bobbed clip will shimmer due to being derived from alternating fields. Temporally smooth over the neighboring frames using a binomial kernel. Binomial
     # kernels give equal weight to even and odd frames and hence average away the shimmer. The two kernels used are [1 2 1] and [1 4 6 4 1] for radius 1 and 2.
     # These kernels are approximately Gaussian kernels, which work well as a prefilter before motion analysis (hence the original name for this script)
-    # Create linear weightings of neighbors first                     -2    -1    0     1     2
-    if TR0 > 0: ts1 = TemporalSoften(bobbed, 1, 255, CMts, 28, 2)   # 0.00  0.33  0.33  0.33  0.00
-    if TR0 > 1: ts2 = TemporalSoften(bobbed, 2, 255, CMts, 28, 2)   # 0.20  0.20  0.20  0.20  0.20
+    # Create linear weightings of neighbors first                                         -2    -1    0     1     2
+    if TR0 > 0: ts1 = TemporalSoften(bobbed, 1, 255<<shift, CMts<<shift, 28<<shift, 2)  # 0.00  0.33  0.33  0.33  0.00
+    if TR0 > 1: ts2 = TemporalSoften(bobbed, 2, 255<<shift, CMts<<shift, 28<<shift, 2)  # 0.20  0.20  0.20  0.20  0.20
     
     # Combine linear weightings to give binomial weightings - TR0=0: (1), TR0=1: (1:2:1), TR0=2: (1:4:6:4:1)
     if TR0 <= 0:
@@ -2348,10 +2348,7 @@ def Resize(src, w, h, sx=0., sy=0., sw=0., sh=0., kernel='spline36', taps=4, a1=
     else:
         last = main
     
-    if bits < 16:
-        return core.fmtc.bitdepth(last, bits=bits, fulls=fulls, fulld=fulld, dmode=dmode, ampo=ampo, ampn=ampn)
-    else:
-        return last
+    return core.fmtc.bitdepth(last, bits=bits, fulls=fulls, fulld=fulld, dmode=dmode, ampo=ampo, ampn=ampn)
 
 
 # Convert the luma channel to linear light
@@ -3252,15 +3249,10 @@ def Bob(clip, b=1/3, c=1/3, tff=None):
     if not isinstance(tff, bool):
         raise ValueError("Bob: 'tff' must be set. Setting tff to true means top field first and false means bottom field first")
     
-    bits = clip.format.bits_per_sample
-    
     clip = core.std.SeparateFields(clip, tff)
     clip = core.fmtc.resample(clip, scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0, tff=tff)
     
-    if bits < 16:
-        return core.fmtc.bitdepth(clip, bits=bits)
-    else:
-        return clip
+    return core.fmtc.bitdepth(clip, bits=clip.format.bits_per_sample)
 
 def TemporalSoften(clip, radius=4, luma_threshold=4, chroma_threshold=8, scenechange=15, mode=2):
     core = vs.get_core()
@@ -3287,7 +3279,7 @@ def set_scenechange(clip, thresh=15):
     
     sc = clip
     if clip.format.color_family == vs.RGB:
-        sc = core.std.ShufflePlanes(clip, planes=[0], colorfamily=vs.GRAY)
+        sc = core.resize.Point(clip, format=vs.GRAY16).fmtc.bitdepth(bits=clip.format.bits_per_sample, dmode=1)
     sc = core.scd.Detect(sc, thresh)
     if clip.format.color_family == vs.RGB:
         sc = core.std.ModifyFrame(clip, clips=[clip, sc], selector=set_props)
