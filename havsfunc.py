@@ -108,9 +108,9 @@ class HAvsFunc():
             return min(round((x / 128) ** .86 * 255), 255)
         
         orig_y = self.core.std.ShufflePlanes(orig, planes=[0], colorfamily=vs.GRAY)
-        m = self.core.std.Lut(self.Logic(self.core.generic.Convolution(orig_y, [5, 10, 5, 0, 0, 0, -5, -10, -5], divisor=4, saturate=False),
-                                         self.core.generic.Convolution(orig_y, [5, 0, -5, 10, 0, -10, 5, 0, -5], divisor=4, saturate=False),
-                                         'max'),
+        m = self.core.std.Lut(self.core.std.Expr([self.core.generic.Convolution(orig_y, [5, 10, 5, 0, 0, 0, -5, -10, -5], divisor=4, saturate=False),
+                                                  self.core.generic.Convolution(orig_y, [5, 0, -5, 10, 0, -10, 5, 0, -5], divisor=4, saturate=False)],
+                                                 ['x y max']),
                               function=get_lut)
         if thin == 0 and dark == 0:
             preaa = orig
@@ -160,7 +160,7 @@ class HAvsFunc():
                 sDD = self.core.mv.Degrain3(sD, sDsuper, bv1, fv1, bv2, fv2, bv3, fv3)
             
             reduc = .4
-            sDD = self.core.std.Merge(self.core.std.Expr([sD, sDD], 'x 128 - abs y 128 - abs < x y ?'), sDD, weight=[1-reduc, 0])
+            sDD = self.core.std.Merge(self.core.std.Expr([sD, sDD], ['x 128 - abs y 128 - abs < x y ?']), sDD, weight=[1-reduc, 0])
             
             return self.core.std.MakeDiff(orig, sDD)
         else:
@@ -257,8 +257,8 @@ class HAvsFunc():
         
         # separate border values of the difference maps, and set the interiours to '128'
         expr = 'y '+peak+' = x '+neutral+' ?'
-        normalD2 = self.core.std.Expr([normalD, block], expr if uv==3 or clp.format.num_planes==1 else [expr, ''])
-        strongD2 = self.core.std.Expr([strongD, block], expr if uv==3 or clp.format.num_planes==1 else [expr, ''])
+        normalD2 = self.core.std.Expr([normalD, block], [expr] if uv==3 or clp.format.num_planes==1 else [expr, ''])
+        strongD2 = self.core.std.Expr([strongD, block], [expr] if uv==3 or clp.format.num_planes==1 else [expr, ''])
         
         # interpolate the border values over the whole block: DCTFilter can do it. (Kiss to Tom Barry!)
         # (Note: this is not fully accurate, but a reasonable approximation.)
@@ -270,13 +270,14 @@ class HAvsFunc():
         expr = 'x '+neutral+' - 1.01 * '+neutral+' +'
         strongD3 = self.core.std.CropRel(
           self.core.dct.Filter(
-            self.core.std.Expr(self.Resize(strongD2, sw+remX, sh+remY, 0, 0, sw+remX, sh+remY, kernel='point'), expr if uv==3 or clp.format.num_planes==1 else [expr, '']),
+            self.core.std.Expr(self.Resize(strongD2, sw+remX, sh+remY, 0, 0, sw+remX, sh+remY, kernel='point'),
+                               [expr] if uv==3 or clp.format.num_planes==1 else [expr, '']),
             [1, 1, 0, 0, 0, 0, 0, 0]),
           left=0, top=0, right=remX, bottom=remY)
         
         # apply compensation from "normal" deblocking to the borders of the full-block-compensations calculated from "strong" deblocking ...
         expr = 'y '+neutral+' = x y ?'
-        strongD4 = self.core.std.Expr([strongD3, normalD2], expr if uv==3 or clp.format.num_planes==1 else [expr, ''])
+        strongD4 = self.core.std.Expr([strongD3, normalD2], [expr] if uv==3 or clp.format.num_planes==1 else [expr, ''])
         
         # ... and apply it.
         deblocked = self.core.std.MakeDiff(clp, strongD4, planes=planes) 
@@ -342,22 +343,22 @@ class HAvsFunc():
         clp_src = clp
         clp = self.core.std.ShufflePlanes(clp, planes=[0], colorfamily=vs.GRAY)
         halos = self.Resize(self.Resize(clp, self.m4(ox/rx), self.m4(oy/ry), kernel='bicubic'), ox, oy, kernel='bicubic', a1=1, a2=0)
-        are = self.core.std.Expr([self.core.generic.Maximum(clp), self.core.generic.Minimum(clp)], 'x y -')
-        ugly = self.core.std.Expr([self.core.generic.Maximum(halos), self.core.generic.Minimum(halos)], 'x y -')
-        so = self.core.std.Expr([ugly, are], 'y x - y '+repr(0.001*2**shift)+' + / '+repr((1<<clp.format.bits_per_sample)-1)+' * '+LOS+' - y '+repr(256<<shift)+' + '+repr(512<<shift)+' / '+HIS+' + *')
+        are = self.core.std.Expr([self.core.generic.Maximum(clp), self.core.generic.Minimum(clp)], ['x y -'])
+        ugly = self.core.std.Expr([self.core.generic.Maximum(halos), self.core.generic.Minimum(halos)], ['x y -'])
+        so = self.core.std.Expr([ugly, are], ['y x - y '+repr(0.001*2**shift)+' + / '+repr((1<<clp.format.bits_per_sample)-1)+' * '+LOS+' - y '+repr(256<<shift)+' + '+repr(512<<shift)+' / '+HIS+' + *'])
         lets = self.core.std.MaskedMerge(halos, clp, so)
         if ss == 1:
             remove = self.core.rgvs.Repair(clp, lets, 1)
         else:
             remove = self.Resize(
-              self.Logic(
-                self.Logic(self.Resize(clp, self.m4(ox*ss), self.m4(oy*ss), kernel='spline64' if noring else 'spline36', noring=noring),
-                           self.Resize(self.core.generic.Maximum(lets), self.m4(ox*ss), self.m4(oy*ss), kernel='bicubic'),
-                           'min'),
-                self.Resize(self.core.generic.Minimum(lets), self.m4(ox*ss), self.m4(oy*ss), kernel='bicubic'),
-                'max'),
+              self.core.std.Expr(
+                [self.core.std.Expr([self.Resize(clp, self.m4(ox*ss), self.m4(oy*ss), kernel='spline64' if noring else 'spline36', noring=noring),
+                                     self.Resize(self.core.generic.Maximum(lets), self.m4(ox*ss), self.m4(oy*ss), kernel='bicubic')],
+                                    ['x y min']),
+                 self.Resize(self.core.generic.Minimum(lets), self.m4(ox*ss), self.m4(oy*ss), kernel='bicubic')],
+                ['x y max']),
               ox, oy)
-        them = self.core.std.Expr([clp, remove], 'x y < x x y - '+DRK+' * - x x y - '+BRT+' * - ?')
+        them = self.core.std.Expr([clp, remove], ['x y < x x y - '+DRK+' * - x x y - '+BRT+' * - ?'])
         
         return self.core.std.ShufflePlanes([them, clp_src], planes=[0, 1, 2], colorfamily=vs.YUV)
     
@@ -618,7 +619,7 @@ class HAvsFunc():
                     imask = self.core.generic.Minimum(self.core.generic.Inflate(fmask))
                 else:
                     imask = fmask
-                ringmask = self.core.std.Expr([omask, imask], 'x 65535 y - * 65535 /' if lsb or lsb_in else 'x 255 y - * 255 /')
+                ringmask = self.core.std.Expr([omask, imask], ['x 65535 y - * 65535 /'] if lsb or lsb_in else ['x 255 y - * 255 /'])
         
         # Mask Merging & Output
         if show:
@@ -659,17 +660,16 @@ class HAvsFunc():
     #
     # --- REQUIREMENTS ---
     #
-    # Input colorspaces: YV12
+    # Input colorspaces: YUV420P8, YUV422P8
     #
     # Core plugins:
-    #	MVTools2 (2.5.11.2 or above)
+    #	MVTools
     #	GenericFilters
     #	NNEDI3
     #	RemoveGrain/Repair
     #
     # Additional plugins:
     #	NNEDI2, NNEDI, EEDI3, EEDI2, TDeInt - if selected directly or via a source-match preset
-    #	VerticalCleaner - for SVThin or Lossless modes
     #	FFT3DFilter - if selected for noise processing
     #	dfttest - if selected for noise processing
     #	FFT3dGPU - if selected for noise processing
@@ -698,7 +698,7 @@ class HAvsFunc():
     def QTGMC(self, Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=0, Rep2=None, EdiMode=None, RepChroma=True, NNSize=None,
               NNeurons=None, EdiQual=1, EdiMaxD=None, ChromaEdi='', EdiThreads=0, EdiExt=None, Sharpness=None, SMode=None, SLMode=None, SLRad=None, SOvs=0,
               SVThin=.0, Sbb=None, SrchClipPP=None, SubPel=None, SubPelInterp=2, BlockSize=None, Overlap=None, Search=None, SearchParam=None, PelSearch=None,
-              ChromaMotion=None, TrueMotion=False, Lambda=None, LSAD=None, PNew=None, PLevel=None, GlobalMotion=True, DCT=0, ThSAD1=640, ThSAD2=256, ThSCD1=180,
+              ChromaMotion=None, TrueMotion=False, Lambda=None, LSAD=None, PNew=None, PLevel=None, GlobalMotion=True, ThSAD1=640, ThSAD2=256, ThSCD1=180,
               ThSCD2=98, SourceMatch=0, MatchPreset=None, MatchEdi=None, MatchPreset2=None, MatchEdi2=None, MatchTR2=1, MatchEnhance=.5, Lossless=0,
               NoiseProcess=None, EZDenoise=None, EZKeepGrain=None, NoisePreset='Fast', Denoiser=None, DenoiseThreads=None, DenoiseMC=None, NoiseTR=None,
               Sigma=None, ChromaNoise=False, ShowNoise=.0, GrainRestore=None, NoiseRestore=None, NoiseDeint=None, StabilizeNoise=None, InputType=0,
@@ -857,8 +857,8 @@ class HAvsFunc():
         #---------------------------------------
         # Settings
         
-        if not isinstance(Input, vs.VideoNode) or Input.format.id != vs.YUV420P8:
-            raise ValueError('QTGMC: This is not a YUV420P8 clip !')
+        if not isinstance(Input, vs.VideoNode) or Input.format.id not in (vs.YUV420P8, vs.YUV422P8):
+            raise ValueError('QTGMC: This is not a YUV420P8 or YUV422P8 clip !')
         if not isinstance(TR0, int) or TR0 < 0 or TR0 > 2:
             raise ValueError("QTGMC: 'TR0' have not a correct value! [0,1,2]")
         if not isinstance(TR1, int) or TR1 < 0 or TR1 > 2:
@@ -881,8 +881,8 @@ class HAvsFunc():
             raise ValueError("QTGMC: 'EdiMaxD' have not a correct value! [>=1]")
         if not isinstance(EdiThreads, int) or EdiThreads < 0:
             raise ValueError("QTGMC: 'EdiThreads' have not a correct value! [>=0]")
-        if EdiExt is not None and (not isinstance(EdiExt, vs.VideoNode) or EdiExt.format.id != vs.YUV420P8):
-            raise ValueError("QTGMC: 'EdiExt' is not a YUV420P8 clip !")
+        if EdiExt is not None and (not isinstance(EdiExt, vs.VideoNode) or EdiExt.format.id != Input.format.id):
+            raise ValueError("QTGMC: 'EdiExt' must be the same format as input !")
         if not isinstance(SMode, int) or SMode < 0 or SMode > 2:
             raise ValueError("QTGMC: 'SMode' have not a correct value! [0,1,2]")
         if not isinstance(SLRad, int) or SLRad < 0:
@@ -915,8 +915,6 @@ class HAvsFunc():
             raise ValueError("QTGMC: 'TrueMotion' must be bool")
         if not isinstance(GlobalMotion, bool):
             raise ValueError("QTGMC: 'GlobalMotion' must be bool")
-        if not isinstance(DCT, int) or DCT < 0 or DCT > 10:
-            raise ValueError("QTGMC: 'DCT' have not a correct value! [0,1,2,3,4,5,6,7,8,9,10]")
         if not isinstance(ThSAD1, int) or ThSAD1 < 0:
             raise ValueError("QTGMC: 'ThSAD1' have not a correct value! [>=0]")
         if not isinstance(ThSAD2, int) or ThSAD2 < 0:
@@ -1189,7 +1187,7 @@ class HAvsFunc():
         if SrchClipPP > 1:
             spatialBlur = self.core.std.Merge(spatialBlur, repair0, weight=.1 if ChromaMotion else [.1, 0])
             expr = 'x 3 + y < x 3 + x 3 - y > x 3 - y ? ?'
-            tweaked = self.core.std.Expr([repair0, bobbed], expr if ChromaMotion else [expr, ''])
+            tweaked = self.core.std.Expr([repair0, bobbed], [expr] if ChromaMotion else [expr, ''])
         if SrchClipPP == 0:
             srchClip = repair0
         elif SrchClipPP < 3:
@@ -1202,24 +1200,24 @@ class HAvsFunc():
             srchSuper = self.core.mv.Super(srchClip, pel=SubPel, sharp=SubPelInterp, hpad=hpad, vpad=vpad, chroma=ChromaMotion)
             bVec1 = self.core.mv.Analyse(
               srchSuper, isb=True, delta=1, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
+              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, chroma=ChromaMotion)
             fVec1 = self.core.mv.Analyse(
               srchSuper, isb=False, delta=1, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
+              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, chroma=ChromaMotion)
         if maxTR > 1:
             bVec2 = self.core.mv.Analyse(
               srchSuper, isb=True, delta=2, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
+              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, chroma=ChromaMotion)
             fVec2 = self.core.mv.Analyse(
               srchSuper, isb=False, delta=2, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
+              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, chroma=ChromaMotion)
         if maxTR > 2:
             bVec3 = self.core.mv.Analyse(
               srchSuper, isb=True, delta=3, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
+              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, chroma=ChromaMotion)
             fVec3 = self.core.mv.Analyse(
               srchSuper, isb=False, delta=3, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
+              truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, chroma=ChromaMotion)
         
         #---------------------------------------
         # Noise Processing
@@ -1288,7 +1286,7 @@ class HAvsFunc():
                 noiseSuper = self.core.mv.Super(deintNoise, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad, chroma=ChromaNoise)
                 mcNoise = self.core.mv.Compensate(deintNoise, noiseSuper, bVec1, thscd1=ThSCD1, thscd2=ThSCD2)
                 expr = 'x 128 - abs y 128 - abs > x y ? 0.6 * x y + 0.2 * +'
-                finalNoise = self.core.std.Expr([deintNoise, mcNoise], expr if ChromaNoise else [expr, ''])
+                finalNoise = self.core.std.Expr([deintNoise, mcNoise], [expr] if ChromaNoise else [expr, ''])
             else:
                 finalNoise = deintNoise
         
@@ -1312,7 +1310,7 @@ class HAvsFunc():
         
         # InputType=2,3: use motion mask to blend luma between original clip & reweaved clip based on ProgSADMask setting. Use chroma from original clip in any case
         if ProgSADMask > 0:
-            inputTypeBlend = self.core.avs.MMask(srchClip, bVec1, kind=1, ml=ProgSADMask)
+            inputTypeBlend = self.core.mv.Mask(srchClip, bVec1, kind=1, ml=ProgSADMask)
         if InputType not in (2, 3):
             edi = edi1
         elif ProgSADMask == 0:
@@ -1326,13 +1324,13 @@ class HAvsFunc():
         if temporalSL:
             bComp1 = self.core.mv.Compensate(edi, ediSuper, bVec1, thscd1=ThSCD1, thscd2=ThSCD2)
             fComp1 = self.core.mv.Compensate(edi, ediSuper, fVec1, thscd1=ThSCD1, thscd2=ThSCD2)
-            tMax = self.Logic(self.Logic(edi, fComp1, 'max'), bComp1, 'max')
-            tMin = self.Logic(self.Logic(edi, fComp1, 'min'), bComp1, 'min')
+            tMax = self.core.std.Expr([self.core.std.Expr([edi, fComp1], ['x y max']), bComp1], ['x y max'])
+            tMin = self.core.std.Expr([self.core.std.Expr([edi, fComp1], ['x y min']), bComp1], ['x y min'])
             if SLRad > 1:
                 bComp3 = self.core.mv.Compensate(edi, ediSuper, bVec3, thscd1=ThSCD1, thscd2=ThSCD2)
                 fComp3 = self.core.mv.Compensate(edi, ediSuper, fVec3, thscd1=ThSCD1, thscd2=ThSCD2)
-                tMax = self.Logic(self.Logic(tMax, fComp3, 'max'), bComp3, 'max')
-                tMin = self.Logic(self.Logic(tMin, fComp3, 'min'), bComp3, 'min')
+                tMax = self.core.std.Expr([self.core.std.Expr([tMax, fComp3], ['x y max']), bComp3], ['x y max'])
+                tMin = self.core.std.Expr([self.core.std.Expr([tMin, fComp3], ['x y min']), bComp3], ['x y min'])
         
         #---------------------------------------
         # Create basic output
@@ -1383,20 +1381,20 @@ class HAvsFunc():
             vresharp1 = self.core.std.Merge(self.core.generic.Maximum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]),
                                             self.core.generic.Minimum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]))
             if Precise:
-                vresharp = self.core.std.Expr([vresharp1, lossed1], 'x y < x 1 + x y > x 1 - x ? ?')    # Precise mode: reduce tiny overshoot
+                vresharp = self.core.std.Expr([vresharp1, lossed1], ['x y < x 1 + x y > x 1 - x ? ?'])  # Precise mode: reduce tiny overshoot
             else:
                 vresharp = vresharp1
         if SMode == 0:
             resharp = lossed1
         elif SMode == 1:
-            resharp = self.core.std.Expr([lossed1, self.core.rgvs.RemoveGrain(lossed1, rgBlur)], 'x x y - '+repr(sharpAdj)+' * +')
+            resharp = self.core.std.Expr([lossed1, self.core.rgvs.RemoveGrain(lossed1, rgBlur)], ['x x y - '+repr(sharpAdj)+' * +'])
         else:
-            resharp = self.core.std.Expr([lossed1, self.core.rgvs.RemoveGrain(vresharp, rgBlur)], 'x x y - '+repr(sharpAdj)+' * +')
+            resharp = self.core.std.Expr([lossed1, self.core.rgvs.RemoveGrain(vresharp, rgBlur)], ['x x y - '+repr(sharpAdj)+' * +'])
         
         # Slightly thin down 1-pixel high horizontal edges that have been widened into neigboring field lines by the interpolator
         SVThinSc = SVThin * 6
         if SVThin > 0:
-            vertMedD = self.core.std.Expr([lossed1, self.core.avs.VerticalCleaner(lossed1, mode=1, modeU=-1, modeV=-1)], ['y x - '+repr(SVThinSc)+' * 128 +', ''])
+            vertMedD = self.core.std.Expr([lossed1, self.core.rgvs.VerticalCleaner(lossed1, [1, 0])], ['y x - '+repr(SVThinSc)+' * 128 +', ''])
             vertMedD = self.core.generic.Blur(vertMedD, .5, 0)
             neighborD = self.core.std.Expr([vertMedD, self.core.rgvs.RemoveGrain(vertMedD, [rgBlur, 0])], ['y 128 - abs x 128 - abs > y 128 ?', ''])
             thin = self.core.std.MergeDiff(resharp, neighborD, planes=[0])
@@ -1439,7 +1437,7 @@ class HAvsFunc():
             addNoise1 = backBlend2
         else:
             expr = 'x '+noiseCentre+' - '+repr(GrainRestore)+' * 128 +'
-            addNoise1 = self.core.std.MergeDiff(backBlend2, self.core.std.Expr(finalNoise, expr if ChromaNoise else [expr, '']), planes=CNplanes)
+            addNoise1 = self.core.std.MergeDiff(backBlend2, self.core.std.Expr(finalNoise, [expr] if ChromaNoise else [expr, '']), planes=CNplanes)
         
         # Final light linear temporal smooth for denoising
         if TR2 > 0:
@@ -1484,7 +1482,7 @@ class HAvsFunc():
             addNoise2 = lossed2
         else:
             expr = 'x '+noiseCentre+' - '+repr(NoiseRestore)+' * 128 +'
-            addNoise2 = self.core.std.MergeDiff(lossed2, self.core.std.Expr(finalNoise, expr if ChromaNoise else [expr, '']), planes=CNplanes)
+            addNoise2 = self.core.std.MergeDiff(lossed2, self.core.std.Expr(finalNoise, [expr] if ChromaNoise else [expr, '']), planes=CNplanes)
         
         #---------------------------------------
         # Post-Processing
@@ -1508,9 +1506,9 @@ class HAvsFunc():
         rLambda = int(Lambda / rBlockDivide ** 2)
         if ShutterBlur > 1:
             sbBVec1 = self.core.mv.Recalculate(srchSuper, bVec1, thsad=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam,
-                                               truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT, chroma=ChromaMotion)
+                                               truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, chroma=ChromaMotion)
             sbFVec1 = self.core.mv.Recalculate(srchSuper, fVec1, thsad=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam,
-                                               truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT, chroma=ChromaMotion)
+                                               truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, chroma=ChromaMotion)
         elif ShutterBlur > 0:
             sbBVec1 = bVec1
             sbFVec1 = fVec1
@@ -1518,11 +1516,11 @@ class HAvsFunc():
         # Shutter motion blur - use MFlowBlur to blur along motion vectors
         if ShutterBlur > 0:
             sblurSuper = self.core.mv.Super(addNoise2, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
-            sblur = self.core.avs.MFlowBlur(addNoise2, sblurSuper, sbBVec1, sbFVec1, blur=blurLevel, thSCD1=ThSCD1, thSCD2=ThSCD2)
+            sblur = self.core.mv.FlowBlur(addNoise2, sblurSuper, sbBVec1, sbFVec1, blur=blurLevel, thSCD1=ThSCD1, thSCD2=ThSCD2)
         
         # Shutter motion blur - use motion mask to reduce blurring in areas of low motion - also helps reduce blur "bleeding" into static areas, then select blur type
         if ShutterBlur > 0 and SBlurLimit > 0:
-            sbMotionMask = self.core.avs.MMask(srchClip, bVec1, kind=0, ml=SBlurLimit)
+            sbMotionMask = self.core.mv.Mask(srchClip, bVec1, kind=0, ml=SBlurLimit)
         if ShutterBlur == 0:
             sblurred = addNoise2
         elif SBlurLimit == 0:
@@ -1548,7 +1546,7 @@ class HAvsFunc():
             output = cropped
         else:
             expr = 'x 128 - '+repr(ShowNoise)+' * 128 +'
-            output = self.core.std.Expr(finalNoise, expr if ChromaNoise else [expr, '128'])
+            output = self.core.std.Expr(finalNoise, [expr] if ChromaNoise else [expr, '128'])
         if not ShowSettings:
             return output
         else:
@@ -1671,7 +1669,7 @@ class HAvsFunc():
         # Combine above areas to find those areas of difference to restore
         expr1 = 'x 129 < x y 128 < 128 y ? ?'
         expr2 = 'x 127 > x y 128 > 128 y ? ?'
-        restore = self.core.std.Expr([self.core.std.Expr([diff, choke1], expr1 if Chroma else [expr1, '']), choke2], expr2 if Chroma else [expr2, ''])
+        restore = self.core.std.Expr([self.core.std.Expr([diff, choke1], [expr1] if Chroma else [expr1, '']), choke2], [expr2] if Chroma else [expr2, ''])
         
         return self.core.std.MergeDiff(Input, restore, planes=planes)
     
@@ -1685,7 +1683,7 @@ class HAvsFunc():
         random = self.core.grain.Add(self.core.std.BlankClip(self.core.std.SeparateFields(InterleavedClip, TFF), color=[128, 128, 128]),
                                      var=1800, uvar=1800 if ChromaNoise else 0)
         expr = 'x 128 - y * 256 / 128 +'
-        varRandom = self.core.std.Expr([self.core.std.MakeDiff(noiseMax, noiseMin, planes=planes), random], expr if ChromaNoise else [expr, ''])
+        varRandom = self.core.std.Expr([self.core.std.MakeDiff(noiseMax, noiseMin, planes=planes), random], [expr] if ChromaNoise else [expr, ''])
         newNoise = self.core.std.MergeDiff(noiseMin, varRandom, planes=planes)
         return self.Weave(self.core.std.Interleave([origNoise, newNoise]), TFF)
     
@@ -1713,10 +1711,10 @@ class HAvsFunc():
                 return y
         
         # Clean some of the artefacts caused by the above - creating a second version of the "new" fields
-        vertMedian = self.core.avs.VerticalCleaner(processed, mode=1)
+        vertMedian = self.core.rgvs.VerticalCleaner(processed, 1)
         vertMedDiff = self.core.std.MakeDiff(processed, vertMedian)
         vmNewDiff1 = self.core.std.SelectEvery(self.core.std.SeparateFields(vertMedDiff, TFF), 4, [1, 2])
-        vmNewDiff2 = self.core.std.Lut2(self.core.avs.VerticalCleaner(vmNewDiff1, mode=1), vmNewDiff1, function=get_lut)
+        vmNewDiff2 = self.core.std.Lut2(self.core.rgvs.VerticalCleaner(vmNewDiff1, 1), vmNewDiff1, function=get_lut)
         vmNewDiff3 = self.core.rgvs.Repair(vmNewDiff2, self.core.rgvs.RemoveGrain(vmNewDiff2, 2), 1)
         
         # Reweave final result
@@ -1745,7 +1743,7 @@ class HAvsFunc():
         if SourceMatch < 1 or MatchTR1 == 0:
             match1Update = Source
         else:
-            match1Update = self.core.std.Expr([Source, match1Clip], 'x '+repr(errorAdjust1+1)+' * y '+repr(errorAdjust1)+' * -')
+            match1Update = self.core.std.Expr([Source, match1Clip], ['x '+repr(errorAdjust1+1)+' * y '+repr(errorAdjust1)+' * -'])
         if SourceMatch > 0:
             match1Edi = self.QTGMC_Interpolate(match1Update, InputType, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, EdiThreads, TFF=TFF)
             if MatchTR1 > 0:
@@ -1766,7 +1764,7 @@ class HAvsFunc():
         
         # Enhance effect of source-match stages 2 & 3 by sharpening clip prior to refinement (source-match tends to underestimate so this will leave result sharper)
         if SourceMatch > 1 and MatchEnhance > 0:
-            match1Shp = self.core.std.Expr([match1, self.core.rgvs.RemoveGrain(match1, 12)], 'x x y - '+repr(MatchEnhance)+' * +')
+            match1Shp = self.core.std.Expr([match1, self.core.rgvs.RemoveGrain(match1, 12)], ['x x y - '+repr(MatchEnhance)+' * +'])
         else:
             match1Shp = match1
         
@@ -1800,7 +1798,7 @@ class HAvsFunc():
         if SourceMatch < 3 or MatchTR2 == 0:
             match3Update = match2Edi
         else:
-            match3Update = self.core.std.Expr([match2Edi, match2], 'x '+repr(errorAdjust2+1)+' * y '+repr(errorAdjust2)+' * -')
+            match3Update = self.core.std.Expr([match2Edi, match2], ['x '+repr(errorAdjust2+1)+' * y '+repr(errorAdjust2)+' * -'])
         if SourceMatch > 2:
             if MatchTR2 > 0:
                 match3Super = self.core.mv.Super(match3Update, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
@@ -1822,8 +1820,8 @@ class HAvsFunc():
     
     # ivtc_txt60mc v1.1 by cretindesalpes (http://forum.doom9.org/showthread.php?p=1466105#post1466105)
     def ivtc_txt60mc(self, src, frame_ref, srcbob=False, draft=False, tff=None):
-        if not isinstance(src, vs.VideoNode) or src.format.id != vs.YUV420P8:
-            raise ValueError('ivtc_txt60mc: This is not a YUV420P8 clip !')
+        if not isinstance(src, vs.VideoNode) or src.format.id not in (vs.YUV420P8, vs.YUV422P8):
+            raise ValueError('ivtc_txt60mc: This is not a YUV420P8 or YUV422P8 clip !')
         if not isinstance(frame_ref, int) or frame_ref < 0:
             raise ValueError("ivtc_txt60mc: 'frame_ref' have not a correct value! [>=0]")
         if not isinstance(srcbob, bool):
@@ -1855,10 +1853,10 @@ class HAvsFunc():
             jitter = self.core.std.AssumeFPS(self.core.std.Trim(last, 0, 0)+self.core.std.SelectEvery(last, 5, [4-invpos, 8-invpos]), fpsnum=24000, fpsden=1001)
         else:
             jitter = self.core.std.SelectEvery(last, 5, [3-invpos, 4-invpos])
-        jsup = self.core.avs.MSuper(jitter, pel=pel)
-        vect_f = self.core.avs.MAnalyse(jsup, blksize=blksize, isb=False, delta=1, overlap=overlap)
-        vect_b = self.core.avs.MAnalyse(jsup, blksize=blksize, isb=True, delta=1, overlap=overlap)
-        comp = self.core.avs.MFlowInter(jitter, jsup, vect_b, vect_f)
+        jsup = self.core.mv.Super(jitter, pel=pel)
+        vect_f = self.core.mv.Analyse(jsup, blksize=blksize, isb=False, delta=1, overlap=overlap)
+        vect_b = self.core.mv.Analyse(jsup, blksize=blksize, isb=True, delta=1, overlap=overlap)
+        comp = self.core.mv.FlowInter(jitter, jsup, vect_b, vect_f)
         fixed = self.core.std.SelectEvery(comp, 2, 0)
         last = self.core.std.Interleave([clean, fixed])
         return self.core.std.AssumeFPS(self.core.std.Trim(last, int(invpos/2)), fpsnum=24000, fpsden=1001)
@@ -1905,16 +1903,17 @@ class HAvsFunc():
             clp = self.core.std.ShufflePlanes(clp, planes=[0], colorfamily=vs.GRAY)
         vblur = self.core.generic.Convolution(clp, [50, 99, 50], mode='v', planes=planes)
         vblurD = self.core.std.MakeDiff(clp, vblur, planes=planes)
-        vshrp = self.core.std.Expr([vblur, self.core.generic.Convolution(vblur, [1, 4, 6, 4, 1], mode='v', planes=planes)], 'x x y - '+STR+' * +')
+        vshrp = self.core.std.Expr([vblur, self.core.generic.Convolution(vblur, [1, 4, 6, 4, 1], mode='v', planes=planes)], ['x x y - '+STR+' * +'])
         vshrpD = self.core.std.MakeDiff(vshrp, vblur, planes=planes)
         if shift > 0:
-            vlimD = self.core.std.Expr([vshrpD, vblurD], 'x '+NEU+' - y '+NEU+' - * 0 < x '+NEU+' - abs y '+NEU+' - abs < x y ? '+NEU+' - 0.25 * '+NEU+' + x '+NEU+' - abs y '+NEU+' - abs < x y ? ?')
+            vlimD = self.core.std.Expr([vshrpD, vblurD],
+                                       ['x '+NEU+' - y '+NEU+' - * 0 < x '+NEU+' - abs y '+NEU+' - abs < x y ? '+NEU+' - 0.25 * '+NEU+' + x '+NEU+' - abs y '+NEU+' - abs < x y ? ?'])
         else:
             vlimD = self.core.std.Lut2(vshrpD, vblurD, planes=planes, function=get_lut1)
         last = self.core.std.MergeDiff(vblur, vlimD, planes=planes)
         if amnt < 255:
             if shift > 0:
-                last = self.core.std.Expr([clp, last], 'x '+AMN+' + y < x '+AMN+' + x '+AMN+' - y > x '+AMN+' - y ? ?')
+                last = self.core.std.Expr([clp, last], ['x '+AMN+' + y < x '+AMN+' + x '+AMN+' - y > x '+AMN+' - y ? ?'])
             else:
                 last = self.core.std.Lut2(clp, last, planes=planes, function=get_lut2)
         if chroma:
@@ -2009,14 +2008,14 @@ class HAvsFunc():
         input_plus_u = self.core.std.ShufflePlanes(input_plus, planes=[1], colorfamily=vs.GRAY)
         input_plus_v = self.core.std.ShufflePlanes(input_plus, planes=[2], colorfamily=vs.GRAY)
         
-        average_y = self.core.std.Expr([input_minus_y, input_plus_y], 'x y - abs '+ythr+' < x y + 2 / 0 ?')
-        average_u = self.core.std.Expr([input_minus_u, input_plus_u], 'x y - abs '+cthr+' < '+peak+' 0 ?')
-        average_v = self.core.std.Expr([input_minus_v, input_plus_v], 'x y - abs '+cthr+' < '+peak+' 0 ?')
+        average_y = self.core.std.Expr([input_minus_y, input_plus_y], ['x y - abs '+ythr+' < x y + 2 / 0 ?'])
+        average_u = self.core.std.Expr([input_minus_u, input_plus_u], ['x y - abs '+cthr+' < '+peak+' 0 ?'])
+        average_v = self.core.std.Expr([input_minus_v, input_plus_v], ['x y - abs '+cthr+' < '+peak+' 0 ?'])
         
         ymask = self.core.generic.Binarize(average_y, threshold=1<<shift)
         if usemaxdiff:
-            diffplus_y = self.core.std.Expr([input_plus_y, input_y], 'x y - abs '+md+' < '+peak+' 0 ?')
-            diffminus_y = self.core.std.Expr([input_minus_y, input_y], 'x y - abs '+md+' < '+peak+' 0 ?')
+            diffplus_y = self.core.std.Expr([input_plus_y, input_y], ['x y - abs '+md+' < '+peak+' 0 ?'])
+            diffminus_y = self.core.std.Expr([input_minus_y, input_y], ['x y - abs '+md+' < '+peak+' 0 ?'])
             diffs_y = self.Logic(diffplus_y, diffminus_y, 'and')
             ymask = self.Logic(ymask, diffs_y, 'and')
         cmask = self.Logic(self.core.generic.Binarize(average_u, threshold=129<<shift), self.core.generic.Binarize(average_v, threshold=129<<shift), 'and')
@@ -2141,10 +2140,10 @@ class HAvsFunc():
         input_plus_u = self.core.std.ShufflePlanes(input_plus, planes=[1], colorfamily=vs.GRAY)
         input_plus_v = self.core.std.ShufflePlanes(input_plus, planes=[2], colorfamily=vs.GRAY)
         
-        average_y = self.Resize(self.core.std.Expr([input_minus_y, input_plus_y], 'x y - abs '+ythr+' < '+peak+' 0 ?'),
+        average_y = self.Resize(self.core.std.Expr([input_minus_y, input_plus_y], ['x y - abs '+ythr+' < '+peak+' 0 ?']),
                                 int(input.width/2), int(input.height/2), kernel='bilinear')
-        average_u = self.core.std.Expr([input_minus_u, input_plus_u], 'x y - abs '+cthr+' < x y + 2 / 0 ?')
-        average_v = self.core.std.Expr([input_minus_v, input_plus_v], 'x y - abs '+cthr+' < x y + 2 / 0 ?')
+        average_u = self.core.std.Expr([input_minus_u, input_plus_u], ['x y - abs '+cthr+' < x y + 2 / 0 ?'])
+        average_v = self.core.std.Expr([input_minus_v, input_plus_v], ['x y - abs '+cthr+' < x y + 2 / 0 ?'])
         
         umask = self.core.generic.Binarize(average_u, threshold=21<<shift)
         vmask = self.core.generic.Binarize(average_v, threshold=21<<shift)
@@ -2196,9 +2195,9 @@ class HAvsFunc():
         if nrmode is None:
             nrmode = 2 if HD else 1
         
-        if p is not None and (not isinstance(p, vs.VideoNode) or input.format.id != p.format.id):
+        if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
             raise ValueError("GSMC: 'p' must be the same format as input !")
-        if Lmask is not None and (not isinstance(Lmask, vs.VideoNode) or Lmask.format.color_family not in (vs.YUV, vs.GRAY) or input.format.bits_per_sample != Lmask.format.bits_per_sample):
+        if Lmask is not None and (not isinstance(Lmask, vs.VideoNode) or Lmask.format.color_family not in (vs.YUV, vs.GRAY) or Lmask.format.bits_per_sample != input.format.bits_per_sample):
             raise ValueError("GSMC: 'Lmask' must be the same format as input or the grayscale equivalent !")
         if not isinstance(nrmode, int) or nrmode < 0 or nrmode > 3:
             raise ValueError("GSMC: 'nrmode' have not a correct value! [0,1,2,3]")
@@ -2301,10 +2300,10 @@ class HAvsFunc():
         
         # x adapt - abs 255 * adapt 128 - abs 128 + /
         def get_lut(x):
-            return round(abs(x - (adapt << shift)) * ((255 << shift) + 2 ** shift - 1) / (abs((adapt << shift) - (128 << shift)) + (128 << shift)))
+            return round(abs(x - (adapt << shift)) * ((1 << input.format.bits_per_sample) - 1) / (abs((adapt << shift) - (128 << shift)) + (128 << shift)))
         
         if Lmask:
-            return self.core.std.MaskedMerge(input, stable, Lmask, planes=planes, first_plane=True)
+            return self.core.std.MaskedMerge(input, stable, Lmask, planes=planes)
         elif adapt == -1:
             return stable
         else:
@@ -3069,15 +3068,15 @@ class HAvsFunc():
         c_src = c
         c = self.core.std.ShufflePlanes(c, planes=[0], colorfamily=vs.GRAY)
         exin = self.core.generic.Minimum(self.core.generic.Maximum(c, threshold=int(peak/(protection+1))))
-        thick = self.core.std.Expr([c, exin], 'y '+lum+' < y '+lum+' ? x '+thr+' + > x y '+lum+' < y '+lum+' ? - 0 ? '+Str+' * x +')
+        thick = self.core.std.Expr([c, exin], ['y '+lum+' < y '+lum+' ? x '+thr+' + > x y '+lum+' < y '+lum+' ? - 0 ? '+Str+' * x +'])
         
         if thinning == 0:
             last = thick
         else:
-            diff = self.core.std.Expr([c, exin], 'y '+lum+' < y '+lum+' ? x '+thr+' + > x y '+lum+' < y '+lum+' ? - 0 ? '+repr(127<<shift)+' +')
+            diff = self.core.std.Expr([c, exin], ['y '+lum+' < y '+lum+' ? x '+thr+' + > x y '+lum+' < y '+lum+' ? - 0 ? '+repr(127<<shift)+' +'])
             linemask = self.core.rgvs.RemoveGrain(
-              self.core.std.Expr(self.core.generic.Minimum(diff), 'x '+repr(127<<shift)+' - '+thn+' * '+repr(255<<shift)+' +'), 20)
-            thin = self.core.std.Expr([self.core.generic.Maximum(c), diff], 'x y '+repr(127<<shift)+' - '+Str+' 1 + * +')
+              self.core.std.Expr([self.core.generic.Minimum(diff)], ['x '+repr(127<<shift)+' - '+thn+' * '+repr(255<<shift)+' +']), 20)
+            thin = self.core.std.Expr([self.core.generic.Maximum(c), diff], ['x y '+repr(127<<shift)+' - '+Str+' 1 + * +'])
             last = self.core.std.MaskedMerge(thin, thick, linemask)
         return self.core.std.ShufflePlanes([last, c_src], planes=[0, 1, 2], colorfamily=vs.YUV)
     
@@ -3130,7 +3129,7 @@ class HAvsFunc():
             # To do: use a simple frame blending instead of Merge
             last = self.core.rgvs.Repair(main, nrng, 1)
             if nrb:
-                nrm = self.core.std.BlankClip(main, color=[nrv, nrv, nrv] if main.format.num_planes==3 else nrv)
+                nrm = self.core.std.BlankClip(main, color=[nrv, nrv, nrv] if main.format.num_planes==3 else [nrv])
                 last = self.core.std.MaskedMerge(main, last, nrm)
         else:
             last = main
@@ -3665,7 +3664,7 @@ class HAvsFunc():
         preblur = preblur.lower()
         if not isinstance(secure, bool):
             raise ValueError("LSFmod: 'secure' must be bool")
-        if source is not None and (not isinstance(source, vs.VideoNode) or input.format.id != source.format.id):
+        if source is not None and (not isinstance(source, vs.VideoNode) or source.format.id != input.format.id):
             raise ValueError("LSFmod: 'source' must be the same format as input !")
         if not isinstance(Szrp, int) or Szrp < 1 or Szrp > 255:
             raise ValueError("LSFmod: 'Szrp' have not a correct value! [1...255]")
@@ -3773,7 +3772,7 @@ class HAvsFunc():
             diff1 = self.core.std.MakeDiff(tmp, self.core.rgvs.RemoveGrain(tmp, 11))
             diff2 = self.core.std.MakeDiff(tmp, self.core.rgvs.RemoveGrain(tmp, 4))
             if shift > 0:
-                clip2 = self.core.std.Expr([diff1, diff2], 'x '+neutral+' - y '+neutral+' - * 0 < '+neutral+' x '+neutral+' - abs y '+neutral+' - abs < x y ? ?')
+                clip2 = self.core.std.Expr([diff1, diff2], ['x '+neutral+' - y '+neutral+' - * 0 < '+neutral+' x '+neutral+' - abs y '+neutral+' - abs < x y ? ?'])
             else:
                 clip2 = self.core.std.Lut2(diff1, diff2, function=get_lut1)
             pre = self.core.std.MakeDiff(tmp, clip2)
@@ -3792,13 +3791,13 @@ class HAvsFunc():
             method = self.core.rgvs.RemoveGrain(minmaxavg, kernel)
         
         if secure:
-            method = self.core.std.Expr([method, pre], 'x y < x '+repr(1<<shift)+' + x y > x '+repr(1<<shift)+' - x ? ?')
+            method = self.core.std.Expr([method, pre], ['x y < x '+repr(1<<shift)+' + x y > x '+repr(1<<shift)+' - x ? ?'])
         
         if preblur != 'off':
             method = self.core.std.MakeDiff(tmp, self.core.std.MakeDiff(pre, method))
         
         if Smode == 1:
-            normsharp = self.core.std.Expr([tmp, method], 'x x y - '+repr(Str)+' * +')
+            normsharp = self.core.std.Expr([tmp, method], ['x x y - '+repr(Str)+' * +'])
         else:
             sharpdiff = self.core.std.MakeDiff(tmp, method)
             sharpdiff = self.core.std.Lut(sharpdiff, function=get_lut2)
@@ -3810,9 +3809,9 @@ class HAvsFunc():
         zero = self.Clamp(normsharp, bright_limit, dark_limit, 0, 0)
         
         if edgemaskHQ:
-            edge = self.core.std.Lut(self.Logic(self.core.generic.Convolution(tmp, [8, 16, 8, 0, 0, 0, -8, -16, -8], divisor=4, saturate=False),
-                                                self.core.generic.Convolution(tmp, [8, 0, -8, 16, 0, -16, 8, 0, -8], divisor=4, saturate=False),
-                                                'max'),
+            edge = self.core.std.Lut(self.core.std.Expr([self.core.generic.Convolution(tmp, [8, 16, 8, 0, 0, 0, -8, -16, -8], divisor=4, saturate=False),
+                                                         self.core.generic.Convolution(tmp, [8, 0, -8, 16, 0, -16, 8, 0, -8], divisor=4, saturate=False)],
+                                                        ['x y max']),
                                      function=get_lut3)
         else:
             edge = self.core.std.Lut(self.core.generic.Sobel(tmp, rshift=2), function=get_lut4)
@@ -3845,7 +3844,7 @@ class HAvsFunc():
             sharpdiff2 = self.core.rgvs.RemoveGrain(sharpdiff, 19)
             if shift > 0:
                 sharpdiff3 = self.core.std.Expr([sharpdiff, sharpdiff2],
-                                                'x '+neutral+' - abs y '+neutral+' - abs > y '+repr(soft)+' * x '+repr(100-soft)+' * + 100 / x ?')
+                                                ['x '+neutral+' - abs y '+neutral+' - abs > y '+repr(soft)+' * x '+repr(100-soft)+' * + 100 / x ?'])
             else:
                 sharpdiff3 = self.core.std.Lut2(sharpdiff, sharpdiff2, function=get_lut5)
             PP1 = self.core.std.MakeDiff(tmp, sharpdiff3)
@@ -3855,7 +3854,9 @@ class HAvsFunc():
             diff = self.core.std.MakeDiff(tmp, PP1)
             diff2 = self.TemporalSoften(diff, 1, 255<<shift, 0, 32<<shift, 2)
             if shift > 0:
-                diff3 = self.core.std.Expr([diff, diff2], 'x '+neutral+' - y '+neutral+' - * 0 < x '+neutral+' - 100 / '+repr(keep)+' * '+neutral+' + x '+neutral+' - abs y '+neutral+' - abs > x '+repr(keep)+' * y 100 '+repr(keep)+' - * + 100 / x ? ?')
+                diff3 = self.core.std.Expr(
+                  [diff, diff2],
+                  ['x '+neutral+' - y '+neutral+' - * 0 < x '+neutral+' - 100 / '+repr(keep)+' * '+neutral+' + x '+neutral+' - abs y '+neutral+' - abs > x '+repr(keep)+' * y 100 '+repr(keep)+' - * + 100 / x ? ?'])
             else:
                 diff3 = self.core.std.Lut2(diff, diff2, function=get_lut6)
             PP2 = self.core.std.MakeDiff(tmp, diff3)
@@ -3975,7 +3976,7 @@ class HAvsFunc():
         th3 <<= shift
         th4 <<= shift
         
-        color = [128 << shift, 128 << shift, 128 << shift] if clp.format.num_planes == 3 else 128 << shift
+        color = [128 << shift, 128 << shift, 128 << shift] if clp.format.num_planes == 3 else [128 << shift]
         grainlayer1 = self.core.grain.Add(self.core.std.BlankClip(clp, width=sx1, height=sy1, color=color), g1str)
         if sx1 != ox or sy1 != oy:
             if g1size > 1.5:
@@ -4019,7 +4020,7 @@ class HAvsFunc():
                                                grainlayer3, self.core.std.Lut(clp, planes=[0], function=get_lut2), planes=[0])
         if temp_avg > 0:
             grainlayer = self.core.std.Merge(grainlayer, self.TemporalSoften(grainlayer, 1, 255<<shift, 0, 0, 2),
-                                             weight=[tmpavg, 0] if clp.format.num_planes==3 else tmpavg)
+                                             weight=[tmpavg, 0] if clp.format.num_planes==3 else [tmpavg])
         if ontop_grain > 0:
             grainlayer = self.core.grain.Add(grainlayer, ontop_grain)
         
@@ -4210,11 +4211,11 @@ class HAvsFunc():
             if lsb_in:
                 cb1 = self.core.fmtc.stack16tonative(self.core.avs.Dither_limit_dif16(original, self.Dither_convert_8_to_16(cb1), thr=1, elast=2))
                 cf1 = self.core.fmtc.stack16tonative(self.core.avs.Dither_limit_dif16(original, self.Dither_convert_8_to_16(cf1), thr=1, elast=2))
-                pmax = self.Logic(self.Logic(self.core.fmtc.stack16tonative(original), cb1, 'max', planes=[0]), cf1, 'max', planes=[0])
-                pmin = self.Logic(self.Logic(self.core.fmtc.stack16tonative(original), cb1, 'min', planes=[0]), cf1, 'min', planes=[0])
+                pmax = self.core.std.Expr([self.core.std.Expr([self.core.fmtc.stack16tonative(original), cb1], ['x y max', '']), cf1], ['x y max', ''])
+                pmin = self.core.std.Expr([self.core.std.Expr([self.core.fmtc.stack16tonative(original), cb1], ['x y min', '']), cf1], ['x y min', ''])
             else:
-                pmax = self.Logic(self.Logic(original, cb1, 'max', planes=[0]), cf1, 'max', planes=[0])
-                pmin = self.Logic(self.Logic(original, cb1, 'min', planes=[0]), cf1, 'min', planes=[0])
+                pmax = self.core.std.Expr([self.core.std.Expr([original, cb1], ['x y max', '']), cf1], ['x y max', ''])
+                pmin = self.core.std.Expr([self.core.std.Expr([original, cb1], ['x y min', '']), cf1], ['x y min', ''])
                 if lsb:
                     pmax = self.core.fmtc.bitdepth(pmax, bits=16)
                     pmin = self.core.fmtc.bitdepth(pmin, bits=16)
@@ -4283,24 +4284,24 @@ class HAvsFunc():
             Y4 = Y11 = Y20 = 0
             Yexpr = ''
         if 1 in planes:
-            U4 = Y4
-            U11 = Y11
-            U20 = Y20
-            Uexpr = Yexpr
+            U4 = 4
+            U11 = 11
+            U20 = 20
+            Uexpr = 'x 32768 - y 32768 - * 0 < 32768 x 32768 - abs y 32768 - abs < x y ? ?'
         else:
-            U4 = U11 = U20 = Y4
-            Uexpr = Yexpr
+            U4 = U11 = U20 = 0
+            Uexpr = ''
         if 2 in planes:
-            V4 = Y4
-            V11 = Y11
-            V20 = Y20
-            Vexpr = Yexpr
+            V4 = 4
+            V11 = 11
+            V20 = 20
+            Vexpr = 'x 32768 - y 32768 - * 0 < 32768 x 32768 - abs y 32768 - abs < x y ? ?'
         else:
-            V4 = V11 = V20 = Y4
-            Vexpr = Yexpr
-        M4 = [Y4] if clp.format.num_planes == 1 else [Y4, U4, V4]
-        M11 = [Y11] if clp.format.num_planes == 1 else [Y11, U11, V11]
-        M20 = [Y20] if clp.format.num_planes == 1 else [Y20, U20, V20]
+            V4 = V11 = V20 = 0
+            Vexpr = ''
+        M4 = [Y4, U4, V4] if clp.format.num_planes == 3 else [Y4]
+        M11 = [Y11, U11, V11] if clp.format.num_planes == 3 else [Y11]
+        M20 = [Y20, U20, V20] if clp.format.num_planes == 3 else [Y20]
         
         # x 128 - y 128 - * 0 < 128 x 128 - abs y 128 - abs < x y ? ?
         def get_lut(x, y):
@@ -4339,7 +4340,7 @@ class HAvsFunc():
         RG11D = self.core.std.MakeDiff(clp, RG11, planes=planes)
         RG4D = self.core.std.MakeDiff(clp, RG4, planes=planes)
         if lsb or lsb_in:
-            DD = self.core.std.Expr([RG11D, RG4D], [Yexpr] if clp.format.num_planes==1 else [Yexpr, Uexpr, Vexpr])
+            DD = self.core.std.Expr([RG11D, RG4D], [Yexpr, Uexpr, Vexpr] if clp.format.num_planes==3 else [Yexpr])
         else:
             DD = self.core.std.Lut2(RG11D, RG4D, planes=planes, function=get_lut)
         last = self.core.std.MakeDiff(clp, DD, planes=planes)
@@ -4367,21 +4368,21 @@ class HAvsFunc():
             Y11 = Y20 = 0
             Yexpr = ''
         if 1 in planes:
-            U11 = Y11
-            U20 = Y20
-            Uexpr = Yexpr
+            U11 = 11
+            U20 = 20
+            Uexpr = 'x y - x '+neutral+' - * 0 < '+neutral+' x y - abs x '+neutral+' - abs < x y - '+neutral+' + x ? ?'
         else:
-            U11 = U20 = Y11
-            Uexpr = Yexpr
+            U11 = U20 = 0
+            Uexpr = ''
         if 2 in planes:
-            V11 = Y11
-            V20 = Y20
-            Vexpr = Yexpr
+            V11 = 11
+            V20 = 20
+            Vexpr = 'x y - x '+neutral+' - * 0 < '+neutral+' x y - abs x '+neutral+' - abs < x y - '+neutral+' + x ? ?'
         else:
-            V11 = V20 = Y11
-            Vexpr = Yexpr
-        M11 = [Y11] if clp.format.num_planes == 1 else [Y11, U11, V11]
-        M20 = [Y20] if clp.format.num_planes == 1 else [Y20, U20, V20]
+            V11 = V20 = 0
+            Vexpr = ''
+        M11 = [Y11, U11, V11] if clp.format.num_planes == 3 else [Y11]
+        M20 = [Y20, U20, V20] if clp.format.num_planes == 3 else [Y20]
         
         # x y - x 128 - * 0 < 128 x y - abs x 128 - abs < x y - 128 + x ? ?
         def get_lut(x, y):
@@ -4406,7 +4407,7 @@ class HAvsFunc():
         else:
             RG11DS = self.core.rgvs.RemoveGrain(self.core.rgvs.RemoveGrain(self.core.rgvs.RemoveGrain(RG11D, M11), M20), M20)
         if shift > 0:
-            RG11DD = self.core.std.Expr([RG11D, RG11DS], [Yexpr] if clp.format.num_planes==1 else [Yexpr, Uexpr, Vexpr])
+            RG11DD = self.core.std.Expr([RG11D, RG11DS], [Yexpr, Uexpr, Vexpr] if clp.format.num_planes==3 else [Yexpr])
         else:
             RG11DD = self.core.std.Lut2(RG11D, RG11DS, planes=planes, function=get_lut)
         return self.core.std.MakeDiff(clp, RG11DD, planes=planes)
@@ -4450,15 +4451,14 @@ class HAvsFunc():
         if isinstance(planes, int):
             planes = [planes]
         
-        shift = cnew.format.bits_per_sample - 8
-        edgelvl <<= shift
+        edgelvl <<= cnew.format.bits_per_sample - 8
         
         cedgn = self.core.generic.Prewitt(cnew, edgelvl, edgelvl, planes=planes)
         
         m = cedgn
         if cold_flag:
             cedgo = self.core.generic.Prewitt(cold, edgelvl, edgelvl, planes=planes)
-            expr = 'x y = 0 '+repr((255 << shift) + 2 ** shift - 1)+' ?'
+            expr = 'x y = 0 '+repr((1 << cnew.format.bits_per_sample) - 1)+' ?'
             if cnew.format.num_planes == 3:
                 expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
             cdif = self.core.std.Expr([cold, cnew], expr)
