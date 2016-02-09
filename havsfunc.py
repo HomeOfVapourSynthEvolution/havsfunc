@@ -131,7 +131,7 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, aac=None, nsize
     else:
         return c
 
-def santiag_dir(c, strength=None, type=None, halfres=None, kernel=None, nns=None, aa=None, aac=None, nsize=None, vcheck=None, fw=None, fh=None):
+def santiag_dir(c, strength, type, halfres, kernel=None, nns=None, aa=None, aac=None, nsize=None, vcheck=None, fw=None, fh=None):
     core = vs.get_core()
     
     if fw is None:
@@ -139,15 +139,14 @@ def santiag_dir(c, strength=None, type=None, halfres=None, kernel=None, nns=None
     if fh is None:
         fh = c.height
     
+    c = santiag_stronger(c, strength, type, halfres, nns, aa, aac, nsize, vcheck)
+    
     cshift = 0 if halfres else 0.5
     if c.format.color_family != vs.GRAY:
         cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-    
-    c = santiag_stronger(c, strength, type, halfres, nns, aa, aac, nsize, vcheck)
-    
     return Resize(c, fw, fh, sy=cshift, kernel=kernel)
 
-def santiag_stronger(c, strength=None, type=None, halfres=None, nns=None, aa=None, aac=None, nsize=None, vcheck=None):
+def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, aac=None, nsize=None, vcheck=None):
     core = vs.get_core()
     
     strength = max(strength, 0)
@@ -1215,6 +1214,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         lossed2 = QTGMC_MakeLossless(sharpLimit2, innerClip, InputType, TFF)
     else:
         lossed2 = sharpLimit2
+    lossed2 = core.std.SetFrameProp(lossed2, prop='_FieldBased', intval=0)
     
     # Add back any extracted noise, after final temporal smooth. This will appear as noise/grain in the output
     # Average luma of FFT3DFilter extracted noise is 128.5, so deal with that too
@@ -1238,17 +1238,15 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     rBlockDivide = [1, 1, 2, 4][ShutterBlur]
     rBlockSize = BlockSize // rBlockDivide
     rOverlap = Overlap // rBlockDivide
-    if rBlockSize < 4:
-        rBlockSize = 4
-    if rOverlap < 2:
-        rOverlap = 2
+    rBlockSize = max(rBlockSize, 4)
+    rOverlap = max(rOverlap, 2)
     rBlockDivide = BlockSize // rBlockSize
     rLambda = Lambda // (rBlockDivide * rBlockDivide)
     if ShutterBlur > 1:
         sbBVec1 = core.mv.Recalculate(srchSuper, bVec1, thsad=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam,
-                                      truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, chroma=ChromaMotion)
+                                      truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT, chroma=ChromaMotion)
         sbFVec1 = core.mv.Recalculate(srchSuper, fVec1, thsad=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam,
-                                      truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, chroma=ChromaMotion)
+                                      truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT, chroma=ChromaMotion)
     elif ShutterBlur > 0:
         sbBVec1 = bVec1
         sbFVec1 = fVec1
@@ -2284,16 +2282,20 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
                 fv6 = core.mv.Analyse(super_search, isb=False, delta=6, overlap=overlap, blksize=blksize, search=search, chroma=chroma,
                                       truemotion=truemotion, _global=MVglobal, dct=dct)
                 if RefineMotion:
-                    bv6 = core.mv.Recalculate(Recalculate, bv6, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma, truemotion=truemotion)
-                    fv6 = core.mv.Recalculate(Recalculate, fv6, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma, truemotion=truemotion)
+                    bv6 = core.mv.Recalculate(Recalculate, bv6, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma,
+                                              truemotion=truemotion, dct=dct)
+                    fv6 = core.mv.Recalculate(Recalculate, fv6, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma,
+                                              truemotion=truemotion, dct=dct)
             if tr > 1:
                 bv4 = core.mv.Analyse(super_search, isb=True, delta=4, overlap=overlap, blksize=blksize, search=search, chroma=chroma,
                                       truemotion=truemotion, _global=MVglobal, dct=dct)
                 fv4 = core.mv.Analyse(super_search, isb=False, delta=4, overlap=overlap, blksize=blksize, search=search, chroma=chroma,
                                       truemotion=truemotion, _global=MVglobal, dct=dct)
                 if RefineMotion:
-                    bv4 = core.mv.Recalculate(Recalculate, bv4, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma, truemotion=truemotion)
-                    fv4 = core.mv.Recalculate(Recalculate, fv4, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma, truemotion=truemotion)
+                    bv4 = core.mv.Recalculate(Recalculate, bv4, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma,
+                                              truemotion=truemotion, dct=dct)
+                    fv4 = core.mv.Recalculate(Recalculate, fv4, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma,
+                                              truemotion=truemotion, dct=dct)
         else:
             if tr > 2:
                 bv3 = core.mv.Analyse(super_search, isb=True, delta=3, overlap=overlap, blksize=blksize, search=search, chroma=chroma,
@@ -2301,23 +2303,29 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
                 fv3 = core.mv.Analyse(super_search, isb=False, delta=3, overlap=overlap, blksize=blksize, search=search, chroma=chroma,
                                       truemotion=truemotion, _global=MVglobal, dct=dct)
                 if RefineMotion:
-                    bv3 = core.mv.Recalculate(Recalculate, bv3, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma, truemotion=truemotion)
-                    fv3 = core.mv.Recalculate(Recalculate, fv3, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma, truemotion=truemotion)
+                    bv3 = core.mv.Recalculate(Recalculate, bv3, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma,
+                                              truemotion=truemotion, dct=dct)
+                    fv3 = core.mv.Recalculate(Recalculate, fv3, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma,
+                                              truemotion=truemotion, dct=dct)
             bv1 = core.mv.Analyse(super_search, isb=True, delta=1, overlap=overlap, blksize=blksize, search=search, chroma=chroma,
                                   truemotion=truemotion, _global=MVglobal, dct=dct)
             fv1 = core.mv.Analyse(super_search, isb=False, delta=1, overlap=overlap, blksize=blksize, search=search, chroma=chroma,
                                   truemotion=truemotion, _global=MVglobal, dct=dct)
             if RefineMotion:
-                bv1 = core.mv.Recalculate(Recalculate, bv1, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma, truemotion=truemotion)
-                fv1 = core.mv.Recalculate(Recalculate, fv1, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma, truemotion=truemotion)
+                bv1 = core.mv.Recalculate(Recalculate, bv1, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma,
+                                          truemotion=truemotion, dct=dct)
+                fv1 = core.mv.Recalculate(Recalculate, fv1, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma,
+                                          truemotion=truemotion, dct=dct)
         if interlaced or tr > 1:
             bv2 = core.mv.Analyse(super_search, isb=True, delta=2, overlap=overlap, blksize=blksize, search=search, chroma=chroma,
                                   truemotion=truemotion, _global=MVglobal, dct=dct)
             fv2 = core.mv.Analyse(super_search, isb=False, delta=2, overlap=overlap, blksize=blksize, search=search, chroma=chroma,
                                   truemotion=truemotion, _global=MVglobal, dct=dct)
             if RefineMotion:
-                bv2 = core.mv.Recalculate(Recalculate, bv2, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma, truemotion=truemotion)
-                fv2 = core.mv.Recalculate(Recalculate, fv2, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma, truemotion=truemotion)
+                bv2 = core.mv.Recalculate(Recalculate, bv2, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma,
+                                          truemotion=truemotion, dct=dct)
+                fv2 = core.mv.Recalculate(Recalculate, fv2, overlap=halfoverlap, blksize=halfblksize, thsad=halfthSAD, chroma=chroma,
+                                          truemotion=truemotion, dct=dct)
     else:
         super_render = super_search
     
@@ -3566,7 +3574,7 @@ def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 
     if isinstance(planes, int):
         planes = [planes]
     
-    expr = 'x y {overshoot} + > y {overshoot} + x ? z {undershoot} - < z {undershoot} - x ?'.format(overshoot=overshoot, undershoot=undershoot)
+    expr = 'x y {overshoot} + > y {overshoot} + x ? z {undershoot} - < z {undershoot} - x y {overshoot} + > y {overshoot} + x ? ?'.format(overshoot=overshoot, undershoot=undershoot)
     if clip.format.color_family != vs.GRAY:
         expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
     
@@ -3903,19 +3911,17 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
         if bits == 16:
             s16 = clp
             RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=2, planes=planes)
+            RG4 = LimitDiff(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
         else:
             RG4 = core.ctmf.CTMF(clp, radius=2, planes=planes)
-        if bits == 16:
-            RG4 = LimitDiff(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
     else:
         RG11 = core.rgvs.RemoveGrain(clp, M11).rgvs.RemoveGrain(M20).rgvs.RemoveGrain(M20)
         if bits == 16:
             s16 = clp
             RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=3, planes=planes)
+            RG4 = LimitDiff(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
         else:
             RG4 = core.ctmf.CTMF(clp, radius=3, planes=planes)
-        if bits == 16:
-            RG4 = LimitDiff(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
     RG11D = core.std.MakeDiff(clp, RG11, planes=planes)
     RG4D = core.std.MakeDiff(clp, RG4, planes=planes)
     DD = core.std.Expr([RG11D, RG4D], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
