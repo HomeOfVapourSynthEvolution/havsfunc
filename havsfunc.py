@@ -3447,7 +3447,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
                               core.std.Convolution(tmp, matrix=[8, 0, -8, 16, 0, -16, 8, 0, -8], divisor=4, saturate=False)],
                              ['x y max']).std.Lut(function=get_lut2)
     else:
-        edge = core.std.Sobel(tmp, rshift=2).std.Lut(function=get_lut3)
+        edge = core.std.Expr([core.std.Maximum(tmp), core.std.Minimum(tmp)], ['x y -']).std.Lut(function=get_lut3)
     
     if Lmode < 0:
         limit1 = core.rgvs.Repair(normsharp, tmp, abs(Lmode))
@@ -3474,17 +3474,16 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         PP1 = limit2
     else:
         sharpdiff = core.std.MakeDiff(tmp, limit2)
-        sharpdiff2 = core.rgvs.RemoveGrain(sharpdiff, 19)
-        sharpdiff3 = core.std.Expr([sharpdiff, sharpdiff2],
-                                   ['x {neutral} - abs y {neutral} - abs > y {soft} * x {i} * + 100 / x ?'.format(neutral=neutral, soft=soft, i=100 - soft)])
-        PP1 = core.std.MakeDiff(tmp, sharpdiff3)
+        sharpdiff = core.std.Expr([sharpdiff, core.rgvs.RemoveGrain(sharpdiff, 19)],
+                                  ['x {neutral} - abs y {neutral} - abs > y {soft} * x {i} * + 100 / x ?'.format(neutral=neutral, soft=soft, i=100 - soft)])
+        PP1 = core.std.MakeDiff(tmp, sharpdiff)
     
     ### SOOTHE
     if soothe:
         diff = core.std.MakeDiff(tmp, PP1)
-        diff2 = TemporalSoften(diff, 1, 255 << shift, 0, 32 << shift, 2)
-        diff3 = core.std.Expr([diff, diff2], ['x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {i} * + 100 / x ? ?'.format(neutral=neutral, keep=keep, i=100 - keep)])
-        PP2 = core.std.MakeDiff(tmp, diff3)
+        diff = core.std.Expr([diff, TemporalSoften(diff, 1, 255 << shift, 0, 32 << shift, 2)],
+                             ['x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {i} * + 100 / x ? ?'.format(neutral=neutral, keep=keep, i=100 - keep)])
+        PP2 = core.std.MakeDiff(tmp, diff)
     else:
         PP2 = PP1
     
