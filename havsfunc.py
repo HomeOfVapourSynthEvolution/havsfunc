@@ -2447,15 +2447,14 @@ def SigmoidInverse(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
         raise TypeError('SigmoidInverse: This is not a 16-bit clip')
     
-    if src.format.color_family == vs.GRAY:
-        planes = [0]
+    x0 = 1 / (1 + math.exp(cont * thr))
+    x1m0 = 1 / (1 + math.exp(cont * (thr - 1))) - x0
     
-    def get_lut(x):
-        x0 = 1 / (1 + math.exp(cont * thr))
-        x1 = 1 / (1 + math.exp(cont * (thr - 1)))
-        return min(max(round((thr - math.log(max(1 / max(x / 65536 * (x1 - x0) + x0, 0.000001) - 1, 0.000001)) / cont) * 65536), 0), 65535)
+    expr = '{thr} 1 x 65536 / {x1m0} * {x0} + 0.000001 max / 1 - 0.000001 max log {cont} / - 65536 *'.format(thr=thr, x1m0=x1m0, x0=x0, cont=cont)
+    if src.format.color_family != vs.GRAY:
+        expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
     
-    return core.std.Lut(src, planes=planes, function=get_lut)
+    return core.std.Expr([src], expr)
 
 # Convert back a clip to linear luminance
 def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
@@ -2464,15 +2463,14 @@ def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
         raise TypeError('SigmoidDirect: This is not a 16-bit clip')
     
-    if src.format.color_family == vs.GRAY:
-        planes = [0]
+    x0 = 1 / (1 + math.exp(cont * thr))
+    x1m0 = 1 / (1 + math.exp(cont * (thr - 1))) - x0
     
-    def get_lut(x):
-        x0 = 1 / (1 + math.exp(cont * thr))
-        x1 = 1 / (1 + math.exp(cont * (thr - 1)))
-        return min(max(round(((1 / (1 + math.exp(cont * (thr - x / 65536))) - x0) / (x1 - x0)) * 65536), 0), 65535)
+    expr = '1 1 {cont} {thr} x 65536 / - * exp + / {x0} - {x1m0} / 65536 *'.format(cont=cont, thr=thr, x0=x0, x1m0=x1m0)
+    if src.format.color_family != vs.GRAY:
+        expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
     
-    return core.std.Lut(src, planes=planes, function=get_lut)
+    return core.std.Expr([src], expr)
 
 
 # Parameters:
@@ -2566,25 +2564,9 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
         else:
             grainlayer3 = Resize(grainlayer3, ox, oy, kernel='bicubic', a1=b3, a2=c3)
     
-    # x th1 < 0 x th2 > 255 255 th2 th1 - / x th1 - * ? ?
-    def get_lut1(x):
-        if x < th1:
-            return 0
-        elif x > th2:
-            return peak
-        else:
-            return min(max(round(peak / (th2 - th1) * (x - th1)), 0), peak)
-    # x th3 < 0 x th4 > 255 255 th4 th3 - / x th3 - * ? ?
-    def get_lut2(x):
-        if x < th3:
-            return 0
-        elif x > th4:
-            return peak
-        else:
-            return min(max(round(peak / (th4 - th3) * (x - th3)), 0), peak)
-    
-    grainlayer = core.std.MaskedMerge(core.std.MaskedMerge(grainlayer1, grainlayer2, core.std.Lut(clp, function=get_lut1)), grainlayer3,
-                                      core.std.Lut(clp, function=get_lut2))
+    expr1 = 'x {th1} < 0 x {th2} > {peak} {peak} {th2} {th1} - / x {th1} - * ? ?'.format(th1=th1, th2=th2, peak=peak)
+    expr2 = 'x {th3} < 0 x {th4} > {peak} {peak} {th4} {th3} - / x {th3} - * ? ?'.format(th3=th3, th4=th4, peak=peak)
+    grainlayer = core.std.MaskedMerge(core.std.MaskedMerge(grainlayer1, grainlayer2, core.std.Expr([clp], [expr1])), grainlayer3, core.std.Expr([clp], [expr2]))
     if temp_avg > 0:
         grainlayer = core.std.Merge(grainlayer, TemporalSoften(grainlayer, 1, 255 << shift, 0, 0, 2), weight=[tmpavg])
     if ontop_grain > 0:
@@ -4032,28 +4014,14 @@ def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
     shift = src.format.bits_per_sample - 8
     
     isGray = src.format.color_family == vs.GRAY
-    if not (chroma or isGray):
-        src_src = src
-        src = core.std.ShufflePlanes([src], planes=[0], colorfamily=vs.GRAY)
-    else:
-        src_src = None
     
-    def get_lut(x):
-        tmp1 = 16 << shift
-        tmp2 = 219 << shift
-        tmp3 = 256 << shift
-        k = (s0 - 1) * c
-        t = min(max((x - tmp1) / tmp2, 0), 1)
-        return min(round((k * (1 + c - (1 + c) * c / (t + c)) + t * (1 - k)) * tmp3), (1 << src.format.bits_per_sample) - 1)
+    k = (s0 - 1) * c
+    t = 'x {} - {} / 0 max 1 min'.format(16 << shift, 219 << shift)
+    c1 = 1 + c
+    c2 = c1 * c
+    e = '{k} {c1} {c2} {t} {c} + / - * {t} 1 {k} - * + {i} *'.format(k=k, c1=c1, c2=c2, t=t, c=c, i=256 << shift)
     
-    last = core.std.Lut(src, planes=[0], function=get_lut)
-    if src_src is not None:
-        last = core.std.ShufflePlanes([last, src_src], planes=[0, 1, 2], colorfamily=src_src.format.color_family)
-    
-    if chroma and not isGray:
-        return core.std.Expr([last], ['', 'x {neutral} - 128 * 112 / {neutral} +'.format(neutral=128 << shift)])
-    else:
-        return last
+    return core.std.Expr([src], [e] if isGray else [e, 'x {neutral} - 128 * 112 / {neutral} +'.format(neutral=128 << shift) if chroma else ''])
 
 
 #=============================================================================
