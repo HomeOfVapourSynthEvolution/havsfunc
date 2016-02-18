@@ -2238,13 +2238,19 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
             pref = inputP
         elif prefilter == 0:
             pref = MinBlur(inputP, 0, planes=planes)
-        elif prefilter <= 3:
-            pref = sbr(inputP, prefilter, planes=planes)
-        else:
+        elif prefilter == 3:
+            expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale(16, bits), j=scale(75, bits), peak=(1 << bits) - 1)
+            pref = core.std.MaskedMerge(core.dfttest.DFTTest(inputP, tbsize=1, sstring='0.0:4.0 0.2:9.0 1.0:15.0', planes=planes),
+                                        inputP,
+                                        core.std.Expr([core.std.ShufflePlanes([inputP], planes=[0], colorfamily=vs.GRAY)], [expr]),
+                                        planes=planes)
+        elif prefilter >= 4:
             if chroma:
-                pref = KNLMeansCL(inputP, d=1, a=1, h=7, device_type='GPU')
+                pref = KNLMeansCL(inputP, d=1, a=1, h=7)
             else:
-                pref = core.knlm.KNLMeansCL(inputP, d=1, a=1, h=7, device_type='GPU')
+                pref = core.knlm.KNLMeansCL(inputP, d=1, a=1, h=7)
+        else:
+            pref = sbr(inputP, prefilter, planes=planes)
     else:
         pref = inputP
     
