@@ -1,4 +1,5 @@
 import vapoursynth as vs
+import mvsfunc as mvf
 import functools
 import math
 
@@ -33,7 +34,6 @@ Utility functions:
     ChangeFPS
     Clamp
     KNLMeansCL
-    LimitDiff
     Overlay
     Padding
     Resize
@@ -502,7 +502,7 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     if (thr <= 0 and darkthr <= 0) or (thr >= 128 and darkthr >= 128):
         limitclp = repclp
     else:
-        limitclp = LimitDiff(repclp, input, thr=thr, elast=elast, darkthr=darkthr, planes=planes)
+        limitclp = mvf.LimitFilter(repclp, input, thr=thr, elast=elast, brighten_thr=darkthr, planes=planes)
     
     # Post-Process: Ringing Mask Generating
     if ringmask is None:
@@ -3586,86 +3586,6 @@ def KNLMeansCL(clip, d=None, a=None, s=None, wmode=None, h=None, device_type=Non
     return core.std.ShufflePlanes([Y, U, V], planes=[0, 0, 0], colorfamily=clip.format.color_family)
 
 
-def LimitDiff(filtered, original, smooth=True, thr=1., elast=None, darkthr=None, planes=[0, 1, 2]):
-    core = vs.get_core()
-    
-    if not (isinstance(filtered, vs.VideoNode) and isinstance(original, vs.VideoNode)):
-        raise TypeError('LimitDiff: This is not a clip')
-    if filtered.format.id != original.format.id:
-        raise TypeError('LimitDiff: clips must have the same format')
-    
-    bits = filtered.format.bits_per_sample
-    neutral = 1 << (bits - 1)
-    
-    if elast is None:
-        elast = 3. if smooth else 128 / thr
-    if darkthr is None:
-        darkthr = thr
-    
-    if filtered.format.color_family == vs.GRAY:
-        planes = [0]
-    if isinstance(planes, int):
-        planes = [planes]
-    
-    if thr <= 0 and darkthr <= 0:
-        return original
-    elif thr >= 128 and darkthr >= 128:
-        return filtered
-    elast = max(elast, 1.)
-    if elast == 1:
-        smooth = False
-    thr = scale(thr, bits)
-    darkthr = scale(darkthr, bits)
-    
-    # diff   = filtered - original
-    # alpha  = 1 / (thr * (elast - 1))
-    # beta   = thr * elast
-    # When smooth=True  :
-    # output = diff <= thr  ? filtered : \
-    #          diff >= beta ? original : \
-    #                         original + alpha * diff * (beta - abs(diff))
-    # When smooth=False :
-    # output = diff <= thr  ? filtered : \
-    #          diff >= beta ? original : \
-    #                         original + thr * (diff / abs(diff))
-    def get_lut1(x):
-        _diff = x - neutral
-        _absdiff = abs(_diff)
-        _thr = darkthr if _diff > 0 else thr
-        _beta = _thr * elast
-        _smooth = (1 / (_thr * (elast - 1))) * _diff * (_beta - _absdiff) if smooth else _thr * (_diff / _absdiff)
-        if _absdiff <= _thr:
-            return x
-        elif _absdiff >= _beta:
-            return neutral
-        else:
-            return round(neutral + _smooth)
-    def get_lut2(x):
-        _diff = x - neutral
-        _absdiff = abs(_diff)
-        _beta = thr * elast
-        _smooth = (1 / (thr * (elast - 1))) * _diff * (_beta - _absdiff) if smooth else thr * (_diff / _absdiff)
-        if _absdiff <= thr:
-            return x
-        elif _absdiff >= _beta:
-            return neutral
-        else:
-            return round(neutral + _smooth)
-    
-    diff = core.std.MakeDiff(filtered, original, planes=planes)
-    if 0 in planes:
-        diff = core.std.Lut(diff, planes=[0], function=get_lut1)
-    if 1 in planes or 2 in planes:
-        diff = core.std.Lut(diff, planes=[1, 2] if 1 in planes and 2 in planes else [1] if 1 in planes else [2], function=get_lut2)
-    merged = core.std.MergeDiff(original, diff, planes=planes)
-    
-    if filtered.format.color_family != vs.GRAY:
-        return core.std.ShufflePlanes([merged if 0 in planes else filtered, merged if 1 in planes else filtered, merged if 2 in planes else filtered],
-                                      planes=[0, 1, 2], colorfamily=filtered.format.color_family)
-    else:
-        return merged
-
-
 def Overlay(clipa, clipb, x=0, y=0, mask=None):
     core = vs.get_core()
     
@@ -3892,7 +3812,7 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
         if bits == 16:
             s16 = clp
             RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=2, planes=planes)
-            RG4 = LimitDiff(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
+            RG4 = mvf.LimitFilter(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
         else:
             RG4 = core.ctmf.CTMF(clp, radius=2, planes=planes)
     else:
@@ -3900,7 +3820,7 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
         if bits == 16:
             s16 = clp
             RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=3, planes=planes)
-            RG4 = LimitDiff(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
+            RG4 = mvf.LimitFilter(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
         else:
             RG4 = core.ctmf.CTMF(clp, radius=3, planes=planes)
     RG11D = core.std.MakeDiff(clp, RG11, planes=planes)
