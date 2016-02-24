@@ -2750,8 +2750,8 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
     tlimit = scale(tlimit, bits)
     back = scale(back, bits)
     
-    LIM1 = round(limit * 100 / bias - 1) if limit > 0 else round(scale(100 / bias, bits))
-    TLIM1 = round(tlimit * 100 / tbias - 1) if tlimit > 0 else round(scale(100 / tbias, bits))
+    LIM1 = math.floor(limit * 100 / bias - 1 + 0.5) if limit > 0 else math.floor(scale(100 / bias, bits) + 0.5)
+    TLIM1 = math.floor(tlimit * 100 / tbias - 1 + 0.5) if tlimit > 0 else math.floor(scale(100 / tbias, bits) + 0.5)
     
     if limit < 0:
         expr = 'x y - abs {LIM1} < x x 1 x y - x y - abs / * - ?'.format(LIM1=LIM1)
@@ -3145,7 +3145,7 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
             else:
                 exprP = abs((x - protect) / tmp)
         
-        return min(max(round(exprL * exprP * (exprY - x) + x), 0), peak)
+        return min(max(math.floor(exprL * exprP * (exprY - x) + x + 0.5), 0), peak)
     
     ### PROCESS
     if limiter == 1 or limiter >= 3:
@@ -3693,8 +3693,8 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         soft = int((1 + (2 / (ss_x + ss_y))) * math.sqrt(strength))
     soft = min(soft, 100)
     
-    xxs = round(ox * ss_x / 8) * 8
-    yys = round(oy * ss_y / 8) * 8
+    xxs = math.floor(ox * ss_x / 8 + 0.5) * 8
+    yys = math.floor(oy * ss_y / 8 + 0.5) * 8
     
     Str = strength / 100
     
@@ -3706,13 +3706,13 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
             tmp1 = (x - neutral) / multiple
             tmp2 = tmp1 ** 2
             tmp3 = Szrp ** 2
-            return min(max(round(x + (abs(tmp1) / Szrp) ** (1 / Spwr) * Szrp * (Str * multiple) * (1 if x > neutral else -1) * (tmp2 * (tmp3 + SdmpLo) / ((tmp2 + SdmpLo) * tmp3)) * ((1 + (0 if SdmpHi == 0 else (Szrp / SdmpHi) ** 4)) / (1 + (0 if SdmpHi == 0 else (abs(tmp1) / SdmpHi) ** 4)))), 0), peak)
+            return min(max(math.floor(x + (abs(tmp1) / Szrp) ** (1 / Spwr) * Szrp * (Str * multiple) * (1 if x > neutral else -1) * (tmp2 * (tmp3 + SdmpLo) / ((tmp2 + SdmpLo) * tmp3)) * ((1 + (0 if SdmpHi == 0 else (Szrp / SdmpHi) ** 4)) / (1 + (0 if SdmpHi == 0 else (abs(tmp1) / SdmpHi) ** 4))) + 0.5), 0), peak)
     # x 128 / 0.86 ^ 255 *
     def get_lut2(x):
-        return min(round((x / multiple / 128) ** 0.86 * 255 * multiple), peak)
+        return min(math.floor((x / multiple / 128) ** 0.86 * 255 * multiple + 0.5), peak)
     # x 32 / 0.86 ^ 255 *
     def get_lut3(x):
-        return min(round((x / multiple / 32) ** 0.86 * 255 * multiple), peak)
+        return min(math.floor((x / multiple / 32) ** 0.86 * 255 * multiple + 0.5), peak)
     
     ### SHARP
     if ss_x > 1 or ss_y > 1:
@@ -3990,7 +3990,7 @@ def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None
     nrf = sr < thr + 1 and noring
     if nrb:
         nrr = min(sr - thr, 1)
-        nrv = round((1 - nrr) * 255)
+        nrv = math.floor((1 - nrr) * 255 + 0.5)
         nrv = [nrv * 256 + nrv] * src.format.num_planes
     
     main = core.fmtc.resample(src, w, h, sx, sy, sw, sh, kernel=kernel, taps=taps, a1=a1, a2=a2, invks=invks, invkstaps=invkstaps, css=css, planes=planes, center=center,
@@ -4383,7 +4383,7 @@ def mt_deflate_multi(src, planes=[0, 1, 2], radius=1):
 
 
 def m4(x):
-    return 16 if x < 16 else int(round(x / 4) * 4)
+    return 16 if x < 16 else math.floor(x / 4 + 0.5) * 4
 
 
 def scale(val, bits):
