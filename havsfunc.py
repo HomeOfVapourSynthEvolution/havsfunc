@@ -14,6 +14,7 @@ Main functions:
     YAHR
     HQDering mod
     QTGMC
+    srestore
     ivtc_txt60mc
     logoNR
     Vinverse
@@ -1555,6 +1556,335 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
     
     # Apply difference calculated in source-match refinement
     return core.std.MergeDiff(match1Shp, match3)
+
+
+###### srestore v2.7e ######
+def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=None):
+    core = vs.get_core()
+    
+    if not isinstance(source, vs.VideoNode):
+        raise TypeError('srestore: This is not a clip')
+    if source.format.color_family == vs.GRAY:
+        raise TypeError('srestore: GRAY color family is not supported')
+    if dclip is not None and not isinstance(dclip, vs.VideoNode):
+        raise TypeError('srestore: dclip is not a clip')
+    else:
+        dclip = source
+    
+    bits = source.format.bits_per_sample
+    neutral = 1 << (bits - 1)
+    peak = (1 << bits) - 1
+    
+    ###### parameters & other necessary vars ######
+    srad = math.sqrt(abs(speed)) * 4 if speed is not None and abs(speed) >= 1 else 12
+    irate = source.fps_num / source.fps_den
+    bsize = 16 if speed is not None and speed > 0 else 32
+    bom = isinstance(omode, str)
+    thr = abs(thresh) + 0.01
+    
+    if bom or abs(omode - 3) < 2.5:
+        frfac = 1
+    elif frate is not None:
+        if frate * 5 < irate or frate > irate:
+            frfac = 1
+        else:
+            frfac = abs(frate) / irate
+    elif math.floor(irate * 10010 + 0.5) % 30000 == 0:
+        frfac = 1001 / 2400
+    else:
+        frfac = 480 / 1001
+    
+    if abs(frfac * 1001 - math.floor(frfac * 1001 + 0.5)) < 0.01:
+        numr = math.floor(frfac * 1001 + 0.5)
+    elif abs(1001 / frfac - math.floor(1001 / frfac + 0.5)) < 0.01:
+        numr = 1001
+    else:
+        numr = math.floor(frfac * 9000 + 0.5)
+    if frate is not None and abs(irate * numr / math.floor(numr / frfac + 0.5) - frate) > abs(irate * math.floor(frate * 100 + 0.5) / math.floor(irate * 100 + 0.5) - frate):
+        numr = math.floor(frate * 100 + 0.5)
+    denm = math.floor(numr / frfac + 0.5)
+    
+    ###### source preparation & lut ######
+    if abs(mode) >= 2 and not bom:
+        mec = core.std.Merge(core.std.Merge(source, core.std.Trim(source, 1), [0, 0.5]), core.std.Trim(source, 1), [0.5, 0])
+    det = core.resize.Bicubic(dclip, format=vs.YUV420P8, matrix_s='709', matrix_in_s='709', prefer_props=True)
+    det = Resize(det, det.width if srad == 4 else int(det.width / 2 / srad + 4) * 4, det.height if srad == 4 else int(det.height / 2 / srad + 4) * 4,
+                 kernel='point', dmode=1).std.Trim(2)
+    if mode < 0:
+        det = core.std.StackVertical([core.std.StackHorizontal([core.std.ShufflePlanes([det], planes=[1], colorfamily=vs.GRAY),
+                                                                core.std.ShufflePlanes([det], planes=[2], colorfamily=vs.GRAY)]),
+                                      core.std.ShufflePlanes([det], planes=[0], colorfamily=vs.GRAY)])
+    else:
+        det = core.std.ShufflePlanes([det], planes=[0], colorfamily=vs.GRAY)
+    if bom:
+        det = core.std.Expr([det], ['x 0.5 * 64 +'])
+    
+    expr1 = 'x 128 - y 128 - * 0 > x 128 - abs y 128 - abs < x 128 - 128 x - * y 128 - 128 y - * ? x y + 256 - dup * ? 0.25 * 128 +'
+    expr2 = 'x y - dup * 3 * x y + 256 - dup * - 128 +'
+    diff = core.std.MakeDiff(det, core.std.Trim(det, 1))
+    if not bom:
+        bclp = core.std.Expr([diff, core.std.Trim(diff, 1)], [expr1]).resize.Bilinear(bsize, bsize)
+    else:
+        bclp = core.std.Expr([core.std.Trim(diff, 1), core.std.MergeDiff(diff, core.std.Trim(diff, 2))], [expr2]).resize.Bilinear(bsize, bsize)
+    dclp = core.std.Expr([core.std.Trim(diff, 1)], ['x 128 - abs 1.1 pow 1 -']).resize.Bilinear(bsize, bsize)
+    
+    ###### postprocessing ######
+    if bom:
+        omode = omode.lower()
+        sourceDuplicate = core.std.DuplicateFrames(source, [0])
+        sourceTrim1 = core.std.Trim(source, 1)
+        sourceTrim2 = core.std.Trim(source, 2)
+        
+        unblend1 = core.std.Expr([sourceDuplicate, source], ['x -1 * y 2 * +'])
+        unblend2 = core.std.Expr([sourceTrim1, sourceTrim2], ['x 2 * y -1 * +'])
+        
+        qmask1 = core.std.MakeDiff(core.rgvs.RemoveGrain(unblend1, [19, 0]), unblend1, planes=[0])
+        qmask2 = core.std.MakeDiff(core.rgvs.RemoveGrain(unblend2, [19, 0]), unblend2, planes=[0])
+        diffm = core.std.MakeDiff(sourceDuplicate, source, planes=[0]).std.Maximum(planes=[0])
+        expr = 'x {neutral} - dup * dup y {neutral} - dup * + / {peak} *'.format(neutral=neutral, peak=peak)
+        bmask = core.std.Expr([qmask1, qmask2], [expr, ''])
+        expr = 'x 2 * y < x {i} < and 0 y 2 * x < y {i} < and {peak} x x y + / {j} * {k} + ? ?'.format(i=scale(4, bits), peak=peak, j=scale(200, bits), k=scale(28, bits))
+        dmask = core.std.Expr([diffm, core.std.Trim(diffm, 2)], [expr, ''])
+        pmask = core.std.Expr([dmask, bmask], ['y 0 > y {peak} < and x 0 = x {peak} = or and x y ?'.format(peak=peak), ''])
+        
+        if omode == 'pp0':
+            fin = core.std.Expr([sourceDuplicate, source, sourceTrim1, sourceTrim2], ['x -0.5 * y + z + a -0.5 * +'])
+        elif omode == 'pp1':
+            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Expr([core.rgvs.RemoveGrain(dmask, [12, 0])], ['', '{neutral}'.format(neutral=neutral)]))
+        elif omode == 'pp2':
+            fin = core.std.MaskedMerge(unblend1, unblend2, core.rgvs.RemoveGrain(bmask, [12, 0]), first_plane=True)
+        elif omode == 'pp3':
+            fin = core.std.MaskedMerge(unblend1, unblend2, core.rgvs.RemoveGrain(pmask, [12, 0]), first_plane=True).rgvs.RemoveGrain([0, 12])
+        else:
+            raise ValueError('srestore: unexpected value for omode')
+    
+    ###### initialise variables ######
+    lfr = -100
+    offs = 0
+    ldet = -100
+    lpos = 0
+    d32 = d21 = d10 = d01 = d12 = d23 = d34 = None
+    m42 = m31 = m20 = m11 = m02 = m13 = m24 = None
+    bp2 = bp1 = bn0 = bn1 = bn2 = bn3 = None
+    cp2 = cp1 = cn0 = cn1 = cn2 = cn3 = None
+    
+    def srestore_inside(n, f):
+        nonlocal lfr, offs, ldet, lpos, d32, d21, d10, d01, d12, d23, d34, m42, m31, m20, m11, m02, m13, m24, bp2, bp1, bn0, bn1, bn2, bn3, cp2, cp1, cn0, cn1, cn2, cn3
+        
+        ### preparation ###
+        jmp = lfr + 1 == n
+        cfo = ((n % denm) * numr * 2 + denm + numr) % (2 * denm) - denm
+        bfo = cfo > -numr and cfo <= numr
+        lfr = n
+        offs = offs + 2 * denm if bfo and offs <= -4 * numr else offs - 2 * denm if bfo and offs >= 4 * numr else offs
+        pos = 0 if frfac == 1 else -math.floor((cfo + offs) / (2 * numr) + 0.5) if bfo else lpos
+        cof = cfo + offs + 2 * numr * pos
+        ldet = -1 if n + pos == ldet else n + pos
+        
+        ### diff value shifting ###
+        d_v = f[1].props.PlaneStatsMinMax[1] + 0.015625
+        if jmp:
+            d43 = d32
+            d32 = d21
+            d21 = d10
+            d10 = d01
+            d01 = d12
+            d12 = d23
+            d23 = d34
+        else:
+            d43 = d32 = d21 = d10 = d01 = d12 = d23 = d_v
+        d34 = d_v
+        
+        m_v = f[2].props.PlaneStatsDiff * 255 + 0.015625 if not bom and abs(omode) > 5 else 1
+        if jmp:
+            m53 = m42
+            m42 = m31
+            m31 = m20
+            m20 = m11
+            m11 = m02
+            m02 = m13
+            m13 = m24
+        else:
+            m53 = m42 = m31 = m20 = m11 = m02 = m13 = m_v
+        m24 = m_v
+        
+        ### get blend and clear values ###
+        b_v = 128 - f[0].props.PlaneStatsMinMax[0]
+        if b_v < 1:
+            b_v = 0.125
+        c_v = f[0].props.PlaneStatsMinMax[1] - 128
+        if c_v < 1:
+            c_v = 0.125
+        
+        ### blend value shifting ###
+        if jmp:
+            bp3 = bp2
+            bp2 = bp1
+            bp1 = bn0
+            bn0 = bn1
+            bn1 = bn2
+            bn2 = bn3
+        else:
+            bp3 = b_v - c_v if bom else b_v
+            bp2 = bp1 = bn0 = bn1 = bn2 = bp3
+        bn3 = b_v - c_v if bom else b_v
+        
+        ### clear value shifting ###
+        if jmp:
+            cp3 = cp2
+            cp2 = cp1
+            cp1 = cn0
+            cn0 = cn1
+            cn1 = cn2
+            cn2 = cn3
+        else:
+            cp3 = cp2 = cp1 = cn0 = cn1 = cn2 = c_v
+        cn3 = c_v
+        
+        ### used detection values ###
+        bb = [bp3, bp2, bp1, bn0, bn1][pos + 2]
+        bc = [bp2, bp1, bn0, bn1, bn2][pos + 2]
+        bn = [bp1, bn0, bn1, bn2, bn3][pos + 2]
+        
+        cb = [cp3, cp2, cp1, cn0, cn1][pos + 2]
+        cc = [cp2, cp1, cn0, cn1, cn2][pos + 2]
+        cn = [cp1, cn0, cn1, cn2, cn3][pos + 2]
+        
+        dbb = [d43, d32, d21, d10, d01][pos + 2]
+        dbc = [d32, d21, d10, d01, d12][pos + 2]
+        dcn = [d21, d10, d01, d12, d23][pos + 2]
+        dnn = [d10, d01, d12, d23, d34][pos + 2]
+        dn2 = [d01, d12, d23, d34, d34][pos + 2]
+        
+        mb1 = [m53, m42, m31, m20, m11][pos + 2]
+        mb = [m42, m31, m20, m11, m02][pos + 2]
+        mc = [m31, m20, m11, m02, m13][pos + 2]
+        mn = [m20, m11, m02, m13, m24][pos + 2]
+        mn1 = [m11, m02, m13, m24, 0.01][pos + 2]
+        
+        ### basic calculation ###
+        bbool = 0.8 * bc * cb > bb * cc and 0.8 * bc * cn > bn * cc and bc * bc > cc
+        blend = bbool and bc * 5 > cc and dbc + dcn > 1.5 * thr and (dbb < 7 * dbc or dbb < 8 * dcn) and (dnn < 8 * dcn or dnn < 7 * dbc) and (mb < mb1 and mb < mc or mn < mn1 and mn < mc or (dbb + dnn) * 4 < dbc + dcn or (bb * cc * 5 < bc * cb or mb > thr) and (bn * cc * 5 < bc * cn or mn > thr) and bc > thr)
+        clear = dbb + dbc > thr and dcn + dnn > thr and (bc < 2 * bb or bc < 2 * bn) and (dbb + dnn) * 2 > dbc + dcn and (mc < 0.96 * mb and mc < 0.96 * mn and (bb * 2 > cb or bn * 2 > cn) and cc > cb and cc > cn or frfac > 0.45 and frfac < 0.55 and 0.8 * mc > mb1 and 0.8 * mc > mn1 and mb > 0.8 * mn and mn > 0.8 * mb)
+        highd = dcn > 5 * dbc and dcn > 5 * dnn and dcn > thr and dbc < thr and dnn < thr
+        lowd = dcn * 5 < dbc and dcn * 5 < dnn and dbc > thr and dnn > thr and dcn < thr and frfac > 0.35 and (frfac < 0.51 or dcn * 5 < dbb)
+        res = d43 < thr and d32 < thr and d21 < thr and d10 < thr and d01 < thr and d12 < thr and d23 < thr and d34 < thr or dbc * 4 < dbb and dcn * 4 < dbb and dnn * 4 < dbb and dn2 * 4 < dbb or dcn * 4 < dbc and dnn * 4 < dbc and dn2 * 4 < dbc
+        
+        ### offset calculation ###
+        if blend:
+            odm = denm
+        elif clear:
+            odm = 0
+        elif highd:
+            odm = denm - numr
+        elif lowd:
+            odm = 2 * denm - numr
+        else:
+            odm = cof
+        odm += math.floor((cof - odm) / (2 * denm) + 0.5) * 2 * denm
+        if blend:
+            odr = denm - numr
+        elif clear or highd:
+            odr = numr
+        elif frfac < 0.5:
+            odr = 2 * numr
+        else:
+            odr = 2 * (denm - numr)
+        odr *= 0.9
+        
+        if ldet >= 0:
+            if cof > odm + odr:
+                if cof - offs - odm - odr > denm and res:
+                    cof = odm + 2 * denm - odr
+                else:
+                    cof = odm + odr
+            elif cof < odm - odr:
+                if offs > denm and res:
+                    cof = odm - 2 * denm + odr
+                else:
+                    cof = odm - odr
+            elif offs < -1.15 * denm and res:
+                cof += 2 * denm
+            elif offs > 1.25 * denm and res:
+                cof -= 2 * denm
+        
+        offs = 0 if frfac == 1 else cof - cfo - 2 * numr * pos
+        lpos = pos
+        opos = 0 if frfac == 1 else -math.floor((cfo + offs + (denm if bfo and offs <= -4 * numr else 0)) / (2 * numr) + 0.5)
+        pos = min(max(opos, -2), 2)
+        
+        ### frame output calculation - resync - dup ###
+        dbb = [d43, d32, d21, d10, d01][pos + 2]
+        dbc = [d32, d21, d10, d01, d12][pos + 2]
+        dcn = [d21, d10, d01, d12, d23][pos + 2]
+        dnn = [d10, d01, d12, d23, d34][pos + 2]
+        
+        ### dup_hq - merge ###
+        if opos != pos or abs(mode) < 2 or abs(mode) == 3:
+            dup = 0
+        elif dcn * 5 < dbc and dnn * 5 < dbc and (dcn < 1.25 * thr or bn < bc and pos == lpos) or (dcn * dcn < dbc or dcn * 5 < dbc) and bn < bc and pos == lpos and dnn < 0.9 * dbc or dnn * 9 < dbc and dcn * 3 < dbc:
+            dup = 1
+        elif (dbc * dbc < dcn or dbc * 5 < dcn) and bb < bc and pos == lpos and dbb < 0.9 * dcn or dbb * 9 < dcn and dbc * 3 < dcn or dbb * 5 < dcn and dbc * 5 < dcn and (dbc < 1.25 * thr or bb < bc and pos == lpos):
+            dup = -1
+        else:
+            dup = 0
+        mer = not bom and opos == pos and dup == 0 and abs(mode) > 2 and (dbc * 8 < dcn or dbc * 8 < dbb or dcn * 8 < dbc or dcn * 8 < dnn or dbc * 2 < thr or dcn * 2 < thr or dnn * 9 < dbc and dcn * 3 < dbc or dbb * 9 < dcn and dbc * 3 < dcn)
+        
+        ### deblend - doubleblend removal - postprocessing ###
+        add = bp1 * cn2 > bn2 * cp1 * (1 + thr * 0.01) and bn0 * cn2 > bn2 * cn0 * (1 + thr * 0.01) and cn2 * bn1 > cn1 * bn2 * (1 + thr * 0.01)
+        if bom:
+            if bn0 > bp2 and bn0 >= bp1 and bn0 > bn1 and bn0 > bn2 and cn0 < 125:
+                if d12 * d12 < d10 or d12 * 9 < d10:
+                    dup = 1
+                elif d10 * d10 < d12 or d10 * 9 < d12:
+                    dup = 0
+                else:
+                    dup = 4
+            elif bp1 > bp3 and bp1 >= bp2 and bp1 > bn0 and bp1 > bn1:
+                dup = 1
+            else:
+                dup = 0
+        elif dup == 0:
+            if omode > 0 and omode < 5:
+                if not bbool:
+                    dup = 0
+                elif omode == 4 and bp1 * cn1 < bn1 * cp1 or omode == 3 and d10 < d01 or omode == 1:
+                    dup = -1
+                else:
+                    dup = 1
+            elif omode == 5:
+                if bp1 * cp2 > bp2 * cp1 * (1 + thr * 0.01) and bn0 * cp2 > bp2 * cn0 * (1 + thr * 0.01) and cp2 * bn1 > cn1 * bp2 * (1 + thr * 0.01) and (not add or cp2 * bn2 > cn2 * bp2):
+                    dup = -2
+                elif add:
+                    dup = 2
+                elif bn0 * cp1 > bp1 * cn0 and (bn0 * cn1 < bn1 * cn0 or cp1 * bn1 > cn1 * bp1):
+                    dup = -1
+                elif bn0 * cn1 > bn1 * cn0:
+                    dup = 1
+                else:
+                    dup = 0
+            else:
+                dup = 0
+        
+        ### output clip ###
+        if dup == 4:
+            return fin
+        else:
+            oclp = mec if mer and dup == 0 else source
+            opos += dup - (1 if dup == 0 and mer and dbc < dcn else 0)
+            if opos < 0:
+                return core.std.DuplicateFrames(oclp, [0] * -opos)
+            else:
+                return core.std.Trim(oclp, opos)
+    
+    ###### evaluation call & output calculation ######
+    bclpYStats = core.std.PlaneStats(bclp)
+    dclpYStats = core.std.PlaneStats(dclp)
+    detYStats = core.std.PlaneStats(det, core.std.Trim(det, 2))
+    last = core.std.Cache(source, make_linear=True).std.FrameEval(eval=srestore_inside, prop_src=[bclpYStats, dclpYStats, detYStats])
+    
+    ###### final decimation ######
+    return ChangeFPS(core.std.Cache(last, make_linear=True), source.fps_num * numr, source.fps_den * denm)
 
 
 # Version 1.1
@@ -3542,13 +3872,13 @@ def ChangeFPS(clip, fpsnum, fpsden=1):
     
     multiple = fpsnum / fpsden * clip.fps_den / clip.fps_num
     
-    def frame_adjuster(n, clip):
+    def frame_adjuster(n):
         real_n = math.floor(n / multiple)
         one_frame_clip = clip[real_n] * (len(clip) + 100)
         return one_frame_clip
     
     attribute_clip = core.std.BlankClip(clip, length=math.floor(len(clip) * multiple), fpsnum=fpsnum, fpsden=fpsden)
-    return core.std.FrameEval(attribute_clip, eval=functools.partial(frame_adjuster, clip=clip))
+    return core.std.FrameEval(attribute_clip, eval=frame_adjuster)
 
 
 def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 1, 2]):
