@@ -26,6 +26,7 @@ Main functions:
     STPresso
     SigmoidInverse, SigmoidDirect
     GrainFactory3
+    InterFrame
     SmoothLevels
     FastLineDarken 1.4x MT MOD
     LSFmod
@@ -1606,7 +1607,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     
     ###### source preparation & lut ######
     if abs(mode) >= 2 and not bom:
-        mec = core.std.Merge(core.std.Merge(source, core.std.Trim(source, 1), [0, 0.5]), core.std.Trim(source, 1), [0.5, 0])
+        mec = core.std.Merge(core.std.Merge(source, core.std.Trim(source, 1), weight=[0, 0.5]), core.std.Trim(source, 1), weight=[0.5, 0])
     det = core.resize.Bicubic(dclip, format=vs.YUV420P8, matrix_s='709', matrix_in_s='709', prefer_props=True)
     det = Resize(det, det.width if srad == 4 else int(det.width / 2 / srad + 4) * 4, det.height if srad == 4 else int(det.height / 2 / srad + 4) * 4,
                  kernel='point', dmode=1).std.Trim(2)
@@ -2913,6 +2914,142 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
         return core.std.ShufflePlanes([result, clp_src], planes=[0, 1, 2], colorfamily=clp_src.format.color_family)
     else:
         return result
+
+
+#------------------------------------------------------------------------------#
+#                                                                              #
+#                         InterFrame 2.8.2 by SubJunk                          #
+#                                                                              #
+#         A frame interpolation script that makes accurate estimations         #
+#                   about the content of non-existent frames                   #
+#      Its main use is to give videos higher framerates like newer TVs do      #
+#------------------------------------------------------------------------------#
+#
+#
+# For instructions and further information see the included InterFrame.html
+# For news go to spirton.com
+def InterFrame(Input, Preset='Medium', Tuning='Film', NewNum=None, NewDen=1, GPU=False, InputType='2D', OverrideAlgo=None, OverrideArea=None,
+               FrameDouble=False):
+    core = vs.get_core()
+    
+    if not isinstance(Input, vs.VideoNode):
+        raise TypeError('InterFrame: This is not a clip')
+    
+    Input = core.std.Cache(Input, make_linear=True)
+    
+    # Validate inputs
+    Preset = Preset.lower()
+    Tuning = Tuning.lower()
+    InputType = InputType.upper()
+    if Preset not in ['medium', 'fast', 'faster', 'fastest']:
+        raise ValueError("InterFrame: '{Preset}' is not a valid preset".format(Preset=Preset))
+    if Tuning not in ['film', 'smooth', 'animation', 'weak']:
+        raise ValueError("InterFrame: '{Tuning}' is not a valid tuning".format(Tuning=Tuning))
+    if InputType not in ['2D', 'SBS', 'OU', 'HSBS', 'HOU']:
+        raise ValueError("InterFrame: '{InputType}' is not a valid InputType".format(InputType=InputType))
+    
+    def InterFrameProcess(clip):
+        # Create SuperString
+        if Preset in ['fast', 'faster', 'fastest']:
+            SuperString = '{pel:1,'
+        else:
+            SuperString = '{'
+        
+        SuperString += 'gpu:1}' if GPU else 'gpu:0}'
+        
+        # Create VectorsString
+        if Tuning == 'animation' or Preset == 'fastest':
+            VectorsString = '{block:{w:32,'
+        elif Preset in ['fast', 'faster'] or not GPU:
+            VectorsString = '{block:{w:16,'
+        else:
+            VectorsString = '{block:{w:8,'
+        
+        if Tuning == 'animation' or Preset == 'fastest':
+            VectorsString += 'overlap:0'
+        elif Preset == 'faster' and GPU:
+            VectorsString += 'overlap:1'
+        else:
+            VectorsString += 'overlap:2'
+        
+        if Tuning == 'animation':
+            VectorsString += '},main:{search:{coarse:{type:2,'
+        elif Preset == 'faster':
+            VectorsString += '},main:{search:{coarse:{'
+        else:
+            VectorsString += '},main:{search:{distance:0,coarse:{'
+        
+        if Tuning == 'animation':
+            VectorsString += 'distance:-6,satd:false},distance:0,'
+        elif Tuning == 'weak':
+            VectorsString += 'distance:-1,trymany:true,'
+        else:
+            VectorsString += 'distance:-10,'
+        
+        if Tuning == 'animation' or Preset in ['faster', 'fastest']:
+            VectorsString += 'bad:{sad:2000}}}}}'
+        elif Tuning == 'weak':
+            VectorsString += 'bad:{sad:2000}}}},refine:[{thsad:250,search:{distance:-1,satd:true}}]}'
+        else:
+            VectorsString += 'bad:{sad:2000}}}},refine:[{thsad:250}]}'
+        
+        # Create SmoothString
+        if NewNum is not None:
+            SmoothString = '{rate:{num:' + repr(NewNum) + ',den:' + repr(NewDen) + ',abs:true},'
+        elif clip.fps_num / clip.fps_den in [15, 25, 30] or FrameDouble:
+            SmoothString = '{rate:{num:2,den:1,abs:false},'
+        else:
+            SmoothString = '{rate:{num:60000,den:1001,abs:true},'
+        
+        if OverrideAlgo is not None:
+            SmoothString += 'algo:' + repr(OverrideAlgo) + ',mask:{cover:80,'
+        elif Tuning == 'animation':
+            SmoothString += 'algo:2,mask:{'
+        elif Tuning == 'smooth':
+            SmoothString += 'algo:23,mask:{'
+        else:
+            SmoothString += 'algo:13,mask:{cover:80,'
+        
+        if OverrideArea is not None:
+            SmoothString += 'area:{OverrideArea}'.format(OverrideArea=OverrideArea)
+        elif Tuning == 'smooth':
+            SmoothString += 'area:150'
+        else:
+            SmoothString += 'area:0'
+        
+        if Tuning == 'weak':
+            SmoothString += ',area_sharp:1.2},scene:{blend:true,mode:0,limits:{blocks:50}}}'
+        else:
+            SmoothString += ',area_sharp:1.2},scene:{blend:true,mode:0}}'
+        
+        # Make interpolation vector clip
+        Super = core.svp1.Super(clip, SuperString)
+        Vectors = core.svp1.Analyse(Super['clip'], Super['data'], clip, VectorsString)
+        
+        # Put it together
+        return core.svp2.SmoothFps(clip, Super['clip'], Super['data'], Vectors['clip'], Vectors['data'], SmoothString)
+    
+    # Get either 1 or 2 clips depending on InputType
+    if InputType == 'SBS':
+        FirstEye = InterFrameProcess(core.std.CropRel(Input, right=Input.width // 2))
+        SecondEye = InterFrameProcess(core.std.CropRel(Input, left=Input.width // 2))
+        return core.std.StackHorizontal([FirstEye, SecondEye])
+    elif InputType == 'OU':
+        FirstEye = InterFrameProcess(core.std.CropRel(Input, bottom=Input.height // 2))
+        SecondEye = InterFrameProcess(core.std.CropRel(Input, top=Input.height // 2))
+        return core.std.StackVertical([FirstEye, SecondEye])
+    elif InputType == 'HSBS':
+        FirstEye = InterFrameProcess(core.std.CropRel(Input, right=Input.width // 2).resize.Spline36(Input.width, Input.height))
+        SecondEye = InterFrameProcess(core.std.CropRel(Input, left=Input.width // 2).resize.Spline36(Input.width, Input.height))
+        return core.std.StackHorizontal([core.resize.Spline36(FirstEye, Input.width // 2, Input.height),
+                                         core.resize.Spline36(SecondEye, Input.width // 2, Input.height)])
+    elif InputType == 'HOU':
+        FirstEye = InterFrameProcess(core.std.CropRel(Input, bottom=Input.height // 2).resize.Spline36(Input.width, Input.height))
+        SecondEye = InterFrameProcess(core.std.CropRel(Input, top=Input.height // 2).resize.Spline36(Input.width, Input.height))
+        return core.std.StackVertical([core.resize.Spline36(FirstEye, Input.width, Input.height // 2),
+                                       core.resize.Spline36(SecondEye, Input.width, Input.height // 2)])
+    else:
+        return InterFrameProcess(Input)
 
 
 #########################################################################################
