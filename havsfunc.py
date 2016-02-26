@@ -1,5 +1,6 @@
 import vapoursynth as vs
 import mvsfunc as mvf
+import adjust
 import functools
 import math
 
@@ -9,6 +10,7 @@ Holy's ported AviSynth functions for VapourSynth.
 Main functions:
     daa
     santiag
+    FixChromaBleedingMod
     Deblock_QED
     DeHalo_alpha
     YAHR
@@ -182,6 +184,87 @@ def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, aac=None, ns
         return core.sangnom.SangNomMod(c, order=field, aa=aa, aac=aac)
     else:
         raise ValueError('santiag: unexpected value for type')
+
+
+# FixChromaBleedingMod v1.35
+#
+# Parameters:
+#  cx [int]         - Horizontal chroma shift. Positive value shifts chroma to left, negative value shifts chroma to right. Default is 4
+#  cy [int]         - Vertical chroma shift. Positive value shifts chroma to up, negative value shifts chroma to down. Default is 4
+#  thr [float]      - Masking threshold, higher value treats more areas as color bleed. Default is 4.0
+#  strength [float] - Saturation strength in clip to be merged with the original chroma. Value below 1.0 reduces the saturation, a value of 1.0 leaves the saturation intact. Default is 0.8
+#  blur [bool]      - Set to true to blur the mask clip. Default is false
+def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
+    core = vs.get_core()
+    
+    if not isinstance(input, vs.VideoNode):
+        raise TypeError('FixChromaBleedingMod: This is not a clip')
+    if input.format.color_family == vs.GRAY:
+        raise TypeError('FixChromaBleedingMod: GRAY color family is not supported')
+    
+    bits = input.format.bits_per_sample
+    neutral = 1 << (bits - 1)
+    peak = (1 << bits) - 1
+    
+    def Levels(clip, input_low, gamma, input_high, output_low, output_high, coring=True):
+        gamma = 1 / gamma
+        divisor = input_high - input_low + (input_high == input_low)
+        
+        tvLow = scale(16, bits)
+        tvHigh = [scale(235, bits), scale(240, bits)]
+        scaleUp = peak / scale(219, bits)
+        scaleDown = scale(219, bits) / peak
+        
+        def get_lut1(x):
+            p = ((x - tvLow) * scaleUp - input_low) / divisor if coring else (x - input_low) / divisor
+            p = min(max(p, 0), 1) ** gamma * (output_high - output_low) + output_low
+            return min(max(math.floor(p * scaleDown + tvLow + 0.5), tvLow), tvHigh[0]) if coring else min(max(math.floor(p + 0.5), 0), peak)
+        def get_lut2(x):
+            q = math.floor((x - neutral) * (output_high - output_low) / divisor + neutral + 0.5)
+            return min(max(q, tvLow), tvHigh[1]) if coring else min(max(q, 0), peak)
+        
+        last = core.std.Lut(clip, planes=[0], function=get_lut1)
+        if clip.format.color_family == vs.GRAY:
+            return last
+        else:
+            return core.std.Lut(last, planes=[1, 2], function=get_lut2)
+    
+    # prepare to work on the V channel
+    vch = core.std.ShufflePlanes([adjust.Tweak(input, sat=thr)], planes=[2], colorfamily=vs.GRAY)
+    if blur:
+        area = core.rgvs.RemoveGrain(vch, 11)
+    else:
+        area = vch
+    
+    # select and normalize both extremes of the scale
+    red = Levels(area, scale(255, bits), 1, scale(255, bits), scale(255, bits), 0)
+    blue = Levels(area, 0, 1, 0, 0, scale(255, bits))
+    
+    # merge both masks
+    mask = core.std.Merge(red, blue)
+    if not blur:
+        mask = core.rgvs.RemoveGrain(mask, 11)
+    mask = Levels(mask, scale(250, bits), 1, scale(250, bits), scale(255, bits), 0)
+    
+    # expand to cover beyond the bleeding areas and shift to compensate the resizing
+    mask = core.std.Convolution(mask, matrix=[0, 0, 0, 1, 0, 0, 0, 0, 0], divisor=1, saturate=False) \
+           .std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 0, 0, 0], divisor=8, saturate=False)
+    
+    # binarize (also a trick to expand)
+    mask = Levels(mask, scale(10, bits), 1, scale(10, bits), 0, scale(255, bits)).std.Inflate()
+    
+    # prepare a version of the image that has its chroma shifted and less saturated
+    input_c = adjust.Tweak(Resize(input, input.width, input.height, cx, cy, planes=[2, 3, 3]), sat=strength)
+    
+    # combine both images using the mask
+    fu = core.std.MaskedMerge(core.std.ShufflePlanes([input], planes=[1], colorfamily=vs.GRAY),
+                              core.std.ShufflePlanes([input_c], planes=[1], colorfamily=vs.GRAY),
+                              mask)
+    fv = core.std.MaskedMerge(core.std.ShufflePlanes([input], planes=[2], colorfamily=vs.GRAY),
+                              core.std.ShufflePlanes([input_c], planes=[2], colorfamily=vs.GRAY),
+                              mask)
+    return core.std.ShufflePlanes([core.std.ShufflePlanes([input], planes=[0], colorfamily=vs.GRAY), fu, fv],
+                                  planes=[0, 0, 0], colorfamily=input.format.color_family)
 
 
 # Changes 2008-08-18: (Didée)
