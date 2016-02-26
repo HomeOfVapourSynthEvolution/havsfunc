@@ -31,6 +31,7 @@ Main functions:
     InterFrame
     SmoothLevels
     FastLineDarken 1.4x MT MOD
+    Toon
     LSFmod
 
 Utility functions:
@@ -3493,6 +3494,63 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
     
     if c_src is not None:
         return core.std.ShufflePlanes([last, c_src], planes=[0, 1, 2], colorfamily=c_src.format.color_family)
+    else:
+        return last
+
+
+#####################
+## Toon v0.82 edit ##
+#####################
+#
+# function created by mf
+#   support by Soulhunter ;-)
+#   ported to masktools v2 and optimized by Didee (0.82)
+#   added parameters and smaller changes by MOmonster (0.82 edited)
+#
+# toon v0.8 is the newest light-weight build of mf´s nice line darken function mf_toon
+#
+# Parameters:
+#   str (float) - Strength of the line darken. Default is 1.0
+#   l_thr (int) - Lower threshold for the linemask. Default is 2
+#   u_thr (int) - Upper threshold for the linemask. Default is 12
+#   blur (int)  - "blur" parameter of AWarpSharp2. Default is 2
+#   depth (int) - "depth" parameter of AWarpSharp2. Default is 32
+def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
+    core = vs.get_core()
+    
+    if not isinstance(input, vs.VideoNode):
+        raise TypeError('Toon: This is not a clip')
+    
+    bits = input.format.bits_per_sample
+    neutral = 1 << (bits - 1)
+    peak = (1 << bits) - 1
+    multiple = peak / 255
+    
+    if input.format.color_family != vs.GRAY:
+        input_src = input
+        input = core.std.ShufflePlanes([input], planes=[0], colorfamily=vs.GRAY)
+    else:
+        input_src = None
+    
+    lthr = neutral + scale(l_thr, bits)
+    lthr8 = lthr / multiple
+    uthr = neutral + scale(u_thr, bits)
+    uthr8 = uthr / multiple
+    ludiff = u_thr - l_thr
+    
+    last = core.std.MakeDiff(core.std.Maximum(input).std.Minimum(), input)
+    if bits != 8:
+        s16 = last
+        warp = Padding(core.fmtc.bitdepth(last, bits=8, dmode=1), 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.CropRel(6, 6, 6, 6)
+        warp = mvf.LimitFilter(s16, core.fmtc.bitdepth(warp, bits=bits), thr=1, elast=2)
+    else:
+        warp = Padding(last, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.CropRel(6, 6, 6, 6)
+    last = core.std.Expr([last, warp], ['x y min'])
+    expr = 'y {lthr} <= {neutral} y {uthr} >= x {uthr8} y {multiple} / - 128 * x {multiple} / y {multiple} / {lthr8} - * + {ludiff} / {multiple} * ? {neutral} - {str} * {neutral} + ?'.format(lthr=lthr, neutral=neutral, uthr=uthr, uthr8=uthr8, multiple=multiple, lthr8=lthr8, ludiff=ludiff, str=str)
+    last = core.std.MakeDiff(input, core.std.Expr([last, core.std.Maximum(last)], [expr]))
+    
+    if input_src is not None:
+        return core.std.ShufflePlanes([last, input_src], planes=[0, 1, 2], colorfamily=input_src.format.color_family)
     else:
         return last
 
