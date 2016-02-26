@@ -4118,7 +4118,7 @@ def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 
     return core.std.Expr([clip, bright_limit, dark_limit], expr)
 
 
-def KNLMeansCL(clip, d=None, a=None, s=None, wmode=None, h=None, device_type=None, device_id=None, info=None):
+def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, device_type=None, device_id=None, info=None):
     core = vs.get_core()
     
     if not isinstance(clip, vs.VideoNode):
@@ -4135,9 +4135,9 @@ def KNLMeansCL(clip, d=None, a=None, s=None, wmode=None, h=None, device_type=Non
     else:
         rclip = Y
     
-    Y = core.knlm.KNLMeansCL(Y, d=d, a=a, s=s, wmode=wmode, h=h, device_type=device_type, device_id=device_id, info=info)
-    U = core.knlm.KNLMeansCL(U, d=d, a=a, s=s, wmode=wmode, h=h, rclip=rclip, device_type=device_type, device_id=device_id)
-    V = core.knlm.KNLMeansCL(V, d=d, a=a, s=s, wmode=wmode, h=h, rclip=rclip, device_type=device_type, device_id=device_id)
+    Y = core.knlm.KNLMeansCL(Y, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id, info=info)
+    U = core.knlm.KNLMeansCL(U, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, rclip=rclip, device_type=device_type, device_id=device_id)
+    V = core.knlm.KNLMeansCL(V, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, rclip=rclip, device_type=device_type, device_id=device_id)
     
     return core.std.ShufflePlanes([Y, U, V], planes=[0, 0, 0], colorfamily=clip.format.color_family)
 
