@@ -190,11 +190,11 @@ def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, aac=None, ns
 # FixChromaBleedingMod v1.35
 #
 # Parameters:
-#  cx [int]         - Horizontal chroma shift. Positive value shifts chroma to left, negative value shifts chroma to right. Default is 4
-#  cy [int]         - Vertical chroma shift. Positive value shifts chroma to up, negative value shifts chroma to down. Default is 4
-#  thr [float]      - Masking threshold, higher value treats more areas as color bleed. Default is 4.0
-#  strength [float] - Saturation strength in clip to be merged with the original chroma. Value below 1.0 reduces the saturation, a value of 1.0 leaves the saturation intact. Default is 0.8
-#  blur [bool]      - Set to true to blur the mask clip. Default is false
+#  cx (int)         - Horizontal chroma shift. Positive value shifts chroma to left, negative value shifts chroma to right. Default is 4
+#  cy (int)         - Vertical chroma shift. Positive value shifts chroma to up, negative value shifts chroma to down. Default is 4
+#  thr (float)      - Masking threshold, higher value treats more areas as color bleed. Default is 4.0
+#  strength (float) - Saturation strength in clip to be merged with the original chroma. Value below 1.0 reduces the saturation, a value of 1.0 leaves the saturation intact. Default is 0.8
+#  blur (bool)      - Set to true to blur the mask clip. Default is false
 def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
     core = vs.get_core()
     
@@ -292,13 +292,13 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
 #   Foxyshadis once mentioned chroma="ignore" but I had never found a document containing it.
 #
 # Parameters:
-#  quant1 [int] - Strength of block edge deblocking. Default is 24
-#  quant2 [int] - Strength of block internal deblocking. Default is 26
-#  aOff1 [int]  - Halfway "sensitivity" and halfway a strength modifier for borders. Default is 1
-#  aOff2 [int]  - Halfway "sensitivity" and halfway a strength modifier for block interiors. Default is 1
-#  bOff1 [int]  - "sensitivity to detect blocking" for borders. Default is 2
-#  bOff2 [int]  - "sensitivity to detect blocking" for block interiors. Default is 2
-#  uv [int]     - 3: use proposed method for chroma deblocking, 2: no chroma deblocking at all(fastest method), 1|-1: directly use chroma debl. from the normal|strong Deblock(). Default is 3
+#  quant1 (int) - Strength of block edge deblocking. Default is 24
+#  quant2 (int) - Strength of block internal deblocking. Default is 26
+#  aOff1 (int)  - Halfway "sensitivity" and halfway a strength modifier for borders. Default is 1
+#  aOff2 (int)  - Halfway "sensitivity" and halfway a strength modifier for block interiors. Default is 1
+#  bOff1 (int)  - "sensitivity to detect blocking" for borders. Default is 2
+#  bOff2 (int)  - "sensitivity to detect blocking" for block interiors. Default is 2
+#  uv (int)     - 3: use proposed method for chroma deblocking, 2: no chroma deblocking at all(fastest method), 1|-1: directly use chroma debl. from the normal|strong Deblock(). Default is 3
 def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, uv=3):
     core = vs.get_core()
     
@@ -478,26 +478,26 @@ def YAHR(clp):
 ### Applies deringing by using a smart smoother near edges (where ringing occurs) only
 ###
 ### Parameters:
-###  mrad [int]      - Expanding of edge mask, higher value means more aggressive processing. Default is 1
-###  msmooth [int]   - Inflate of edge mask, smooth boundaries of mask. Default is 1
-###  incedge [bool]  - Whether to include edge in ring mask, by default ring mask only include area near edges. Default is false
-###  mthr [int]      - Threshold of sobel edge mask, lower value means more aggressive processing. Or define your own mask clip "ringmask". Default is 60
+###  mrad (int)      - Expanding of edge mask, higher value means more aggressive processing. Default is 1
+###  msmooth (int)   - Inflate of edge mask, smooth boundaries of mask. Default is 1
+###  incedge (bool)  - Whether to include edge in ring mask, by default ring mask only include area near edges. Default is false
+###  mthr (int)      - Threshold of sobel edge mask, lower value means more aggressive processing. Or define your own mask clip "ringmask". Default is 60
 ###                    But for strong ringing, lower value will treat some ringing as edge, which protects this ringing from being processed.
-###  minp [int]      - Inpanding of sobel edge mask, higher value means more aggressive processing. Default is 1
-###  nrmode [int]    - Kernel of dering - 1: MinBlur(radius=1), 2: MinBlur(radius=2), 3: MinBlur(radius=3). Or define your own smoothed clip "p". Default is 2 for HD / 1 for SD
+###  minp (int)      - Inpanding of sobel edge mask, higher value means more aggressive processing. Default is 1
+###  nrmode (int)    - Kernel of dering - 1: MinBlur(radius=1), 2: MinBlur(radius=2), 3: MinBlur(radius=3). Or define your own smoothed clip "p". Default is 2 for HD / 1 for SD
 ###                    Note: when the bit depth of input clip is 16 bits, MinBlur(radius=2 or 3) will be extremely slow, due to the alogorithm of CTFM.
 ###                          Thus it's recommended to apply this function in 8-12 bits since the difference is quite negligible
-###  sharp [int]     - Whether to use contra-sharpening to resharp deringed clip, 1-3 represents radius, 0 means no sharpening. Default is 1
-###  drrep [int]     - Use repair for details retention, recommended values are 24/23/13/12/1. Default is 24
-###  thr [float]     - The same meaning with "thr" in Dither_limit_dif16, valid value range is [0.0, 128.0]. Default is 12.0
-###  elast [float]   - The same meaning with "elast" in Dither_limit_dif16, valid value range is [1.0, inf). Default is 2.0
+###  sharp (int)     - Whether to use contra-sharpening to resharp deringed clip, 1-3 represents radius, 0 means no sharpening. Default is 1
+###  drrep (int)     - Use repair for details retention, recommended values are 24/23/13/12/1. Default is 24
+###  thr (float)     - The same meaning with "thr" in Dither_limit_dif16, valid value range is [0.0, 128.0]. Default is 12.0
+###  elast (float)   - The same meaning with "elast" in Dither_limit_dif16, valid value range is [1.0, inf). Default is 2.0
 ###                    Larger "thr" will result in more pixels being taken from processed clip
 ###                    Larger "thr" will result in less pixels being taken from input clip
 ###                    Larger "elast" will result in more pixels being blended from processed&input clip, for smoother merging
-###  darkthr [float] - Threshold for darker area near edges, set it lower if you think deringing destroys too much lines, etc. Default is thr/4
+###  darkthr (float) - Threshold for darker area near edges, set it lower if you think deringing destroys too much lines, etc. Default is thr/4
 ###                    When "darkthr" is not equal to "thr", "thr" limits darkening while "darkthr" limits brightening
-###  planes [int[]]  - Whether to process the corresponding plane. The other planes will be passed through unchanged. Default is [0]
-###  show [bool]     - Whether to output mask clip instead of filtered clip. Default is false
+###  planes (int[])  - Whether to process the corresponding plane. The other planes will be passed through unchanged. Default is [0]
+###  show (bool)     - Whether to output mask clip instead of filtered clip. Default is false
 ###
 ######
 def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, mthr=60, minp=1, nrmode=None, sharp=1, drrep=24,
@@ -645,31 +645,31 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
 # --- REQUIREMENTS ---
 #
 # Core plugins:
-#	MVTools
-#	nnedi3
-#	RemoveGrain/Repair
-#	fmtconv
-#	SceneChange
+#   MVTools
+#   nnedi3
+#   RemoveGrain/Repair
+#   fmtconv
+#   SceneChange
 #
 # Additional plugins:
-#	eedi3 - if selected directly or via a source-match preset
-#	FFT3DFilter - if selected for noise processing
-#	DFTTest - if selected for noise processing
-#	KNLMeansCL - if selected for noise processing
-#		For FFT3DFilter & DFTTest you also need the FFTW3 library (FFTW.org). On Windows the file needed for both is libfftw3f-3.dll.
-#		Put the file in your System32 or SysWow64 folder
-#	AddGrain - if NoiseDeint="Generate" selected for noise bypass
+#   eedi3 - if selected directly or via a source-match preset
+#   FFT3DFilter - if selected for noise processing
+#   DFTTest - if selected for noise processing
+#   KNLMeansCL - if selected for noise processing
+#       For FFT3DFilter & DFTTest you also need the FFTW3 library (FFTW.org). On Windows the file needed for both is libfftw3f-3.dll.
+#       Put the file in your System32 or SysWow64 folder
+#   AddGrain - if NoiseDeint="Generate" selected for noise bypass
 #
 # --- GETTING STARTED ---
 #
 # The "Preset" used selects sensible settings for a given encoding speed. Choose a preset from:
-#	"Placebo", "Very Slow", "Slower", "Slow", "Medium", "Fast", "Faster", "Very Fast", "Super Fast", "Ultra Fast" & "Draft"
+#   "Placebo", "Very Slow", "Slower", "Slow", "Medium", "Fast", "Faster", "Very Fast", "Super Fast", "Ultra Fast" & "Draft"
 # The default preset is "Slower"
 # Don't be obsessed with using slower settings as the differences can be small. HD material benefits little from extreme settings (and will be very slow)
 # For much faster speeds read the full documentation, the section on 'Multi-threading'
 #
 # There are many settings for tweaking the script, full details in the main documentation. You can display settings currently being used with "ShowSettings":
-#	QTGMC( Preset="Slow", ShowSettings=True )
+#   QTGMC( Preset="Slow", ShowSettings=True )
 def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=0, Rep2=None, EdiMode=None, RepChroma=True, NNSize=None, NNeurons=None,
           EdiQual=1, EdiMaxD=None, ChromaEdi='', EdiExt=None, Sharpness=None, SMode=None, SLMode=None, SLRad=None, SOvs=0, SVThin=0., Sbb=None, SrchClipPP=None,
           SubPel=None, SubPelInterp=2, BlockSize=None, Overlap=None, Search=None, SearchParam=None, PelSearch=None, ChromaMotion=None, TrueMotion=False,
@@ -2105,7 +2105,7 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0):
         return last
 
 
-# Vinverse: a small, but effective Function against (residual) combing, by Didée
+# Vinverse: a small, but effective function against (residual) combing, by Didée
 # sstr  : strength of contra sharpening
 # amnt  : change no pixel by more than this (default=255: unrestricted)
 # chroma: chroma mode, True=process chroma, False=pass chroma through
@@ -2187,36 +2187,36 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
 #
 # Arguments:
 #
-# ythresh (default=10) - This determines how close the luma values of the
-#	pixel in the previous and next frames have to be for the pixel to
-#	be hit.  Higher values (within reason) should catch more dot crawl,
-#	but may introduce unwanted artifacts.  Probably shouldn't be set
-#	above 20 or so. [int]
+# ythresh (int, default=10) - This determines how close the luma values of the
+#   pixel in the previous and next frames have to be for the pixel to
+#   be hit.  Higher values (within reason) should catch more dot crawl,
+#   but may introduce unwanted artifacts.  Probably shouldn't be set
+#   above 20 or so.
 #
-# cthresh (default=10) - This determines how close the chroma values of the
-#	pixel in the previous and next frames have to be for the pixel to
-#	be hit.  Just as with ythresh. [int]
+# cthresh (int, default=10) - This determines how close the chroma values of the
+#   pixel in the previous and next frames have to be for the pixel to
+#   be hit.  Just as with ythresh.
 #
-# maxdiff (default=50) - This is the maximum difference allowed between the
-#	luma values of the pixel in the CURRENT frame and in each of its
-#	neighbour frames (so, the upper limit to what fluctuations are
-#	considered dot crawl).  Lower values will reduce artifacts but may
-#	cause the filter to miss some dot crawl.  Obviously, this should
-#	never be lower than ythresh.  Meaningless if usemaxdiff = false. [int]
+# maxdiff (int, default=50) - This is the maximum difference allowed between the
+#   luma values of the pixel in the CURRENT frame and in each of its
+#   neighbour frames (so, the upper limit to what fluctuations are
+#   considered dot crawl).  Lower values will reduce artifacts but may
+#   cause the filter to miss some dot crawl.  Obviously, this should
+#   never be lower than ythresh.  Meaningless if usemaxdiff = false.
 #
-# scnchg (default=25) - Scene change detection threshold.  Any frame with
-#	total luma difference between it and the previous/next frame greater
-#	than this value will not be processed. [int]
+# scnchg (int, default=25) - Scene change detection threshold.  Any frame with
+#   total luma difference between it and the previous/next frame greater
+#   than this value will not be processed.
 #
-# usemaxdiff (default=true) - Whether or not to reject luma fluctuations
-#	higher than maxdiff.  Setting this to false is not recommended, as
-#	it may introduce artifacts; but on the other hand, it produces a
-#	30% speed boost.  Test on your particular source. [bool]
+# usemaxdiff (bool, default=True) - Whether or not to reject luma fluctuations
+#   higher than maxdiff.  Setting this to false is not recommended, as
+#   it may introduce artifacts; but on the other hand, it produces a
+#   30% speed boost.  Test on your particular source.
 #
-# mask (default=false) - When set true, the function will return the mask
-#	instead of the image.  Use to find the best values of cthresh,
-#	ythresh, and maxdiff. [bool]
-#	(The scene change threshold, scnchg, is not reflected in the mask.)
+# mask (bool, default=False) - When set true, the function will return the mask
+#   instead of the image.  Use to find the best values of cthresh,
+#   ythresh, and maxdiff.
+#   (The scene change threshold, scnchg, is not reflected in the mask.)
 #
 ###################
 #
@@ -2240,7 +2240,7 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
     maxdiff = scale(maxdiff, bits)
     scnchg <<= shift
     
-    input_minus = core.std.Trim(input, 0, 0) + input
+    input_minus = core.std.DuplicateFrames(input, [0])
     input_plus = core.std.Trim(input, 1) + core.std.Trim(input, input.num_frames - 1)
     
     input_y = core.std.ShufflePlanes([input], planes=[0], colorfamily=vs.GRAY)
@@ -2308,32 +2308,32 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
 #
 # Arguments:
 #
-# cthresh (default=10) - This determines how close the chroma values of the
-#	pixel in the previous and next frames have to be for the pixel to
-#	be hit.  Higher values (within reason) should catch more rainbows,
-#	but may introduce unwanted artifacts.  Probably shouldn't be set
-#	above 20 or so. [int]
+# cthresh (int, default=10) - This determines how close the chroma values of the
+#   pixel in the previous and next frames have to be for the pixel to
+#   be hit.  Higher values (within reason) should catch more rainbows,
+#   but may introduce unwanted artifacts.  Probably shouldn't be set
+#   above 20 or so.
 #
-# ythresh (default=10) - If the y parameter is set true, then this
-#	determines how close the luma values of the pixel in the previous
-#	and next frames have to be for the pixel to be hit.  Just as with
-#	cthresh. [int]
+# ythresh (int, default=10) - If the y parameter is set true, then this
+#   determines how close the luma values of the pixel in the previous
+#   and next frames have to be for the pixel to be hit.  Just as with
+#   cthresh.
 #
-# y (default=true) - Determines whether luma difference will be considered
-#	in determining which pixels to hit and which to leave alone. [bool]
+# y (bool, default=True) - Determines whether luma difference will be considered
+#   in determining which pixels to hit and which to leave alone.
 #
-# linkUV (default=true) - Determines whether both chroma channels are
-#	considered in determining which pixels in each channel to hit.
-#	When set true, only pixels that meet the thresholds for both U and
-#	V will be hit; when set false, the U and V channels are masked
-#	separately (so a pixel could have its U hit but not its V, or vice
-#	versa). [bool]
+# linkUV (bool, default=True) - Determines whether both chroma channels are
+#   considered in determining which pixels in each channel to hit.
+#   When set true, only pixels that meet the thresholds for both U and
+#   V will be hit; when set false, the U and V channels are masked
+#   separately (so a pixel could have its U hit but not its V, or vice
+#   versa).
 #
-# mask (default=false) - When set true, the function will return the mask
-#	(for combined U/V) instead of the image.  Formerly used to find the
-#	best values of cthresh and ythresh.  If linkUV=false, then this
-#	mask won't actually be used anyway (because each chroma channel
-#	will have its own mask). [bool]
+# mask (bool, default=False) - When set true, the function will return the mask
+#   (for combined U/V) instead of the image.  Formerly used to find the
+#   best values of cthresh and ythresh.  If linkUV=false, then this
+#   mask won't actually be used anyway (because each chroma channel
+#   will have its own mask).
 #
 ###################
 #
@@ -2341,16 +2341,16 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
 #
 # 6/23/05: Is this thing on?
 # 6/24/05: Replaced whole mask mechanism; new mask checks to see that BOTH channels
-# 	of the chroma are within the threshold from previous frame to next
+#   of the chroma are within the threshold from previous frame to next
 # 7/1/05: Added Y option, to take luma into account when deciding whether to use the
-#	averaged chroma; added ythresh and cthresh parameters, to determine how close
-#	the chroma/luma values of a pixel have to be to be considered the same
-#	(y=true is meant to cut down on artifacts)
+#   averaged chroma; added ythresh and cthresh parameters, to determine how close
+#   the chroma/luma values of a pixel have to be to be considered the same
+#   (y=true is meant to cut down on artifacts)
 # 9/2/05: Suddenly realized this wouldn't work for YUY2 and made it YV12 only;
-#	added linkUV option, to decide whether to use a separate mask for each chroma
-#	channel or use the same one for both.
+#   added linkUV option, to decide whether to use a separate mask for each chroma
+#   channel or use the same one for both.
 # 10/3/08: Fixed "cthresh" typos in documentation; killed repmode since I realized I
-#	wasn't using Repair anymore; finally upgraded to MaskTools 2.
+#   wasn't using Repair anymore; finally upgraded to MaskTools 2.
 #
 ###################
 def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False):
@@ -2366,7 +2366,7 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
     cthresh = scale(cthresh, bits)
     ythresh = scale(ythresh, bits)
     
-    input_minus = core.std.Trim(input, 0, 0) + input
+    input_minus = core.std.DuplicateFrames(input, [0])
     input_plus = core.std.Trim(input, 1) + core.std.Trim(input, input.num_frames - 1)
     
     input_u = core.std.ShufflePlanes([input], planes=[1], colorfamily=vs.GRAY)
@@ -2415,11 +2415,11 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
 ### Only stabilize the difference ( on-top grain ) between source clip and spatial-degrained clip
 ###
 ### Parameters:
-###  nrmode [int]   - Mode to get grain/noise from input clip. 0: 3x3 Average Blur, 1: 3x3 SBR, 2: 5x5 SBR, 3: 7x7 SBR. Or define your own denoised clip "p". Default is 2 for HD / 1 for SD
-###  radius [int]   - Temporal radius of MDegrain for grain stabilize(1-3). Default is 1
-###  adapt [int]    - Threshold for luma-adaptative mask. -1: off, 0: source, 255: invert. Or define your own luma mask clip "Lmask". Default is -1
-###  rep [int]      - Mode of repair to avoid artifacts, set 0 to turn off this operation. Default is 13
-###  planes [int[]] - Whether to process the corresponding plane. The other planes will be passed through unchanged. Default is [0, 1, 2]
+###  nrmode (int)   - Mode to get grain/noise from input clip. 0: 3x3 Average Blur, 1: 3x3 SBR, 2: 5x5 SBR, 3: 7x7 SBR. Or define your own denoised clip "p". Default is 2 for HD / 1 for SD
+###  radius (int)   - Temporal radius of MDegrain for grain stabilize(1-3). Default is 1
+###  adapt (int)    - Threshold for luma-adaptative mask. -1: off, 0: source, 255: invert. Or define your own luma mask clip "Lmask". Default is -1
+###  rep (int)      - Mode of repair to avoid artifacts, set 0 to turn off this operation. Default is 13
+###  planes (int[]) - Whether to process the corresponding plane. The other planes will be passed through unchanged. Default is [0, 1, 2]
 ###
 ######
 def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, planes=[0, 1, 2],
@@ -2804,14 +2804,14 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
 # Dampen the grain just a little, to keep the original look
 #
 # Parameters:
-#  limit [int]    - The spatial part won't change a pixel more than this. Default is 3
-#  bias [int]     - The percentage of the spatial filter that will apply. Default is 24
-#  RGmode [int]   - The spatial filter is RemoveGrain, this is its mode. Default is 4
-#  tthr [int]     - Temporal threshold for fluxsmooth. Can be set "a good bit bigger" than usually. Default is 12
-#  tlimit [int]   - The temporal filter won't change a pixel more than this. Default is 3
-#  tbias [int]    - The percentage of the temporal filter that will apply. Default is 49
-#  back [int]     - After all changes have been calculated, reduce all pixel changes by this value (shift "back" towards original value). Default is 1
-#  planes [int[]] - Whether to process the corresponding plane. The other planes will be passed through unchanged. Default is [0, 1, 2]
+#  limit (int)    - The spatial part won't change a pixel more than this. Default is 3
+#  bias (int)     - The percentage of the spatial filter that will apply. Default is 24
+#  RGmode (int)   - The spatial filter is RemoveGrain, this is its mode. Default is 4
+#  tthr (int)     - Temporal threshold for fluxsmooth. Can be set "a good bit bigger" than usually. Default is 12
+#  tlimit (int)   - The temporal filter won't change a pixel more than this. Default is 3
+#  tbias (int)    - The percentage of the temporal filter that will apply. Default is 49
+#  back (int)     - After all changes have been calculated, reduce all pixel changes by this value (shift "back" towards original value). Default is 1
+#  planes (int[]) - Whether to process the corresponding plane. The other planes will be passed through unchanged. Default is [0, 1, 2]
 def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=1, planes=[0, 1, 2]):
     core = vs.get_core()
     
@@ -2895,21 +2895,21 @@ def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
 
 
 # Parameters:
-#  g1str [float]       - [0.0 - ???] strength of grain / for dark areas. Default is 7.0
-#  g2str [float]       - [0.0 - ???] strength of grain / for midtone areas. Default is 5.0
-#  g3str [float]       - [0.0 - ???] strength of grain / for bright areas. Default is 3.0
-#  g1shrp [int]        - [0 - 100] sharpness of grain / for dark areas (NO EFFECT when g1size=1.0 !!). Default is 60
-#  g2shrp [int]        - [0 - 100] sharpness of grain / for midtone areas (NO EFFECT when g2size=1.0 !!). Default is 66
-#  g3shrp [int]        - [0 - 100] sharpness of grain / for bright areas (NO EFFECT when g3size=1.0 !!). Default is 80
-#  g1size [float]      - [0.5 - 4.0] size of grain / for dark areas. Default is 1.5
-#  g2size [float]      - [0.5 - 4.0] size of grain / for midtone areas. Default is 1.2
-#  g3size [float]      - [0.5 - 4.0] size of grain / for bright areas. Default is 0.9
-#  temp_avg [int]      - [0 - 100] percentage of noise's temporal averaging. Default is 0
-#  ontop_grain [float] - [0 - ???] additional grain to put on top of prev. generated grain. Default is 0.0
-#  th1 [int]           - start of dark->midtone mixing zone. Default is 24
-#  th2 [int]           - end of dark->midtone mixing zone. Default is 56
-#  th3 [int]           - start of midtone->bright mixing zone. Default is 128
-#  th4 [int]           - end of midtone->bright mixing zone. Default is 160
+#  g1str (float)       - [0.0 - ???] strength of grain / for dark areas. Default is 7.0
+#  g2str (float)       - [0.0 - ???] strength of grain / for midtone areas. Default is 5.0
+#  g3str (float)       - [0.0 - ???] strength of grain / for bright areas. Default is 3.0
+#  g1shrp (int)        - [0 - 100] sharpness of grain / for dark areas (NO EFFECT when g1size=1.0 !!). Default is 60
+#  g2shrp (int)        - [0 - 100] sharpness of grain / for midtone areas (NO EFFECT when g2size=1.0 !!). Default is 66
+#  g3shrp (int)        - [0 - 100] sharpness of grain / for bright areas (NO EFFECT when g3size=1.0 !!). Default is 80
+#  g1size (float)      - [0.5 - 4.0] size of grain / for dark areas. Default is 1.5
+#  g2size (float)      - [0.5 - 4.0] size of grain / for midtone areas. Default is 1.2
+#  g3size (float)      - [0.5 - 4.0] size of grain / for bright areas. Default is 0.9
+#  temp_avg (int)      - [0 - 100] percentage of noise's temporal averaging. Default is 0
+#  ontop_grain (float) - [0 - ???] additional grain to put on top of prev. generated grain. Default is 0.0
+#  th1 (int)           - start of dark->midtone mixing zone. Default is 24
+#  th2 (int)           - end of dark->midtone mixing zone. Default is 56
+#  th3 (int)           - start of midtone->bright mixing zone. Default is 128
+#  th4 (int)           - end of midtone->bright mixing zone. Default is 160
 def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shrp=80, g1size=1.5, g2size=1.2, g3size=0.9, temp_avg=0, ontop_grain=0.,
                   th1=24, th2=56, th3=128, th4=160):
     core = vs.get_core()
@@ -3523,8 +3523,7 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
     
     bits = input.format.bits_per_sample
     neutral = 1 << (bits - 1)
-    peak = (1 << bits) - 1
-    multiple = peak / 255
+    multiple = ((1 << bits) - 1) / 255
     
     if input.format.color_family != vs.GRAY:
         input_src = input
@@ -4559,21 +4558,21 @@ def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
 
 
 #=============================================================================
-#	mt_expand_multi
-#	mt_inpand_multi
+#   mt_expand_multi
+#   mt_inpand_multi
 #
-#	Calls mt_expand or mt_inpand multiple times in order to grow or shrink
-#	the mask from the desired width and height.
+#   Calls mt_expand or mt_inpand multiple times in order to grow or shrink
+#   the mask from the desired width and height.
 #
-#	Parameters:
-#	- sw   : Growing/shrinking shape width. 0 is allowed. Default: 1
-#	- sh   : Growing/shrinking shape height. 0 is allowed. Default: 1
-#	- mode : "rectangle" (default), "ellipse" or "losange". Replaces the
-#		mt_xxpand mode. Ellipses are actually combinations of
-#		rectangles and losanges and look more like octogons.
-#		Losanges are truncated (not scaled) when sw and sh are not
-#		equal.
-#	Other parameters are the same as mt_xxpand.
+#   Parameters:
+#   - sw   : Growing/shrinking shape width. 0 is allowed. Default: 1
+#   - sh   : Growing/shrinking shape height. 0 is allowed. Default: 1
+#   - mode : "rectangle" (default), "ellipse" or "losange". Replaces the
+#       mt_xxpand mode. Ellipses are actually combinations of
+#       rectangles and losanges and look more like octogons.
+#       Losanges are truncated (not scaled) when sw and sh are not
+#       equal.
+#   Other parameters are the same as mt_xxpand.
 #=============================================================================
 def mt_expand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
     core = vs.get_core()
