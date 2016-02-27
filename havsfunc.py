@@ -1966,7 +1966,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     bclpYStats = core.std.PlaneStats(bclp)
     dclpYStats = core.std.PlaneStats(dclp)
     detYStats = core.std.PlaneStats(det, core.std.Trim(det, 2))
-    last = core.std.Cache(source, make_linear=True).std.FrameEval(eval=srestore_inside, prop_src=[bclpYStats, dclpYStats, detYStats])
+    last = core.std.FrameEval(source, eval=srestore_inside, prop_src=[bclpYStats, dclpYStats, detYStats])
     
     ###### final decimation ######
     return ChangeFPS(core.std.Cache(last, make_linear=True), source.fps_num * numr, source.fps_den * denm)
