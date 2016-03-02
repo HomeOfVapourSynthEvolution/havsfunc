@@ -442,7 +442,11 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
 
 
 # Y'et A'nother H'alo R'educing script
-def YAHR(clp):
+#
+# Parameters:
+#  blur (int)  - "blur" parameter of AWarpSharp2. Default is 2
+#  depth (int) - "depth" parameter of AWarpSharp2. Default is 32
+def YAHR(clp, blur=2, depth=32):
     core = vs.get_core()
     
     if not isinstance(clp, vs.VideoNode):
@@ -456,7 +460,7 @@ def YAHR(clp):
     
     b1 = core.rgvs.RemoveGrain(MinBlur(clp, 2), 11)
     b1D = core.std.MakeDiff(clp, b1)
-    w1 = Padding(clp, 6, 6, 6, 6).warp.AWarpSharp2(depth=32).std.CropRel(6, 6, 6, 6)
+    w1 = Padding(clp, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.CropRel(6, 6, 6, 6)
     w1b1 = core.rgvs.RemoveGrain(MinBlur(w1, 2), 11)
     w1b1D = core.std.MakeDiff(w1, w1b1)
     DD = core.rgvs.Repair(b1D, w1b1D, 13)
