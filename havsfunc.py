@@ -114,7 +114,7 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, aac=None, nsize
         padX = 16 - w % 16 if w & 15 else 0
         padY = 16 - h % 16 if h & 15 else 0
         if padX or padY:
-            c = Resize(c, w + padX, h + padY, 0, 0, w + padX, h + padY, kernel='point')
+            c = Resize(c, w + padX, h + padY, 0, 0, w + padX, h + padY, kernel='point', dmode=1)
     
     fwh = fw if strv < 0 else c.width
     fhh = fh if strv < 0 else c.height
@@ -132,7 +132,7 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, aac=None, nsize
     if fh is None:
         fh = h
     if strh < 0 and strv < 0:
-        return Resize(c, fw, fh, kernel=kernel)
+        return Resize(c, fw, fh, kernel=kernel, dmode=1)
     else:
         return c
 
@@ -149,7 +149,7 @@ def santiag_dir(c, strength, type, halfres, kernel=None, nns=None, aa=None, aac=
     cshift = 0 if halfres else 0.5
     if c.format.color_family != vs.GRAY:
         cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-    return Resize(c, fw, fh, sy=cshift, kernel=kernel)
+    return Resize(c, fw, fh, sy=cshift, kernel=kernel, dmode=1)
 
 def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, aac=None, nsize=None, vcheck=None):
     core = vs.get_core()
@@ -171,7 +171,7 @@ def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, aac=None, ns
             cshift = 1 - field
             if c.format.color_family != vs.GRAY:
                 cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-            c = Resize(c, w, h // 2, sy=cshift, kernel='point')
+            c = Resize(c, w, h // 2, sy=cshift, kernel='point', dmode=1)
         return core.eedi2.EEDI2(c, field=field)
     elif type == 'eedi3':
         sclip = core.nnedi3.nnedi3(c, field=field, dh=dh, nsize=nsize, nns=nns)
@@ -181,7 +181,7 @@ def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, aac=None, ns
             cshift = -0.25
             if c.format.color_family != vs.GRAY:
                 cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-            c = Resize(c, w, h * 2, sy=cshift)
+            c = Resize(c, w, h * 2, sy=cshift, dmode=1)
         return core.sangnom.SangNomMod(c, order=field, aa=aa, aac=aac)
     else:
         raise ValueError('santiag: unexpected value for type')
@@ -255,7 +255,7 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
     mask = Levels(mask, scale(10, bits), 1, scale(10, bits), 0, scale(255, bits)).std.Inflate()
     
     # prepare a version of the image that has its chroma shifted and less saturated
-    input_c = adjust.Tweak(Resize(input, input.width, input.height, cx, cy, planes=[2, 3, 3]), sat=strength)
+    input_c = adjust.Tweak(Resize(input, input.width, input.height, cx, cy, planes=[2, 3, 3], dmode=1), sat=strength)
     
     # combine both images using the mask
     fu = core.std.MaskedMerge(core.std.ShufflePlanes([input], planes=[1], colorfamily=vs.GRAY),
@@ -317,7 +317,7 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     padX = 8 - w % 8 if w & 7 else 0
     padY = 8 - h % 8 if h & 7 else 0
     if padX or padY:
-        clp = Resize(clp, w + padX, h + padY, 0, 0, w + padX, h + padY, kernel='point')
+        clp = Resize(clp, w + padX, h + padY, 0, 0, w + padX, h + padY, kernel='point', dmode=1)
     
     # block
     block = core.std.BlankClip(clp, width=6, height=6, format=vs.GRAY8, length=1, color=[0])
@@ -358,7 +358,7 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     remX = 16 - sw % 16 if sw & 15 else 0
     remY = 16 - sh % 16 if sh & 15 else 0
     if remX or remY:
-        strongD2 = Resize(strongD2, sw + remX, sh + remY, 0, 0, sw + remX, sh + remY, kernel='point')
+        strongD2 = Resize(strongD2, sw + remX, sh + remY, 0, 0, sw + remX, sh + remY, kernel='point', dmode=1)
     expr = 'x {neutral} - 1.01 * {neutral} +'.format(neutral=neutral)
     strongD3 = core.std.Expr([strongD2], [expr] if uv >= 3 or isGray else [expr, '']).dct.Filter([1, 1, 0, 0, 0, 0, 0, 0]).std.CropRel(right=remX, bottom=remY)
     
@@ -944,7 +944,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     
     # Pad vertically during processing (to prevent artefacts at top & bottom edges)
     if Border:
-        clip = Resize(Input, w, h + 8, 0, -4, 0, h + 8 + epsilon, kernel='point')
+        clip = Resize(Input, w, h + 8, 0, -4, 0, h + 8 + epsilon, kernel='point', dmode=1)
         h += 8
     else:
         clip = Input
@@ -998,7 +998,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if SrchClipPP == 1:
         spatialBlur = core.resize.Bilinear(repair0, w // 2, h // 2).rgvs.RemoveGrain([12] if isGray else [12, CMrg]).resize.Bilinear(w, h)
     elif SrchClipPP >= 2:
-        spatialBlur = Resize(core.rgvs.RemoveGrain(repair0, [12] if isGray else [12, CMrg]), w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=2)
+        spatialBlur = Resize(core.rgvs.RemoveGrain(repair0, [12] if isGray else [12, CMrg]), w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=2, dmode=1)
     if SrchClipPP > 1:
         spatialBlur = core.std.Merge(spatialBlur, repair0, weight=[0.1] if ChromaMotion or isGray else [0.1, 0])
         expr = 'x {i} + y < x {i} + x {i} - y > x {i} - y ? ?'.format(i=scale(3, bits))
@@ -1123,7 +1123,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     
     # Create interpolated image as starting point for output
     if EdiExt is not None:
-        edi1 = Resize(EdiExt, w, h, 0, (EdiExt.height - h) / 2, 0, h + epsilon, kernel='point')
+        edi1 = Resize(EdiExt, w, h, 0, (EdiExt.height - h) / 2, 0, h + epsilon, kernel='point', dmode=1)
     else:
         edi1 = QTGMC_Interpolate(ediInput, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, bobbed, ChromaEdi, TFF)
     
@@ -1229,7 +1229,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         backBlend1 = core.std.MakeDiff(thin,
                                        Resize(core.std.MakeDiff(thin, lossed1, planes=[0]).rgvs.RemoveGrain([12] if isGray else [12, 0]),
-                                              w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=5),
+                                              w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=5, dmode=1),
                                        planes=[0])
     
     # Limit over-sharpening by clamping to neighboring (spatial or temporal) min/max values in original
@@ -1250,7 +1250,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         backBlend2 = core.std.MakeDiff(sharpLimit1,
                                        Resize(core.std.MakeDiff(sharpLimit1, lossed1, planes=[0]).rgvs.RemoveGrain([12] if isGray else [12, 0]),
-                                              w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=5),
+                                              w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=5, dmode=1),
                                        planes=[0])
     
     # Add back any extracted noise, prior to final temporal smooth - this will restore detail that was removed as "noise" without restoring the noise itself
@@ -4177,7 +4177,7 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
     V = core.std.ShufflePlanes([clip], planes=[2], colorfamily=vs.GRAY)
     
     if clip.format.subsampling_w > 0 or clip.format.subsampling_h > 0:
-        rclip = Resize(Y, U.width, U.height, sx=-0.5 * (1 << clip.format.subsampling_w) + 0.5, kernel='bicubic', a1=0, a2=0.5)
+        rclip = Resize(Y, U.width, U.height, sx=-0.5 * (1 << clip.format.subsampling_w) + 0.5, kernel='bicubic', a1=0, a2=0.5, dmode=1)
     else:
         rclip = Y
     
@@ -4229,7 +4229,7 @@ def Padding(clip, left=0, right=0, top=0, bottom=0):
     if left < 0 or right < 0 or top < 0 or bottom < 0:
         raise ValueError('Padding: border size to pad must be positive')
     
-    return Resize(clip, clip.width + left + right, clip.height + top + bottom, -left, -top, clip.width + left + right, clip.height + top + bottom, kernel='point')
+    return Resize(clip, clip.width + left + right, clip.height + top + bottom, -left, -top, clip.width + left + right, clip.height + top + bottom, kernel='point', dmode=1)
 
 
 def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None, a1=None, a2=None, invks=None, invkstaps=None, css=None, planes=None,
