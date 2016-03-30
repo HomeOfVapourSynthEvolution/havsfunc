@@ -125,7 +125,7 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, aac=None, nsize
         c = santiag_dir(core.std.Transpose(c), strv, typev, halfres, kernel, nns, aa, aac, nsize, vcheck, fh, fw).std.Transpose()
     
     if type == 'sangnom' or typeh == 'sangnom' or typev == 'sangnom':
-        c = core.std.CropRel(c, left=0, top=0, right=padX, bottom=padY)
+        c = core.std.CropRel(c, right=padX, bottom=padY)
     
     if fw is None:
         fw = w
@@ -248,8 +248,8 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
     mask = Levels(mask, scale(250, bits), 1, scale(250, bits), scale(255, bits), 0)
     
     # expand to cover beyond the bleeding areas and shift to compensate the resizing
-    mask = core.std.Convolution(mask, matrix=[0, 0, 0, 1, 0, 0, 0, 0, 0], divisor=1, saturate=False) \
-           .std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 0, 0, 0], divisor=8, saturate=False)
+    mask = core.std.Convolution(mask, matrix=[0, 0, 0, 1, 0, 0, 0, 0, 0], divisor=1, saturate=False)
+    mask = core.std.Convolution(mask, matrix=[1, 1, 1, 1, 1, 1, 0, 0, 0], divisor=8, saturate=False)
     
     # binarize (also a trick to expand)
     mask = Levels(mask, scale(10, bits), 1, scale(10, bits), 0, scale(255, bits)).std.Inflate()
@@ -360,8 +360,7 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     if remX or remY:
         strongD2 = Resize(strongD2, sw + remX, sh + remY, 0, 0, sw + remX, sh + remY, kernel='point')
     expr = 'x {neutral} - 1.01 * {neutral} +'.format(neutral=neutral)
-    strongD3 = core.std.Expr([strongD2], [expr] if uv >= 3 or isGray else [expr, '']).dct.Filter([1, 1, 0, 0, 0, 0, 0, 0]) \
-               .std.CropRel(left=0, top=0, right=remX, bottom=remY)
+    strongD3 = core.std.Expr([strongD2], [expr] if uv >= 3 or isGray else [expr, '']).dct.Filter([1, 1, 0, 0, 0, 0, 0, 0]).std.CropRel(right=remX, bottom=remY)
     
     # apply compensation from "normal" deblocking to the borders of the full-block-compensations calculated from "strong" deblocking ...
     expr = 'y {neutral} = x y ?'.format(neutral=neutral)
@@ -378,7 +377,7 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
             deblocked = core.std.Merge(deblocked, normal, weight=[0, 1])
     
     # remove mod 8 borders
-    return core.std.CropRel(deblocked, left=0, top=0, right=padX, bottom=padY)
+    return core.std.CropRel(deblocked, right=padX, bottom=padY)
 
 
 # rx, ry [float, 1.0 ... 2.0 ... ~3.0]
@@ -1361,7 +1360,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     
     # Crop off temporary vertical padding
     if Border:
-        cropped = core.std.CropRel(decimated, left=0, top=4, right=0, bottom=4)
+        cropped = core.std.CropRel(decimated, top=4, bottom=4)
         h -= 8
     else:
         cropped = decimated
@@ -1511,8 +1510,7 @@ def QTGMC_Generate2ndFieldNoise(Input, InterleavedClip, ChromaNoise=False, TFF=N
     origNoise = core.std.SeparateFields(Input, TFF)
     noiseMax = core.std.Maximum(origNoise, planes=planes).std.Maximum(planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
     noiseMin = core.std.Minimum(origNoise, planes=planes).std.Minimum(planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
-    random = core.std.SeparateFields(InterleavedClip, TFF).std.BlankClip(color=[128] * Input.format.num_planes) \
-             .grain.Add(var=1800, uvar=1800 if ChromaNoise else 0)
+    random = core.std.SeparateFields(InterleavedClip, TFF).std.BlankClip(color=[128] * Input.format.num_planes).grain.Add(1800, 1800 if ChromaNoise else 0)
     expr = 'x {multiple} / 128 - y {multiple} / * 256 / 128 + {multiple} *'.format(multiple=multiple)
     varRandom = core.std.Expr([core.std.MakeDiff(noiseMax, noiseMin, planes=planes), random], [expr] if ChromaNoise or isGray else [expr, ''])
     newNoise = core.std.MergeDiff(noiseMin, varRandom, planes=planes)
@@ -2085,8 +2083,8 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0):
     
     b_crop = l != 0 or t != 0 or r != 0 or b != 0
     if b_crop:
-        src = core.std.CropRel(src, left=l, top=t, right=r, bottom=b)
-        last = core.std.CropRel(dlg, left=l, top=t, right=r, bottom=b)
+        src = core.std.CropRel(src, l, r, t, b)
+        last = core.std.CropRel(dlg, l, r, t, b)
     else:
         last = dlg
     
@@ -3382,8 +3380,8 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
     diff = core.std.Expr([limitI, level], ['x y - {Mfactor} * {neutral} +'.format(Mfactor=Mfactor, neutral=neutral)])
     process = core.rgvs.RemoveGrain(diff, RGmode)
     if useDB:
-        process = core.std.Expr([process], ['x {neutral} - {Mfactor} / {neutral} +'.format(neutral=neutral, Mfactor=Mfactor)]) \
-                  .f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
+        expr = 'x {neutral} - {Mfactor} / {neutral} +'.format(neutral=neutral, Mfactor=Mfactor)
+        process = core.std.Expr([process], [expr]).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
         smth = core.std.MakeDiff(limitI, process)
     else:
         smth = core.std.Expr([limitI, process], ['x y {neutral} - {Mfactor} / -'.format(neutral=neutral, Mfactor=Mfactor)])
@@ -3392,8 +3390,8 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
     diff2 = core.std.Expr([level2, level], ['x y - {Mfactor} * {neutral} +'.format(Mfactor=Mfactor, neutral=neutral)])
     process2 = core.rgvs.RemoveGrain(diff2, RGmode)
     if useDB:
-        process2 = core.std.Expr([process2], ['x {neutral} - {Mfactor} / {neutral} +'.format(neutral=neutral, Mfactor=Mfactor)]) \
-                   .f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
+        expr = 'x {neutral} - {Mfactor} / {neutral} +'.format(neutral=neutral, Mfactor=Mfactor)
+        process2 = core.std.Expr([process2], [expr]).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
         smth2 = core.std.MakeDiff(smth, process2)
     else:
         smth2 = core.std.Expr([smth, process2], ['x y {neutral} - {Mfactor} / -'.format(neutral=neutral, Mfactor=Mfactor)])
@@ -4520,16 +4518,16 @@ def sbrV(c, r=1, planes=[0, 1, 2]):
     elif r == 2:
         RG11 = core.std.Convolution(c, matrix=[1, 2, 1], planes=planes, mode='v').std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
     else:
-        RG11 = core.std.Convolution(c, matrix=[1, 2, 1], planes=planes, mode='v').std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v') \
-               .std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
+        RG11 = core.std.Convolution(c, matrix=[1, 2, 1], planes=planes, mode='v')
+        RG11 = core.std.Convolution(RG11, matrix=[1, 4, 6, 4, 1], planes=planes, mode='v').std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
     RG11D = core.std.MakeDiff(c, RG11, planes=planes)
     if r <= 1:
         RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1], planes=planes, mode='v')
     elif r == 2:
         RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1], planes=planes, mode='v').std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
     else:
-        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1], planes=planes, mode='v').std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v') \
-                 .std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
+        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1], planes=planes, mode='v')
+        RG11DS = core.std.Convolution(RG11DS, matrix=[1, 4, 6, 4, 1], planes=planes, mode='v').std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
     RG11DD = core.std.Expr([RG11D, RG11DS], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
     return core.std.MakeDiff(c, RG11DD, planes=planes)
 
