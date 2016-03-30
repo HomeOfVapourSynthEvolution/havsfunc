@@ -395,10 +395,7 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
 #
 # ss [float, 1.0 ... 1.5 ...]
 # Supersampling factor, to avoid creation of aliasing.
-#
-# noring [bool]
-# In case of supersampling, indicates that a non-ringing algorithm must be used.
-def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highsens=50, ss=1.5, noring=False):
+def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highsens=50, ss=1.5):
     core = vs.get_core()
     
     if not isinstance(clp, vs.VideoNode):
@@ -3773,10 +3770,6 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
 ### -------------------
 ### Supersampling factor (reduce aliasing on edges)
 ###
-### noring [bool]
-### -------------
-### In case of supersampling, indicates that a non-ringing algorithm must be used
-###
 ### dest_x ; dest_y [int]
 ### ---------------------
 ### Output resolution after sharpening (avoid a resizing step)
@@ -3824,7 +3817,6 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
 ###
 ###                   - ss_x        = Smode==1?1.50:1.25
 ###                   - ss_y        = ss_x
-###                   - noring      = false
 ###                   - dest_x      = ox
 ###                   - dest_y      = oy
 ###
@@ -3858,7 +3850,6 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
 ###
 ###                   - ss_x        = 1.50
 ###                   - ss_y        = ss_x
-###                   - noring      = false
 ###                   - dest_x      = ox
 ###                   - dest_y      = oy
 ###
@@ -3892,14 +3883,13 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
 ###
 ###                   - ss_x        = 1.25
 ###                   - ss_y        = ss_x
-###                   - noring      = false
 ###                   - dest_x      = ox
 ###                   - dest_y      = oy
 ###
 ################################################################################################
 def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=False, secure=None, source=None,
            Szrp=16, Spwr=None, SdmpLo=None, SdmpHi=None, Lmode=None, overshoot=None, undershoot=None, overshoot2=None, undershoot2=None,
-           soft=None, soothe=None, keep=None, edgemode=0, edgemaskHQ=None, ss_x=None, ss_y=None, noring=False, dest_x=None, dest_y=None, defaults='fast'):
+           soft=None, soothe=None, keep=None, edgemode=0, edgemaskHQ=None, ss_x=None, ss_y=None, dest_x=None, dest_y=None, defaults='fast'):
     core = vs.get_core()
     
     if not isinstance(input, vs.VideoNode):
