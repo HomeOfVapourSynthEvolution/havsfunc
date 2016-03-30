@@ -416,7 +416,7 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
     ox = clp.width
     oy = clp.height
     
-    halos = Resize(Resize(clp, m4(ox / rx), m4(oy / ry), kernel='bicubic'), ox, oy, kernel='bicubic', a1=1, a2=0)
+    halos = core.resize.Bicubic(clp, m4(ox / rx), m4(oy / ry)).resize.Bicubic(ox, oy, filter_param_a=1, filter_param_b=0)
     are = core.std.Expr([core.std.Maximum(clp), core.std.Minimum(clp)], ['x y -'])
     ugly = core.std.Expr([core.std.Maximum(halos), core.std.Minimum(halos)], ['x y -'])
     expr = 'y {multiple} / x {multiple} / - y {multiple} / 0.001 + / 255 * {LOS} - y {multiple} / 256 + 512 / {HIS} + * {multiple} *'.format(multiple=multiple, LOS=lowsens, HIS=highsens / 100)
@@ -425,14 +425,11 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
     if ss <= 1:
         remove = core.rgvs.Repair(clp, lets, 1)
     else:
-        remove = Resize(
-          core.std.Expr(
-            [core.std.Expr([Resize(clp, m4(ox * ss), m4(oy * ss), kernel='spline64' if noring else 'spline36', noring=noring),
-                            Resize(core.std.Maximum(lets), m4(ox * ss), m4(oy * ss), kernel='bicubic')],
-                           ['x y min']),
-             Resize(core.std.Minimum(lets), m4(ox * ss), m4(oy * ss), kernel='bicubic')],
-            ['x y max']),
-          ox, oy)
+        remove = core.std.Expr([core.std.Expr([core.resize.Spline36(clp, m4(ox * ss), m4(oy * ss)),
+                                               core.std.Maximum(lets).resize.Bicubic(m4(ox * ss), m4(oy * ss))],
+                                              ['x y min']),
+                                core.std.Minimum(lets).resize.Bicubic(m4(ox * ss), m4(oy * ss))],
+                               ['x y max']).resize.Spline36(ox, oy)
     them = core.std.Expr([clp, remove], ['x y < x x y - {DRK} * - x x y - {BRT} * - ?'.format(DRK=darkstr, BRT=brightstr)])
     
     if clp_src is not None:
@@ -1003,7 +1000,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # Blur image and soften edges to assist in motion matching of edge blocks. Blocks are matched by SAD (sum of absolute differences between blocks), but even
     # a slight change in an edge from frame to frame will give a high SAD due to the higher contrast of edges
     if SrchClipPP == 1:
-        spatialBlur = Resize(Resize(repair0, w // 2, h // 2, kernel='bilinear').rgvs.RemoveGrain([12] if isGray else [12, CMrg]), w, h, kernel='bilinear')
+        spatialBlur = core.resize.Bilinear(repair0, w // 2, h // 2).rgvs.RemoveGrain([12] if isGray else [12, CMrg]).resize.Bilinear(w, h)
     elif SrchClipPP >= 2:
         spatialBlur = Resize(core.rgvs.RemoveGrain(repair0, [12] if isGray else [12, CMrg]), w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=2)
     if SrchClipPP > 1:
@@ -1697,8 +1694,8 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     if abs(mode) >= 2 and not bom:
         mec = core.std.Merge(core.std.Merge(source, core.std.Trim(source, 1), weight=[0, 0.5]), core.std.Trim(source, 1), weight=[0.5, 0])
     det = core.resize.Bicubic(dclip, format=vs.YUV420P8, matrix_s='709', matrix_in_s='709', prefer_props=True)
-    det = Resize(det, det.width if srad == 4 else int(det.width / 2 / srad + 4) * 4, det.height if srad == 4 else int(det.height / 2 / srad + 4) * 4,
-                 kernel='point', dmode=1).std.Trim(2)
+    det = core.resize.Point(det, det.width if srad == 4 else int(det.width / 2 / srad + 4) * 4, det.height if srad == 4 else int(det.height / 2 / srad + 4) * 4)
+    det = core.std.Trim(det, 2)
     if mode < 0:
         det = core.std.StackVertical([core.std.StackHorizontal([core.std.ShufflePlanes([det], planes=[1], colorfamily=vs.GRAY),
                                                                 core.std.ShufflePlanes([det], planes=[2], colorfamily=vs.GRAY)]),
@@ -2268,7 +2265,7 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
     cmask = core.std.Lut2(core.std.Binarize(average_u, threshold=129 << shift),
                           core.std.Binarize(average_v, threshold=129 << shift),
                           function=lambda x, y: x & y)
-    cmask = Resize(cmask, input.width, input.height, kernel='point')
+    cmask = core.resize.Point(cmask, input.width, input.height)
     
     themask = core.std.Lut2(ymask, cmask, function=lambda x, y: x & y)
     
@@ -2382,8 +2379,8 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
     input_plus_u = core.std.ShufflePlanes([input_plus], planes=[1], colorfamily=vs.GRAY)
     input_plus_v = core.std.ShufflePlanes([input_plus], planes=[2], colorfamily=vs.GRAY)
     
-    average_y = Resize(core.std.Expr([input_minus_y, input_plus_y], ['x y - abs {ythr} < {peak} 0 ?'.format(ythr=ythresh, peak=peak)]),
-                       input.width // 2, input.height // 2, kernel='bilinear')
+    expr = 'x y - abs {ythr} < {peak} 0 ?'.format(ythr=ythresh, peak=peak)
+    average_y = core.std.Expr([input_minus_y, input_plus_y], [expr]).resize.Bilinear(input.width // 2, input.height // 2)
     average_u = core.std.Expr([input_minus_u, input_plus_u], ['x y - abs {cthr} < x y + 2 / 0 ?'.format(cthr=cthresh)])
     average_v = core.std.Expr([input_minus_v, input_plus_v], ['x y - abs {cthr} < x y + 2 / 0 ?'.format(cthr=cthresh)])
     
@@ -2404,7 +2401,7 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
     output = core.std.ShufflePlanes([input, output_u, output_v], planes=[0, 0, 0], colorfamily=input.format.color_family)
     
     if mask:
-        return Resize(themask, input.width, input.height, kernel='point')
+        return core.resize.Point(themask, input.width, input.height)
     else:
         return output
 
@@ -2968,26 +2965,26 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
     grainlayer1 = core.std.BlankClip(clp, width=sx1, height=sy1, color=neutral).grain.Add(g1str)
     if g1size != 1 and (sx1 != ox or sy1 != oy):
         if g1size > 1.5:
-            grainlayer1 = Resize(core.fmtc.resample(grainlayer1, sx1a, sy1a, kernel='bicubic', a1=b1a, a2=c1a),
-                                 ox, oy, kernel='bicubic', a1=b1a, a2=c1a, bits=clp.format.bits_per_sample)
+            grainlayer1 = core.resize.Bicubic(grainlayer1, sx1a, sy1a, filter_param_a=b1a, filter_param_b=c1a)
+            grainlayer1 = core.resize.Bicubic(grainlayer1, ox, oy, filter_param_a=b1a, filter_param_b=c1a)
         else:
-            grainlayer1 = Resize(grainlayer1, ox, oy, kernel='bicubic', a1=b1, a2=c1)
+            grainlayer1 = core.resize.Bicubic(grainlayer1, ox, oy, filter_param_a=b1, filter_param_b=c1)
     
     grainlayer2 = core.std.BlankClip(clp, width=sx2, height=sy2, color=neutral).grain.Add(g2str)
     if g2size != 1 and (sx2 != ox or sy2 != oy):
         if g2size > 1.5:
-            grainlayer2 = Resize(core.fmtc.resample(grainlayer2, sx2a, sy2a, kernel='bicubic', a1=b2a, a2=c2a),
-                                 ox, oy, kernel='bicubic', a1=b2a, a2=c2a, bits=clp.format.bits_per_sample)
+            grainlayer2 = core.resize.Bicubic(grainlayer2, sx2a, sy2a, filter_param_a=b2a, filter_param_b=c2a)
+            grainlayer2 = core.resize.Bicubic(grainlayer2, ox, oy, filter_param_a=b2a, filter_param_b=c2a)
         else:
-            grainlayer2 = Resize(grainlayer2, ox, oy, kernel='bicubic', a1=b2, a2=c2)
+            grainlayer2 = core.resize.Bicubic(grainlayer2, ox, oy, filter_param_a=b2, filter_param_b=c2)
     
     grainlayer3 = core.std.BlankClip(clp, width=sx3, height=sy3, color=neutral).grain.Add(g3str)
     if g3size != 1 and (sx3 != ox or sy3 != oy):
         if g3size > 1.5:
-            grainlayer3 = Resize(core.fmtc.resample(grainlayer3, sx3a, sy3a, kernel='bicubic', a1=b3a, a2=c3a),
-                                 ox, oy, kernel='bicubic', a1=b3a, a2=c3a, bits=clp.format.bits_per_sample)
+            grainlayer3 = core.resize.Bicubic(grainlayer3, sx3a, sy3a, filter_param_a=b3a, filter_param_b=c3a)
+            grainlayer3 = core.resize.Bicubic(grainlayer3, ox, oy, filter_param_a=b3a, filter_param_b=c3a)
         else:
-            grainlayer3 = Resize(grainlayer3, ox, oy, kernel='bicubic', a1=b3, a2=c3)
+            grainlayer3 = core.resize.Bicubic(grainlayer3, ox, oy, filter_param_a=b3, filter_param_b=c3)
     
     expr1 = 'x {th1} < 0 x {th2} > {peak} {peak} {th2} {th1} - / x {th1} - * ? ?'.format(th1=th1, th2=th2, peak=peak)
     expr2 = 'x {th3} < 0 x {th4} > {peak} {peak} {th4} {th3} - / x {th3} - * ? ?'.format(th3=th3, th4=th4, peak=peak)
@@ -3997,7 +3994,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     
     ### SHARP
     if ss_x > 1 or ss_y > 1:
-        tmp = Resize(input, xxs, yys, kernel='spline64' if noring else 'spline36', noring=noring)
+        tmp = core.resize.Spline36(input, xxs, yys)
     else:
         tmp = input
     
@@ -4090,9 +4087,9 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if dest_x != ox or dest_y != oy:
         if not isGray:
             PP2 = core.std.ShufflePlanes([PP2, tmp_src], planes=[0, 1, 2], colorfamily=input.format.color_family)
-        out = Resize(PP2, dest_x, dest_y)
+        out = core.resize.Spline36(PP2, dest_x, dest_y)
     elif ss_x > 1 or ss_y > 1:
-        out = Resize(PP2, dest_x, dest_y)
+        out = core.resize.Spline36(PP2, dest_x, dest_y)
         if not isGray:
             out = core.std.ShufflePlanes([out, input], planes=[0, 1, 2], colorfamily=input.format.color_family)
     elif not isGray:
@@ -4101,11 +4098,11 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         out = PP2
     
     if edgemode <= -1:
-        return Resize(edge, dest_x, dest_y)
+        return core.resize.Spline36(edge, dest_x, dest_y)
     elif source is not None:
         if dest_x != ox or dest_y != oy:
-            src = Resize(source, dest_x, dest_y)
-            In = Resize(input, dest_x, dest_y)
+            src = core.resize.Spline36(source, dest_x, dest_y)
+            In = core.resize.Spline36(input, dest_x, dest_y)
         else:
             src = source
             In = input
