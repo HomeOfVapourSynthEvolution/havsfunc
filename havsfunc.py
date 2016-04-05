@@ -4327,9 +4327,13 @@ def set_scenechange(clip, thresh=15):
 ########################################
 ## Didée's functions:
 
-# contra-sharpening: sharpen the denoised clip, but don't add more to any pixel than what was removed previously.
+# Contra-sharpening: sharpen the denoised clip, but don't add more to any pixel than what was removed previously.
 # script function from Didée, at the VERY GRAINY thread (http://forum.doom9.org/showthread.php?p=1076491#post1076491)
-def ContraSharpening(denoised, original):
+#
+# Parameters:
+#  radius (int) - Spatial radius of RemoveGrain for kernel blur(1-3). Default is 1
+#  rep (int)    - Mode of repair to limit the difference. Default is 1
+def ContraSharpening(denoised, original, radius=1, rep=1):
     core = vs.get_core()
     
     if not (isinstance(denoised, vs.VideoNode) and isinstance(original, vs.VideoNode)):
@@ -4344,13 +4348,27 @@ def ContraSharpening(denoised, original):
     else:
         denoised_src = None
     
-    s = MinBlur(denoised, 1)                                   # Damp down remaining spots of the denoised clip.
-    allD = core.std.MakeDiff(original, denoised)               # The difference achieved by the denoising.
-    ssD = core.std.MakeDiff(s, core.rgvs.RemoveGrain(s, [11])) # The difference of a simple kernel blur.
-    ssDD = core.rgvs.Repair(ssD, allD, [1])                    # Limit the difference to the max of what the denoising removed locally.
+    s = MinBlur(denoised, 1)                     # Damp down remaining spots of the denoised clip.
+    
+    if radius <= 1:
+        RG11 = core.rgvs.RemoveGrain(s, 11)
+    elif radius == 2:
+        RG11 = core.rgvs.RemoveGrain(s, 11).rgvs.RemoveGrain(20)
+    else:
+        RG11 = core.rgvs.RemoveGrain(s, 11).rgvs.RemoveGrain(20).rgvs.RemoveGrain(20)
+    
+    ssD = core.std.MakeDiff(s, RG11)             # The difference of a simple kernel blur.
+    allD = core.std.MakeDiff(original, denoised) # The difference achieved by the denoising.
+    
+    if radius == 2:
+        allD = core.rgvs.Repair(ssD, allD, rep)
+    elif radius >= 3:
+        allD = core.rgvs.Repair(ssD, core.rgvs.Repair(ssD, allD, rep), rep)
+    
+    ssDD = core.rgvs.Repair(ssD, allD, rep)      # Limit the difference to the max of what the denoising removed locally.
     expr = 'x {neutral} - abs y {neutral} - abs < x y ?'.format(neutral=1 << (denoised.format.bits_per_sample - 1))
-    ssDD = core.std.Expr([ssDD, ssD], [expr])                  # abs(diff) after limiting may not be bigger than before.
-    last = core.std.MergeDiff(denoised, ssDD)                  # Apply the limited difference. (Sharpening is just inverse blurring)
+    ssDD = core.std.Expr([ssDD, ssD], [expr])    # abs(diff) after limiting may not be bigger than before.
+    last = core.std.MergeDiff(denoised, ssDD)    # Apply the limited difference. (Sharpening is just inverse blurring.)
     
     if denoised_src is not None:
         return core.std.ShufflePlanes([last, denoised_src], planes=[0, 1, 2], colorfamily=denoised_src.format.color_family)
