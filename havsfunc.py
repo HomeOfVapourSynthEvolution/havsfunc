@@ -3015,8 +3015,6 @@ def InterFrame(Input, Preset='Medium', Tuning='Film', NewNum=None, NewDen=1, GPU
     if not isinstance(Input, vs.VideoNode):
         raise TypeError('InterFrame: This is not a clip')
     
-    Input = core.std.Cache(Input, make_linear=True)
-    
     # Validate inputs
     Preset = Preset.lower()
     Tuning = Tuning.lower()
