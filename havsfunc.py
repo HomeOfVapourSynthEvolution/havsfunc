@@ -589,34 +589,35 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     
     # Post-Process: Ringing Mask Generating
     if ringmask is None:
-        sobelm = core.std.ShufflePlanes([input], planes=[0], colorfamily=vs.GRAY).std.Sobel(min=scale(mthr, bits))
-        fmask = core.generic.Hysteresis(core.rgvs.RemoveGrain(sobelm, 4), sobelm)
+        sobelm = core.std.Sobel(input, min=scale(mthr, bits), planes=[0])
+        fmask = core.generic.Hysteresis(core.rgvs.RemoveGrain(sobelm, [4] if isGray else [4 if Y else 0, 4 if U else 0, 4 if V else 0]), sobelm, planes=[0])
         if mrad > 0:
-            omask = mt_expand_multi(fmask, sw=mrad, sh=mrad)
+            omask = mt_expand_multi(fmask, planes=[0], sw=mrad, sh=mrad)
         else:
             omask = fmask
         if msmooth > 0:
-            omask = mt_inflate_multi(omask, radius=msmooth)
+            omask = mt_inflate_multi(omask, planes=[0], radius=msmooth)
         if incedge:
             ringmask = omask
         else:
             if minp > 3:
-                imask = core.std.Minimum(fmask).std.Minimum()
+                imask = core.std.Minimum(fmask, planes=[0]).std.Minimum(planes=[0])
             elif minp > 2:
-                imask = core.std.Inflate(fmask).std.Minimum().std.Minimum()
+                imask = core.std.Inflate(fmask, planes=[0]).std.Minimum(planes=[0]).std.Minimum(planes=[0])
             elif minp > 1:
-                imask = core.std.Minimum(fmask)
+                imask = core.std.Minimum(fmask, planes=[0])
             elif minp > 0:
-                imask = core.std.Inflate(fmask).std.Minimum()
+                imask = core.std.Inflate(fmask, planes=[0]).std.Minimum(planes=[0])
             else:
                 imask = fmask
-            ringmask = core.std.Expr([omask, imask], ['x {peak} y - * {peak} /'.format(peak=(1 << bits) - 1)])
+            expr = 'x {peak} y - * {peak} /'.format(peak=(1 << bits) - 1)
+            ringmask = core.std.Expr([omask, imask], [expr] if isGray else [expr, ''])
     
     # Mask Merging & Output
     if show:
         return ringmask
     else:
-        return core.std.MaskedMerge(input, limitclp, ringmask, planes=planes)
+        return core.std.MaskedMerge(input, limitclp, ringmask, planes=planes, first_plane=True)
 
 
 #-------------------------------------------------------------------#
