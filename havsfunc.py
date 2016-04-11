@@ -4124,7 +4124,7 @@ def Bob(clip, b=1/3, c=1/3, tff=None):
     clip = core.std.SeparateFields(clip, tff).fmtc.resample(scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0)
     
     if clip.format.bits_per_sample != bits:
-        return core.fmtc.bitdepth(clip, bits=bits)
+        return core.fmtc.bitdepth(clip, bits=bits, dmode=1)
     else:
         return clip
 
