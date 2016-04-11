@@ -1066,9 +1066,9 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
             dnWindow = core.dfttest.DFTTest(noiseWindow, sigma=Sigma * 4, tbsize=noiseTD, planes=[0, 1, 2] if ChromaNoise and not isGray else [0])
         elif Denoiser == 'knlmeanscl':
             if ChromaNoise and not isGray:
-                dnWindow = KNLMeansCL(noiseWindow, d=NoiseTR, h=Sigma, device_type='GPU')
+                dnWindow = KNLMeansCL(noiseWindow, d=NoiseTR, h=Sigma)
             else:
-                dnWindow = core.knlm.KNLMeansCL(noiseWindow, d=NoiseTR, h=Sigma, device_type='GPU')
+                dnWindow = core.knlm.KNLMeansCL(noiseWindow, d=NoiseTR, h=Sigma)
         else:
             dnWindow = core.fft3dfilter.FFT3DFilter(noiseWindow, sigma=Sigma, plane=4 if ChromaNoise else 0, bt=noiseTD, ncpu=FftThreads)
     
