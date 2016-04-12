@@ -4171,20 +4171,17 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
     if clip.format.color_family not in [vs.YUV, vs.YCOCG]:
         raise TypeError('KNLMeansCL: This wrapper is intended to be used for color family of YUV and YCOCG only')
     
-    Y = core.std.ShufflePlanes([clip], planes=[0], colorfamily=vs.GRAY)
-    U = core.std.ShufflePlanes([clip], planes=[1], colorfamily=vs.GRAY)
-    V = core.std.ShufflePlanes([clip], planes=[2], colorfamily=vs.GRAY)
+    nrY = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id, info=info)
     
     if clip.format.subsampling_w > 0 or clip.format.subsampling_h > 0:
-        rclip = Resize(Y, U.width, U.height, sx=-0.5 * (1 << clip.format.subsampling_w) + 0.5, kernel='bicubic', a1=0, a2=0.5, dmode=1)
+        subY = Resize(clip, clip.width >> clip.format.subsampling_w, clip.height >> clip.format.subsampling_h, sx=-0.5 * (1 << clip.format.subsampling_w) + 0.5,
+                      kernel='bicubic', a1=0, a2=0.5, planes=[3, 1, 1], dmode=1)
+        yuv444 = core.std.ShufflePlanes([subY, clip], planes=[0, 1, 2], colorfamily=clip.format.color_family)
+        nrUV = core.knlm.KNLMeansCL(yuv444, d=d, a=a, s=s, h=h, cmode=True, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
     else:
-        rclip = Y
+        nrUV = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, cmode=True, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
     
-    Y = core.knlm.KNLMeansCL(Y, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id, info=info)
-    U = core.knlm.KNLMeansCL(U, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, rclip=rclip, device_type=device_type, device_id=device_id)
-    V = core.knlm.KNLMeansCL(V, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, rclip=rclip, device_type=device_type, device_id=device_id)
-    
-    return core.std.ShufflePlanes([Y, U, V], planes=[0, 0, 0], colorfamily=clip.format.color_family)
+    return core.std.ShufflePlanes([nrY, nrUV], planes=[0, 1, 2], colorfamily=clip.format.color_family)
 
 
 def Overlay(clipa, clipb, x=0, y=0, mask=None):
