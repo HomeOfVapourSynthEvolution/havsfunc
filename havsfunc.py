@@ -2050,12 +2050,15 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None):
 ###    Setting these values only makes logoNR run faster, with rarely noticeable difference in result,
 ###    unless you set wrong values and the logo is not covered in your cropped target area.
 ###
+### d/a/s/h [int, default: 1/2/4/6]
+### ------------------
+###    The same parameters of KNLMeansCL.
+###
 ### +----------------+
 ### |  REQUIREMENTS  |
 ### +----------------+
 ###
-### -> Bilateral
-### -> FluxSmooth
+### -> KNLMeansCL
 ### -> RemoveGrain/Repair
 ###
 ### +-----------+
@@ -2064,13 +2067,16 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None):
 ###
 ### v0.1 - 22 Mar 2012
 ###      - First release
-def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0):
+def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=4, h=6):
     core = vs.get_core()
     
     if not (isinstance(dlg, vs.VideoNode) and isinstance(src, vs.VideoNode)):
         raise TypeError('logoNR: This is not a clip')
     if dlg.format.id != src.format.id:
         raise TypeError('logoNR: clips must have the same format')
+    
+    if dlg.format.color_family == vs.GRAY:
+        chroma = False
     
     if not chroma and dlg.format.color_family != vs.GRAY:
         dlg_src = dlg
@@ -2086,20 +2092,20 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0):
     else:
         last = dlg
     
-    clp_nr = core.bilateral.Bilateral(last, sigmaS=3).flux.SmoothT(temporal_threshold=scale(1, dlg.format.bits_per_sample))
-    expr = 'x y - abs 16 *'
-    logoM = mt_expand_multi(core.std.Expr([last, src], [expr]), mode='losange', sw=3, sh=3).rgvs.RemoveGrain(19).std.Deflate()
+    if chroma:
+        clp_nr = KNLMeansCL(last, d=d, a=a, s=s, h=h)
+    else:
+        clp_nr = core.knlm.KNLMeansCL(last, d=d, a=a, s=s, h=h)
+    logoM = mt_expand_multi(core.std.Expr([last, src], ['x y - abs 16 *']), mode='losange', sw=3, sh=3).rgvs.RemoveGrain(19).std.Deflate()
     clp_nr = core.std.MaskedMerge(last, clp_nr, logoM)
     
     if b_crop:
-        last = Overlay(dlg, clp_nr, x=l, y=t)
-    else:
-        last = clp_nr
+        clp_nr = Overlay(dlg, clp_nr, x=l, y=t)
     
     if dlg_src is not None:
-        return core.std.ShufflePlanes([last, dlg_src], planes=[0, 1, 2], colorfamily=dlg_src.format.color_family)
+        return core.std.ShufflePlanes([clp_nr, dlg_src], planes=[0, 1, 2], colorfamily=dlg_src.format.color_family)
     else:
-        return last
+        return clp_nr
 
 
 # Vinverse: a small, but effective function against (residual) combing, by Didée
