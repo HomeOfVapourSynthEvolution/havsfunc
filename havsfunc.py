@@ -4195,14 +4195,17 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None):
     
     if not (isinstance(clipa, vs.VideoNode) and isinstance(clipb, vs.VideoNode)):
         raise TypeError('Overlay: This is not a clip')
+    if clipa.format.subsampling_w > 0 or clipa.format.subsampling_h > 0:
+        clipa_src = clipa
+        clipa = core.resize.Point(clipa, format=core.register_format(clipa.format.color_family, clipa.format.sample_type, clipa.format.bits_per_sample, 0, 0).id)
     if clipb.format.id != clipa.format.id:
-        clipb = core.resize.Bicubic(clipb, format=clipa.format.id)
+        clipb = core.resize.Point(clipb, format=clipa.format.id)
     if mask is None:
         mask = core.std.BlankClip(clipb, color=[(1 << clipb.format.bits_per_sample) - 1] * clipb.format.num_planes)
     elif not isinstance(mask, vs.VideoNode):
         raise TypeError("Overlay: 'mask' is not a clip")
-    if mask.format.id != clipa.format.id:
-        mask = core.resize.Bicubic(mask, format=clipa.format.id)
+    if mask.width != clipb.width or mask.height != clipb.height:
+        raise TypeError("Overlay: 'mask' must be the same dimension as 'clipb'")
     
     mask = core.std.ShufflePlanes([mask], planes=[0], colorfamily=vs.GRAY)
     
@@ -4220,7 +4223,10 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None):
     clipb = core.std.AddBorders(clipb, pl, pr, pt, pb)
     mask = core.std.AddBorders(mask, pl, pr, pt, pb)
     # Return padded clip
-    return core.std.MaskedMerge(clipa, clipb, mask)
+    last = core.std.MaskedMerge(clipa, clipb, mask)
+    if clipa_src.format.subsampling_w > 0 or clipa_src.format.subsampling_h > 0:
+        last = core.resize.Point(last, format=clipa_src.format.id)
+    return last
 
 
 def Padding(clip, left=0, right=0, top=0, bottom=0):
