@@ -811,8 +811,8 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         raise TypeError('QTGMC: This is not a clip')
     if EdiExt is not None and (not isinstance(EdiExt, vs.VideoNode) or EdiExt.format.id != Input.format.id):
         raise TypeError("QTGMC: 'EdiExt' must be the same format as input")
-    if not isinstance(TFF, bool):
-        raise TypeError("QTGMC: 'TFF' must be set. Setting TFF to true means top field first and false means bottom field first")
+    if InputType != 1 and not isinstance(TFF, bool):
+        raise TypeError("QTGMC: 'TFF' must be set when InputType is not 1. Setting TFF to true means top field first and false means bottom field first")
     
     bits = Input.format.bits_per_sample
     shift = bits - 8
