@@ -1689,7 +1689,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     ###### source preparation & lut ######
     if abs(mode) >= 2 and not bom:
         mec = core.std.Merge(core.std.Merge(source, core.std.Trim(source, 1), weight=[0, 0.5]), core.std.Trim(source, 1), weight=[0.5, 0])
-    det = core.resize.Bicubic(dclip, format=vs.YUV420P8, matrix_s='709')
+    det = core.resize.Bicubic(dclip, format=vs.YUV420P8, matrix_s='709', matrix_in_s='709', prefer_props=True)
     det = core.resize.Point(det, det.width if srad == 4 else int(det.width / 2 / srad + 4) * 4, det.height if srad == 4 else int(det.height / 2 / srad + 4) * 4)
     det = core.std.Trim(det, 2)
     if mode < 0:
