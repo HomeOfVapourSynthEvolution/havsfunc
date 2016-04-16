@@ -4320,7 +4320,7 @@ def set_scenechange(clip, thresh=15):
     sc = clip
     
     if clip.format.color_family == vs.RGB:
-        sc = core.resize.Bicubic(clip, format=vs.GRAY16)
+        sc = core.resize.Bicubic(clip, format=vs.GRAY16, matrix_s='709')
         if sc.format.bits_per_sample != clip.format.bits_per_sample:
             sc = core.fmtc.bitdepth(sc, bits=clip.format.bits_per_sample, dmode=1)
     
