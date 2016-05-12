@@ -23,6 +23,7 @@ Main functions:
     Vinverse2
     LUTDeCrawl
     LUTDeRainbow
+    Stab
     GrainStabilizeMC
     SMDegrain
     STPresso
@@ -2406,6 +2407,25 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
         return core.resize.Point(themask, input.width, input.height)
     else:
         return output
+
+
+##############################################################################
+# Original script by g-force converted into a stand alone script by McCauley #
+# latest version from December 10, 2008                                      #
+##############################################################################
+def Stab(clp, range=1, dxmax=4, dymax=4, mirror=0):
+    core = vs.get_core()
+    
+    if not isinstance(clp, vs.VideoNode):
+        raise TypeError('Stab: This is not a clip')
+    
+    shift = clp.format.bits_per_sample - 8
+    
+    temp = TemporalSoften(clp, 7, 255 << shift, 255 << shift, 25 << shift, 2)
+    inter = core.std.Interleave([core.rgvs.Repair(temp, TemporalSoften(clp, 1, 255 << shift, 255 << shift, 25 << shift, 2), 1), clp])
+    mdata = core.depan.DePanEstimate(inter, range=range, trust=0, dxmax=dxmax, dymax=dymax)
+    last = core.depan.DePan(inter, data=mdata, offset=-1, mirror=mirror)
+    return core.std.SelectEvery(last, 2, [0])
 
 
 ######
