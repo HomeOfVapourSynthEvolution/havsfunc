@@ -4302,7 +4302,22 @@ def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None
     else:
         last = main
     
-    return core.fmtc.bitdepth(last, bits=bits, fulls=fulls, fulld=fulld, dmode=dmode, ampo=ampo, ampn=ampn, dyn=dyn, staticnoise=staticnoise, patsize=patsize)
+    if last.format.bits_per_sample == bits and fulls is None and fulld is None and dmode is None and ampo is None and ampn is None and dyn is None and staticnoise is None and patsize is None:
+        return last
+    else:
+        planes2 = []
+        if planes is None:
+            for i in range(last.format.num_planes):
+                planes2.append(i)
+        else:
+            if not isinstance(planes, list):
+                planes = [planes]
+            while len(planes) < last.format.num_planes:
+                planes.append(planes[len(planes) - 1])
+            for i in range(last.format.num_planes):
+                if planes[i] != 1:
+                    planes2.append(i)
+        return core.fmtc.bitdepth(last, bits=bits, planes=planes2, fulls=fulls, fulld=fulld, dmode=dmode, ampo=ampo, ampn=ampn, dyn=dyn, staticnoise=staticnoise, patsize=patsize)
 
 
 def TemporalSoften(clip, radius=4, luma_threshold=4, chroma_threshold=8, scenechange=15, mode=2):
