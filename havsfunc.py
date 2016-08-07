@@ -91,7 +91,7 @@ def daa(c):
 # http://sam.zoy.org/wtfpl/COPYING for more details.
 #
 # type = "nnedi3", "eedi2", "eedi3" or "sangnom"
-def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, aac=None, nsize=None, vcheck=None, fw=None, fh=None, halfres=False, kernel=None,
+def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None, halfres=False, kernel=None,
             typeh=None, typev=None):
     core = vs.get_core()
     
@@ -110,23 +110,13 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, aac=None, nsize
     
     w = c.width
     h = c.height
-    
-    if type == 'sangnom' or typeh == 'sangnom' or typev == 'sangnom':
-        padX = 16 - w % 16 if w & 15 else 0
-        padY = 16 - h % 16 if h & 15 else 0
-        if padX or padY:
-            c = Resize(c, w + padX, h + padY, 0, 0, w + padX, h + padY, kernel='point', dmode=1)
-    
-    fwh = fw if strv < 0 else c.width
-    fhh = fh if strv < 0 else c.height
+    fwh = fw if strv < 0 else w
+    fhh = fh if strv < 0 else h
     
     if strh >= 0:
-        c = santiag_dir(c, strh, typeh, halfres, kernel, nns, aa, aac, nsize, vcheck, fwh, fhh)
+        c = santiag_dir(c, strh, typeh, halfres, kernel, nns, aa, nsize, vcheck, fwh, fhh)
     if strv >= 0:
-        c = santiag_dir(core.std.Transpose(c), strv, typev, halfres, kernel, nns, aa, aac, nsize, vcheck, fh, fw).std.Transpose()
-    
-    if type == 'sangnom' or typeh == 'sangnom' or typev == 'sangnom':
-        c = core.std.CropRel(c, right=padX, bottom=padY)
+        c = santiag_dir(core.std.Transpose(c), strv, typev, halfres, kernel, nns, aa, nsize, vcheck, fh, fw).std.Transpose()
     
     if fw is None:
         fw = w
@@ -137,7 +127,7 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, aac=None, nsize
     else:
         return c
 
-def santiag_dir(c, strength, type, halfres, kernel=None, nns=None, aa=None, aac=None, nsize=None, vcheck=None, fw=None, fh=None):
+def santiag_dir(c, strength, type, halfres, kernel=None, nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None):
     core = vs.get_core()
     
     if fw is None:
@@ -145,14 +135,14 @@ def santiag_dir(c, strength, type, halfres, kernel=None, nns=None, aa=None, aac=
     if fh is None:
         fh = c.height
     
-    c = santiag_stronger(c, strength, type, halfres, nns, aa, aac, nsize, vcheck)
+    c = santiag_stronger(c, strength, type, halfres, nns, aa, nsize, vcheck)
     
     cshift = 0 if halfres else 0.5
     if c.format.color_family != vs.GRAY:
         cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
     return Resize(c, fw, fh, sy=cshift, kernel=kernel, dmode=1)
 
-def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, aac=None, nsize=None, vcheck=None):
+def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, nsize=None, vcheck=None):
     core = vs.get_core()
     
     strength = max(strength, 0)
@@ -160,7 +150,7 @@ def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, aac=None, ns
     dh = strength <= 0 and not halfres
     
     if strength > 0:
-        c = santiag_stronger(c, strength - 1, type, halfres, nns, aa, aac, nsize, vcheck)
+        c = santiag_stronger(c, strength - 1, type, halfres, nns, aa, nsize, vcheck)
     
     w = c.width
     h = c.height
@@ -183,7 +173,7 @@ def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, aac=None, ns
             if c.format.color_family != vs.GRAY:
                 cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
             c = Resize(c, w, h * 2, sy=cshift, dmode=1)
-        return core.sangnom.SangNomMod(c, order=field, aa=aa, aac=aac)
+        return core.sangnom.SangNom(c, order=field, aa=aa)
     else:
         raise ValueError('santiag: unexpected value for type')
 
