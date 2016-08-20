@@ -91,8 +91,7 @@ def daa(c):
 # http://sam.zoy.org/wtfpl/COPYING for more details.
 #
 # type = "nnedi3", "eedi2", "eedi3" or "sangnom"
-def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None, halfres=False, kernel=None,
-            typeh=None, typev=None):
+def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None, halfres=False, typeh=None, typev=None):
     core = vs.get_core()
     
     if not isinstance(c, vs.VideoNode):
@@ -114,20 +113,20 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vch
     fhh = fh if strv < 0 else h
     
     if strh >= 0:
-        c = santiag_dir(c, strh, typeh, halfres, kernel, nns, aa, nsize, vcheck, fwh, fhh)
+        c = santiag_dir(c, strh, typeh, halfres, nns, aa, nsize, vcheck, fwh, fhh)
     if strv >= 0:
-        c = santiag_dir(core.std.Transpose(c), strv, typev, halfres, kernel, nns, aa, nsize, vcheck, fh, fw).std.Transpose()
+        c = santiag_dir(core.std.Transpose(c), strv, typev, halfres, nns, aa, nsize, vcheck, fh, fw).std.Transpose()
     
     if fw is None:
         fw = w
     if fh is None:
         fh = h
     if strh < 0 and strv < 0:
-        return Resize(c, fw, fh, kernel=kernel, dmode=1)
+        return core.resize.Spline36(c, fw, fh)
     else:
         return c
 
-def santiag_dir(c, strength, type, halfres, kernel=None, nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None):
+def santiag_dir(c, strength, type, halfres, nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None):
     core = vs.get_core()
     
     if fw is None:
@@ -140,7 +139,7 @@ def santiag_dir(c, strength, type, halfres, kernel=None, nns=None, aa=None, nsiz
     cshift = 0 if halfres else 0.5
     if c.format.color_family != vs.GRAY:
         cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-    return Resize(c, fw, fh, sy=cshift, kernel=kernel, dmode=1)
+    return Resize(c, fw, fh, sy=cshift, dmode=1)
 
 def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, nsize=None, vcheck=None):
     core = vs.get_core()
@@ -246,7 +245,7 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
     mask = Levels(mask, scale(10, bits), 1, scale(10, bits), 0, scale(255, bits)).std.Inflate()
     
     # prepare a version of the image that has its chroma shifted and less saturated
-    input_c = adjust.Tweak(Resize(input, input.width, input.height, cx, cy, planes=[2, 3, 3], dmode=1), sat=strength)
+    input_c = adjust.Tweak(core.resize.Spline36(input, src_left=cx, src_top=cy), sat=strength)
     
     # combine both images using the mask
     fu = core.std.MaskedMerge(core.std.ShufflePlanes([input], planes=[1], colorfamily=vs.GRAY),
@@ -308,7 +307,7 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     padX = 8 - w % 8 if w & 7 else 0
     padY = 8 - h % 8 if h & 7 else 0
     if padX or padY:
-        clp = Resize(clp, w + padX, h + padY, 0, 0, w + padX, h + padY, kernel='point', dmode=1)
+        clp = core.resize.Point(clp, w + padX, h + padY, src_width=w + padX, src_height=h + padY)
     
     # block
     block = core.std.BlankClip(clp, width=6, height=6, format=vs.GRAY8, length=1, color=[0])
@@ -349,7 +348,7 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     remX = 16 - sw % 16 if sw & 15 else 0
     remY = 16 - sh % 16 if sh & 15 else 0
     if remX or remY:
-        strongD2 = Resize(strongD2, sw + remX, sh + remY, 0, 0, sw + remX, sh + remY, kernel='point', dmode=1)
+        strongD2 = core.resize.Point(strongD2, sw + remX, sh + remY, src_width=sw + remX, src_height=sh + remY)
     expr = 'x {neutral} - 1.01 * {neutral} +'.format(neutral=neutral)
     strongD3 = core.std.Expr([strongD2], [expr] if uv >= 3 or isGray else [expr, '']).dct.Filter([1, 1, 0, 0, 0, 0, 0, 0]).std.CropRel(right=remX, bottom=remY)
     
@@ -936,7 +935,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     
     # Pad vertically during processing (to prevent artefacts at top & bottom edges)
     if Border:
-        clip = Resize(Input, w, h + 8, 0, -4, 0, h + 8 + epsilon, kernel='point', dmode=1)
+        clip = core.resize.Point(Input, w, h + 8, src_top=-4, src_height=h + 8 + epsilon)
         h += 8
     else:
         clip = Input
@@ -1115,7 +1114,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     
     # Create interpolated image as starting point for output
     if EdiExt is not None:
-        edi1 = Resize(EdiExt, w, h, 0, (EdiExt.height - h) / 2, 0, h + epsilon, kernel='point', dmode=1)
+        edi1 = core.resize.Point(EdiExt, w, h, src_top=(EdiExt.height - h) / 2, src_height=h + epsilon)
     else:
         edi1 = QTGMC_Interpolate(ediInput, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, bobbed, ChromaEdi, TFF)
     
@@ -4190,8 +4189,8 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
     nrY = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id, info=info)
     
     if clip.format.subsampling_w > 0 or clip.format.subsampling_h > 0:
-        subY = Resize(clip, clip.width >> clip.format.subsampling_w, clip.height >> clip.format.subsampling_h, sx=-0.5 * (1 << clip.format.subsampling_w) + 0.5,
-                      kernel='bicubic', a1=0, a2=0.5, planes=[3, 1, 1], dmode=1)
+        subY = core.resize.Bicubic(mvf.GetPlane(clip, 0), clip.width >> clip.format.subsampling_w, clip.height >> clip.format.subsampling_h,
+                                   src_left=-0.5 * (1 << clip.format.subsampling_w) + 0.5, filter_param_a=0, filter_param_b=0.5)
         yuv444 = core.std.ShufflePlanes([subY, clip], planes=[0, 1, 2], colorfamily=clip.format.color_family)
         nrUV = core.knlm.KNLMeansCL(yuv444, d=d, a=a, s=s, h=h, cmode=True, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
     else:
@@ -4247,7 +4246,8 @@ def Padding(clip, left=0, right=0, top=0, bottom=0):
     if left < 0 or right < 0 or top < 0 or bottom < 0:
         raise ValueError('Padding: border size to pad must be positive')
     
-    return Resize(clip, clip.width + left + right, clip.height + top + bottom, -left, -top, clip.width + left + right, clip.height + top + bottom, kernel='point', dmode=1)
+    return core.resize.Point(clip, clip.width + left + right, clip.height + top + bottom,
+                             src_left=-left, src_top=-top, src_width=clip.width + left + right, src_height=clip.height + top + bottom)
 
 
 def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None, a1=None, a2=None, invks=None, invkstaps=None, css=None, planes=None,
