@@ -224,7 +224,7 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
             return core.std.Lut(last, planes=[1, 2], function=get_lut2)
     
     # prepare to work on the V channel
-    vch = core.std.ShufflePlanes([adjust.Tweak(input, sat=thr)], planes=[2], colorfamily=vs.GRAY)
+    vch = mvf.GetPlane(adjust.Tweak(input, sat=thr), 2)
     if blur:
         area = core.rgvs.RemoveGrain(vch, 11)
     else:
@@ -251,14 +251,9 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
     input_c = adjust.Tweak(core.resize.Spline36(input, src_left=cx, src_top=cy), sat=strength)
     
     # combine both images using the mask
-    fu = core.std.MaskedMerge(core.std.ShufflePlanes([input], planes=[1], colorfamily=vs.GRAY),
-                              core.std.ShufflePlanes([input_c], planes=[1], colorfamily=vs.GRAY),
-                              mask)
-    fv = core.std.MaskedMerge(core.std.ShufflePlanes([input], planes=[2], colorfamily=vs.GRAY),
-                              core.std.ShufflePlanes([input_c], planes=[2], colorfamily=vs.GRAY),
-                              mask)
-    return core.std.ShufflePlanes([core.std.ShufflePlanes([input], planes=[0], colorfamily=vs.GRAY), fu, fv],
-                                  planes=[0, 0, 0], colorfamily=input.format.color_family)
+    fu = core.std.MaskedMerge(mvf.GetPlane(input, 1), mvf.GetPlane(input_c, 1), mask)
+    fv = core.std.MaskedMerge(mvf.GetPlane(input, 2), mvf.GetPlane(input_c, 2), mask)
+    return core.std.ShufflePlanes([mvf.GetPlane(input, 0), fu, fv], planes=[0, 0, 0], colorfamily=input.format.color_family)
 
 
 # Changes 2008-08-18: (Didée)
@@ -398,7 +393,7 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
     
     if clp.format.color_family != vs.GRAY:
         clp_src = clp
-        clp = core.std.ShufflePlanes([clp], planes=[0], colorfamily=vs.GRAY)
+        clp = mvf.GetPlane(clp, 0)
     else:
         clp_src = None
     
@@ -440,7 +435,7 @@ def YAHR(clp, blur=2, depth=32):
     
     if clp.format.color_family != vs.GRAY:
         clp_src = clp
-        clp = core.std.ShufflePlanes([clp], planes=[0], colorfamily=vs.GRAY)
+        clp = mvf.GetPlane(clp, 0)
     else:
         clp_src = None
     
@@ -1679,11 +1674,9 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     det = core.resize.Point(det, det.width if srad == 4 else int(det.width / 2 / srad + 4) * 4, det.height if srad == 4 else int(det.height / 2 / srad + 4) * 4)
     det = core.std.Trim(det, 2)
     if mode < 0:
-        det = core.std.StackVertical([core.std.StackHorizontal([core.std.ShufflePlanes([det], planes=[1], colorfamily=vs.GRAY),
-                                                                core.std.ShufflePlanes([det], planes=[2], colorfamily=vs.GRAY)]),
-                                      core.std.ShufflePlanes([det], planes=[0], colorfamily=vs.GRAY)])
+        det = core.std.StackVertical([core.std.StackHorizontal([mvf.GetPlane(det, 1), mvf.GetPlane(det, 2)]), mvf.GetPlane(det, 0)])
     else:
-        det = core.std.ShufflePlanes([det], planes=[0], colorfamily=vs.GRAY)
+        det = mvf.GetPlane(det, 0)
     if bom:
         det = core.std.Expr([det], ['x 0.5 * 64 +'])
     
@@ -2066,8 +2059,8 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=4, h=6):
     
     if not chroma and dlg.format.color_family != vs.GRAY:
         dlg_src = dlg
-        dlg = core.std.ShufflePlanes([dlg], planes=[0], colorfamily=vs.GRAY)
-        src = core.std.ShufflePlanes([src], planes=[0], colorfamily=vs.GRAY)
+        dlg = mvf.GetPlane(dlg, 0)
+        src = mvf.GetPlane(src, 0)
     else:
         dlg_src = None
     
@@ -2108,7 +2101,7 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
     
     if not chroma and clp.format.color_family != vs.GRAY:
         clp_src = clp
-        clp = core.std.ShufflePlanes([clp], planes=[0], colorfamily=vs.GRAY)
+        clp = mvf.GetPlane(clp, 0)
     else:
         clp_src = None
     
@@ -2140,7 +2133,7 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
     
     if not chroma and clp.format.color_family != vs.GRAY:
         clp_src = clp
-        clp = core.std.ShufflePlanes([clp], planes=[0], colorfamily=vs.GRAY)
+        clp = mvf.GetPlane(clp, 0)
     else:
         clp_src = None
     
@@ -2232,13 +2225,13 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
     input_minus = core.std.DuplicateFrames(input, [0])
     input_plus = core.std.Trim(input, 1) + core.std.Trim(input, input.num_frames - 1)
     
-    input_y = core.std.ShufflePlanes([input], planes=[0], colorfamily=vs.GRAY)
-    input_minus_y = core.std.ShufflePlanes([input_minus], planes=[0], colorfamily=vs.GRAY)
-    input_minus_u = core.std.ShufflePlanes([input_minus], planes=[1], colorfamily=vs.GRAY)
-    input_minus_v = core.std.ShufflePlanes([input_minus], planes=[2], colorfamily=vs.GRAY)
-    input_plus_y = core.std.ShufflePlanes([input_plus], planes=[0], colorfamily=vs.GRAY)
-    input_plus_u = core.std.ShufflePlanes([input_plus], planes=[1], colorfamily=vs.GRAY)
-    input_plus_v = core.std.ShufflePlanes([input_plus], planes=[2], colorfamily=vs.GRAY)
+    input_y = mvf.GetPlane(input, 0)
+    input_minus_y = mvf.GetPlane(input_minus, 0)
+    input_minus_u = mvf.GetPlane(input_minus, 1)
+    input_minus_v = mvf.GetPlane(input_minus, 2)
+    input_plus_y = mvf.GetPlane(input_plus, 0)
+    input_plus_u = mvf.GetPlane(input_plus, 1)
+    input_plus_v = mvf.GetPlane(input_plus, 2)
     
     average_y = core.std.Expr([input_minus_y, input_plus_y], ['x y - abs {ythr} < x y + 2 / 0 ?'.format(ythr=ythresh)])
     average_u = core.std.Expr([input_minus_u, input_plus_u], ['x y - abs {cthr} < {peak} 0 ?'.format(cthr=cthresh, peak=peak)])
@@ -2358,14 +2351,14 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
     input_minus = core.std.DuplicateFrames(input, [0])
     input_plus = core.std.Trim(input, 1) + core.std.Trim(input, input.num_frames - 1)
     
-    input_u = core.std.ShufflePlanes([input], planes=[1], colorfamily=vs.GRAY)
-    input_v = core.std.ShufflePlanes([input], planes=[2], colorfamily=vs.GRAY)
-    input_minus_y = core.std.ShufflePlanes([input_minus], planes=[0], colorfamily=vs.GRAY)
-    input_minus_u = core.std.ShufflePlanes([input_minus], planes=[1], colorfamily=vs.GRAY)
-    input_minus_v = core.std.ShufflePlanes([input_minus], planes=[2], colorfamily=vs.GRAY)
-    input_plus_y = core.std.ShufflePlanes([input_plus], planes=[0], colorfamily=vs.GRAY)
-    input_plus_u = core.std.ShufflePlanes([input_plus], planes=[1], colorfamily=vs.GRAY)
-    input_plus_v = core.std.ShufflePlanes([input_plus], planes=[2], colorfamily=vs.GRAY)
+    input_u = mvf.GetPlane(input, 1)
+    input_v = mvf.GetPlane(input, 2)
+    input_minus_y = mvf.GetPlane(input_minus, 0)
+    input_minus_u = mvf.GetPlane(input_minus, 1)
+    input_minus_v = mvf.GetPlane(input_minus, 2)
+    input_plus_y = mvf.GetPlane(input_plus, 0)
+    input_plus_u = mvf.GetPlane(input_plus, 1)
+    input_plus_v = mvf.GetPlane(input_plus, 2)
     
     expr = 'x y - abs {ythr} < {peak} 0 ?'.format(ythr=ythresh, peak=peak)
     average_y = core.std.Expr([input_minus_y, input_plus_y], [expr]).resize.Bilinear(input.width // 2, input.height // 2)
@@ -2518,7 +2511,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     elif adapt <= -1:
         return stable
     else:
-        input_y = core.std.ShufflePlanes([input], planes=[0], colorfamily=vs.GRAY)
+        input_y = mvf.GetPlane(input, 0)
         if adapt == 0:
             Lmask = core.rgvs.RemoveGrain(input_y, 19)
         elif adapt >= 255:
@@ -2665,7 +2658,7 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
             expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale(16, bits), j=scale(75, bits), peak=(1 << bits) - 1)
             pref = core.std.MaskedMerge(core.dfttest.DFTTest(inputP, tbsize=1, sstring='0.0:4.0 0.2:9.0 1.0:15.0', planes=planes),
                                         inputP,
-                                        core.std.Expr([core.std.ShufflePlanes([inputP], planes=[0], colorfamily=vs.GRAY)], [expr]),
+                                        core.std.Expr([mvf.GetPlane(inputP, 0)], [expr]),
                                         planes=planes)
         elif prefilter >= 4:
             if chroma:
@@ -2937,7 +2930,7 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
     
     if clp.format.color_family != vs.GRAY:
         clp_src = clp
-        clp = core.std.ShufflePlanes([clp], planes=[0], colorfamily=vs.GRAY)
+        clp = mvf.GetPlane(clp, 0)
     else:
         clp_src = None
     
@@ -3315,7 +3308,7 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
     isGray = input.format.color_family == vs.GRAY
     if chroma <= 0 and not isGray:
         input_src = input
-        input = core.std.ShufflePlanes([input], planes=[0], colorfamily=vs.GRAY)
+        input = mvf.GetPlane(input, 0)
     else:
         input_src = None
     
@@ -3482,7 +3475,7 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
     
     if c.format.color_family != vs.GRAY:
         c_src = c
-        c = core.std.ShufflePlanes([c], planes=[0], colorfamily=vs.GRAY)
+        c = mvf.GetPlane(c, 0)
     else:
         c_src = None
     
@@ -3539,7 +3532,7 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
     
     if input.format.color_family != vs.GRAY:
         input_src = input
-        input = core.std.ShufflePlanes([input], planes=[0], colorfamily=vs.GRAY)
+        input = mvf.GetPlane(input, 0)
     else:
         input_src = None
     
@@ -4004,7 +3997,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     
     if not isGray:
         tmp_src = tmp
-        tmp = core.std.ShufflePlanes([tmp], planes=[0], colorfamily=vs.GRAY)
+        tmp = mvf.GetPlane(tmp, 0)
     
     if not preblur:
         pre = tmp
@@ -4217,7 +4210,7 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None):
     if mask.width != clipb.width or mask.height != clipb.height:
         raise TypeError("Overlay: 'mask' must be the same dimension as 'clipb'")
     
-    mask = core.std.ShufflePlanes([mask], planes=[0], colorfamily=vs.GRAY)
+    mask = mvf.GetPlane(mask, 0)
     
     # Calculate padding sizes
     l, r = x, clipa.width - clipb.width - x
@@ -4377,8 +4370,8 @@ def ContraSharpening(denoised, original, radius=1, rep=1):
     
     if denoised.format.color_family != vs.GRAY:
         denoised_src = denoised
-        denoised = core.std.ShufflePlanes([denoised], planes=[0], colorfamily=vs.GRAY)
-        original = core.std.ShufflePlanes([original], planes=[0], colorfamily=vs.GRAY)
+        denoised = mvf.GetPlane(denoised, 0)
+        original = mvf.GetPlane(original, 0)
     else:
         denoised_src = None
     
