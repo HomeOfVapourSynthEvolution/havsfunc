@@ -502,6 +502,7 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
         darkthr = thr / 4
     
     bits = input.format.bits_per_sample
+    neutral = 1 << (bits - 1)
     
     isGray = input.format.color_family == vs.GRAY
     if isinstance(planes, int):
@@ -512,7 +513,7 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
         p = MinBlur(input, nrmode, planes=planes)
     
     # Post-Process: Contra-Sharpening
-    expr = 'x {neutral} - abs y {neutral} - abs <= x y ?'.format(neutral=1 << (bits - 1))
+    expr = 'x {neutral} - abs y {neutral} - abs <= x y ?'.format(neutral=neutral)
     if 0 in planes:
         Y = True
         Y11 = 11
@@ -596,7 +597,10 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     
     # Mask Merging & Output
     if show:
-        return ringmask
+        if isGray:
+            return ringmask
+        else:
+            return core.std.Expr([ringmask], ['', repr(neutral)])
     else:
         return core.std.MaskedMerge(input, limitclp, ringmask, planes=planes, first_plane=True)
 
