@@ -1385,17 +1385,16 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
     if isGray:
         ChromaEdi = ''
     
-    CEed = ChromaEdi == ''
-    planes = [0, 1, 2] if CEed and not isGray else [0]
+    planes = [0, 1, 2] if ChromaEdi == '' and not isGray else [0]
     field = 3 if TFF else 2
     
     if InputType == 1:
         return Input
     elif EdiMode == 'nnedi3':
-        interp = core.nnedi3.nnedi3(Input, field=field, U=CEed, V=CEed, nsize=NNSize, nns=NNeurons, qual=EdiQual)
+        interp = core.nnedi3.nnedi3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual)
     elif EdiMode == 'eedi3+nnedi3':
         interp = core.eedi3.eedi3(Input, field=field, planes=planes, mdis=EdiMaxD,
-                                  sclip=core.nnedi3.nnedi3(Input, field=field, U=CEed, V=CEed, nsize=NNSize, nns=NNeurons, qual=EdiQual))
+                                  sclip=core.nnedi3.nnedi3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual))
     elif EdiMode == 'eedi3':
         interp = core.eedi3.eedi3(Input, field=field, planes=planes, mdis=EdiMaxD)
     else:
@@ -1405,7 +1404,7 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
             interp = Bob(Input, 0, 0.5, TFF)
     
     if ChromaEdi == 'nnedi3':
-        interpuv = core.nnedi3.nnedi3(Input, field=field, Y=False, nsize=4, nns=0, qual=1)
+        interpuv = core.nnedi3.nnedi3(Input, field=field, planes=[1, 2], nsize=4, nns=0, qual=1)
     elif ChromaEdi == 'bob':
         interpuv = Bob(Input, 0, 0.5, TFF)
     else:
