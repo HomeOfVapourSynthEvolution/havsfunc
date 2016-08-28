@@ -310,14 +310,8 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     # block
     block = core.std.BlankClip(clp, width=6, height=6, format=vs.GRAY8, length=1, color=[0])
     block = core.std.AddBorders(block, 1, 1, 1, 1, color=[255])
-    horizontal = []
-    vertical = []
-    for i in range(clp.width // 8):
-        horizontal += [block]
-    block = core.std.StackHorizontal(horizontal)
-    for i in range(clp.height // 8):
-        vertical += [block]
-    block = core.std.StackVertical(vertical)
+    block = core.std.StackHorizontal([block for i in range(clp.width // 8)])
+    block = core.std.StackVertical([block for i in range(clp.height // 8)])
     if not isGray:
         blockc = core.std.CropAbs(block, width=clp.width >> clp.format.subsampling_w, height=clp.height >> clp.format.subsampling_h)
         block = core.std.ShufflePlanes([block, blockc], planes=[0, 0, 0], colorfamily=clp.format.color_family)
