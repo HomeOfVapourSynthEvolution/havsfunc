@@ -1746,7 +1746,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         ldet = -1 if n + pos == ldet else n + pos
         
         ### diff value shifting ###
-        d_v = f[1].props.PlaneStatsMinMax[1] + 0.015625
+        d_v = f[1].props.PlaneStatsMax + 0.015625
         if jmp:
             d43 = d32
             d32 = d21
@@ -1773,10 +1773,10 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         m24 = m_v
         
         ### get blend and clear values ###
-        b_v = 128 - f[0].props.PlaneStatsMinMax[0]
+        b_v = 128 - f[0].props.PlaneStatsMin
         if b_v < 1:
             b_v = 0.125
-        c_v = f[0].props.PlaneStatsMinMax[1] - 128
+        c_v = f[0].props.PlaneStatsMax - 128
         if c_v < 1:
             c_v = 0.125
         
