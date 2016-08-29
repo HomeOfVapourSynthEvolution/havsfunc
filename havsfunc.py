@@ -4198,6 +4198,8 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None):
     if clipa.format.subsampling_w > 0 or clipa.format.subsampling_h > 0:
         clipa_src = clipa
         clipa = core.resize.Point(clipa, format=core.register_format(clipa.format.color_family, clipa.format.sample_type, clipa.format.bits_per_sample, 0, 0).id)
+    else:
+        clipa_src = None
     if clipb.format.id != clipa.format.id:
         clipb = core.resize.Point(clipb, format=clipa.format.id)
     if mask is None:
@@ -4224,7 +4226,7 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None):
     mask = core.std.AddBorders(mask, pl, pr, pt, pb)
     # Return padded clip
     last = core.std.MaskedMerge(clipa, clipb, mask)
-    if clipa_src.format.subsampling_w > 0 or clipa_src.format.subsampling_h > 0:
+    if clipa_src is not None:
         last = core.resize.Point(last, format=clipa_src.format.id)
     return last
 
