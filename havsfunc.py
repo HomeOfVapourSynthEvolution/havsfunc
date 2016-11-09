@@ -464,8 +464,6 @@ def YAHR(clp, blur=2, depth=32):
 ###                    But for strong ringing, lower value will treat some ringing as edge, which protects this ringing from being processed.
 ###  minp (int)      - Inpanding of sobel edge mask, higher value means more aggressive processing. Default is 1
 ###  nrmode (int)    - Kernel of dering - 1: MinBlur(radius=1), 2: MinBlur(radius=2), 3: MinBlur(radius=3). Or define your own smoothed clip "p". Default is 2 for HD / 1 for SD
-###                    Note: when the bit depth of input clip is 16 bits, MinBlur(radius=2 or 3) will be extremely slow, due to the alogorithm of CTFM.
-###                          Thus it's recommended to apply this function in 8-12 bits since the difference is quite negligible
 ###  sharp (int)     - Whether to use contra-sharpening to resharp deringed clip, 1-3 represents radius, 0 means no sharpening. Default is 1
 ###  drrep (int)     - Use repair for details retention, recommended values are 24/23/13/12/1. Default is 24
 ###  thr (float)     - The same meaning with "thr" in Dither_limit_dif16, valid value range is [0.0, 128.0]. Default is 12.0
@@ -566,7 +564,7 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     # Post-Process: Ringing Mask Generating
     if ringmask is None:
         sobelm = core.std.Sobel(input, min=scale(mthr, bits), planes=[0])
-        fmask = core.generic.Hysteresis(core.std.Median(sobelm, planes=[0]), sobelm, planes=[0])
+        fmask = core.misc.Hysteresis(core.std.Median(sobelm, planes=[0]), sobelm, planes=[0])
         if mrad > 0:
             omask = mt_expand_multi(fmask, planes=[0], sw=mrad, sh=mrad)
         else:
