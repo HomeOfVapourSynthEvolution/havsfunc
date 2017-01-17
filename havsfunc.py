@@ -4181,9 +4181,9 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
         subY = core.resize.Bicubic(mvf.GetPlane(clip, 0), clip.width >> clip.format.subsampling_w, clip.height >> clip.format.subsampling_h,
                                    src_left=-0.5 * (1 << clip.format.subsampling_w) + 0.5, filter_param_a=0, filter_param_b=0.5)
         yuv444 = core.std.ShufflePlanes([subY, clip], planes=[0, 1, 2], colorfamily=clip.format.color_family)
-        nrUV = core.knlm.KNLMeansCL(yuv444, d=d, a=a, s=s, h=h, cmode=True, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
+        nrUV = core.knlm.KNLMeansCL(yuv444, d=d, a=a, s=s, h=h, channels='YUV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
     else:
-        nrUV = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, cmode=True, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
+        nrUV = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, channels='YUV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
     
     return core.std.ShufflePlanes([nrY, nrUV], planes=[0, 1, 2], colorfamily=clip.format.color_family)
 
