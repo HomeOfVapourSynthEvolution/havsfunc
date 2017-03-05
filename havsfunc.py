@@ -383,7 +383,7 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('DeHalo_alpha: This is not a clip')
     
-    multiple = ((1 << clp.format.bits_per_sample) - 1) / 255
+    bits = clp.format.bits_per_sample
     
     if clp.format.color_family != vs.GRAY:
         clp_src = clp
@@ -397,7 +397,7 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
     halos = core.resize.Bicubic(clp, m4(ox / rx), m4(oy / ry)).resize.Bicubic(ox, oy, filter_param_a=1, filter_param_b=0)
     are = core.std.Expr([core.std.Maximum(clp), core.std.Minimum(clp)], ['x y -'])
     ugly = core.std.Expr([core.std.Maximum(halos), core.std.Minimum(halos)], ['x y -'])
-    expr = 'y {multiple} / x {multiple} / - y {multiple} / 0.001 + / 255 * {LOS} - y {multiple} / 256 + 512 / {HIS} + * {multiple} *'.format(multiple=multiple, LOS=lowsens, HIS=highsens / 100)
+    expr = 'y x - y / {peak} * {LOS} - y {i} + {j} / {HIS} + *'.format(peak=(1 << bits) - 1, LOS=scale(lowsens, bits), i=scale(256, bits), j=scale(512, bits), HIS=highsens / 100)
     so = core.std.Expr([ugly, are], [expr])
     lets = core.std.MaskedMerge(halos, clp, so)
     if ss <= 1:
