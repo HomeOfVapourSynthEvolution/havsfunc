@@ -2513,7 +2513,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
         elif adapt >= 255:
             Lmask = core.std.Invert(input_y).rgvs.RemoveGrain(19)
         else:
-            expr = 'x {multiple} / {adapt} - abs 255 * {adapt} 128 - abs 128 + / {multiple} *'.format(multiple=((1 << input.format.bits_per_sample) - 1) / 255, adapt=adapt)
+            expr = 'x {adapt} - abs {peak} * {adapt} {neutral} - abs {neutral} + /'.format(adapt=scale(adapt, bits), peak=(1 << bits) - 1, neutral=1 << (bits - 1))
             Lmask = core.std.Expr([input_y], [expr]).rgvs.RemoveGrain(19)
         return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
 
