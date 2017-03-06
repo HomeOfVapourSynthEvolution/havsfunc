@@ -1476,7 +1476,8 @@ def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
 def QTGMC_Generate2ndFieldNoise(Input, InterleavedClip, ChromaNoise=False, TFF=None):
     core = vs.get_core()
     
-    multiple = ((1 << Input.format.bits_per_sample) - 1) / 255
+    bits = Input.format.bits_per_sample
+    neutral = 1 << (bits - 1)
     
     isGray = Input.format.color_family == vs.GRAY
     planes = [0, 1, 2] if ChromaNoise and not isGray else [0]
@@ -1484,8 +1485,8 @@ def QTGMC_Generate2ndFieldNoise(Input, InterleavedClip, ChromaNoise=False, TFF=N
     origNoise = core.std.SeparateFields(Input, TFF)
     noiseMax = core.std.Maximum(origNoise, planes=planes).std.Maximum(planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
     noiseMin = core.std.Minimum(origNoise, planes=planes).std.Minimum(planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
-    random = core.std.SeparateFields(InterleavedClip, TFF).std.BlankClip(color=[128] * Input.format.num_planes).grain.Add(1800, 1800 if ChromaNoise else 0)
-    expr = 'x {multiple} / 128 - y {multiple} / * 256 / 128 + {multiple} *'.format(multiple=multiple)
+    random = core.std.SeparateFields(InterleavedClip, TFF).std.BlankClip(color=[neutral] * Input.format.num_planes).grain.Add(1800, 1800 if ChromaNoise else 0)
+    expr = 'x {neutral} - y * {i} / {neutral} +'.format(neutral=neutral, i=scale(256, bits))
     varRandom = core.std.Expr([core.std.MakeDiff(noiseMax, noiseMin, planes=planes), random], [expr] if ChromaNoise or isGray else [expr, ''])
     newNoise = core.std.MergeDiff(noiseMin, varRandom, planes=planes)
     return Weave(core.std.Interleave([origNoise, newNoise]), TFF)
