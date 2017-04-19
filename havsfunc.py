@@ -1666,19 +1666,22 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     ###### source preparation & lut ######
     if abs(mode) >= 2 and not bom:
         mec = core.std.Merge(core.std.Merge(source, core.std.Trim(source, 1), weight=[0, 0.5]), core.std.Trim(source, 1), weight=[0.5, 0])
-    det = core.resize.Bicubic(dclip, format=vs.YUV420P8, matrix_s='709', matrix_in_s='709', prefer_props=True)
-    det = core.resize.Point(det, det.width if srad == 4 else int(det.width / 2 / srad + 4) * 4, det.height if srad == 4 else int(det.height / 2 / srad + 4) * 4)
-    det = core.std.Trim(det, 2)
+    
+    if dclip.format.id != vs.YUV420P8:
+        dclip = core.resize.Bicubic(dclip, format=vs.YUV420P8, matrix_s='709')
+    dclip = core.resize.Point(dclip,
+                              dclip.width if srad == 4 else int(dclip.width / 2 / srad + 4) * 4,
+                              dclip.height if srad == 4 else int(dclip.height / 2 / srad + 4) * 4).std.Trim(2)
     if mode < 0:
-        det = core.std.StackVertical([core.std.StackHorizontal([mvf.GetPlane(det, 1), mvf.GetPlane(det, 2)]), mvf.GetPlane(det, 0)])
+        dclip = core.std.StackVertical([core.std.StackHorizontal([mvf.GetPlane(dclip, 1), mvf.GetPlane(dclip, 2)]), mvf.GetPlane(dclip, 0)])
     else:
-        det = mvf.GetPlane(det, 0)
+        dclip = mvf.GetPlane(dclip, 0)
     if bom:
-        det = core.std.Expr([det], ['x 0.5 * 64 +'])
+        dclip = core.std.Expr([dclip], ['x 0.5 * 64 +'])
     
     expr1 = 'x 128 - y 128 - * 0 > x 128 - abs y 128 - abs < x 128 - 128 x - * y 128 - 128 y - * ? x y + 256 - dup * ? 0.25 * 128 +'
     expr2 = 'x y - dup * 3 * x y + 256 - dup * - 128 +'
-    diff = core.std.MakeDiff(det, core.std.Trim(det, 1))
+    diff = core.std.MakeDiff(dclip, core.std.Trim(dclip, 1))
     if not bom:
         bclp = core.std.Expr([diff, core.std.Trim(diff, 1)], [expr1]).resize.Bilinear(bsize, bsize)
     else:
@@ -1687,7 +1690,6 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     
     ###### postprocessing ######
     if bom:
-        omode = omode.lower()
         sourceDuplicate = core.std.DuplicateFrames(source, [0])
         sourceTrim1 = core.std.Trim(source, 1)
         sourceTrim2 = core.std.Trim(source, 2)
@@ -1704,6 +1706,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         dmask = core.std.Expr([diffm, core.std.Trim(diffm, 2)], [expr, ''])
         pmask = core.std.Expr([dmask, bmask], ['y 0 > y {peak} < and x 0 = x {peak} = or and x y ?'.format(peak=peak), ''])
         
+        omode = omode.lower()
         if omode == 'pp0':
             fin = core.std.Expr([sourceDuplicate, source, sourceTrim1, sourceTrim2], ['x -0.5 * y + z + a -0.5 * +'])
         elif omode == 'pp1':
@@ -1839,6 +1842,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         else:
             odm = cof
         odm += math.floor((cof - odm) / (2 * denm) + 0.5) * 2 * denm
+        
         if blend:
             odr = denm - numr
         elif clear or highd:
@@ -1937,8 +1941,8 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     ###### evaluation call & output calculation ######
     bclpYStats = core.std.PlaneStats(bclp)
     dclpYStats = core.std.PlaneStats(dclp)
-    detYStats = core.std.PlaneStats(det, core.std.Trim(det, 2))
-    last = core.std.FrameEval(source, eval=srestore_inside, prop_src=[bclpYStats, dclpYStats, detYStats])
+    dclipYStats = core.std.PlaneStats(dclip, core.std.Trim(dclip, 2))
+    last = core.std.FrameEval(source, eval=srestore_inside, prop_src=[bclpYStats, dclpYStats, dclipYStats])
     
     ###### final decimation ######
     return ChangeFPS(core.std.Cache(last, make_linear=True), source.fps_num * numr, source.fps_den * denm)
