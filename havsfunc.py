@@ -194,20 +194,19 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
     if not isinstance(input, vs.VideoNode):
         raise TypeError('FixChromaBleedingMod: This is not a clip')
     if input.format.color_family == vs.GRAY:
-        raise TypeError('FixChromaBleedingMod: GRAY color family is not supported')
+        raise TypeError('FixChromaBleedingMod: Gray color family is not supported')
     
-    bits = input.format.bits_per_sample
-    neutral = 1 << (bits - 1)
-    peak = (1 << bits) - 1
+    neutral = 1 << (input.format.bits_per_sample - 1)
+    peak = (1 << input.format.bits_per_sample) - 1
     
     def Levels(clip, input_low, gamma, input_high, output_low, output_high, coring=True):
         gamma = 1 / gamma
         divisor = input_high - input_low + (input_high == input_low)
         
-        tvLow = scale(16, bits)
-        tvHigh = [scale(235, bits), scale(240, bits)]
-        scaleUp = peak / scale(219, bits)
-        scaleDown = scale(219, bits) / peak
+        tvLow = scale(16, peak)
+        tvHigh = [scale(235, peak), scale(240, peak)]
+        scaleUp = peak / scale(219, peak)
+        scaleDown = scale(219, peak) / peak
         
         def get_lut1(x):
             p = ((x - tvLow) * scaleUp - input_low) / divisor if coring else (x - input_low) / divisor
@@ -231,21 +230,21 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
         area = vch
     
     # select and normalize both extremes of the scale
-    red = Levels(area, scale(255, bits), 1, scale(255, bits), scale(255, bits), 0)
-    blue = Levels(area, 0, 1, 0, 0, scale(255, bits))
+    red = Levels(area, scale(255, peak), 1, scale(255, peak), scale(255, peak), 0)
+    blue = Levels(area, 0, 1, 0, 0, scale(255, peak))
     
     # merge both masks
     mask = core.std.Merge(red, blue)
     if not blur:
         mask = core.rgvs.RemoveGrain(mask, 11)
-    mask = Levels(mask, scale(250, bits), 1, scale(250, bits), scale(255, bits), 0)
+    mask = Levels(mask, scale(250, peak), 1, scale(250, peak), scale(255, peak), 0)
     
     # expand to cover beyond the bleeding areas and shift to compensate the resizing
     mask = core.std.Convolution(mask, matrix=[0, 0, 0, 1, 0, 0, 0, 0, 0], divisor=1, saturate=False)
     mask = core.std.Convolution(mask, matrix=[1, 1, 1, 1, 1, 1, 0, 0, 0], divisor=8, saturate=False)
     
     # binarize (also a trick to expand)
-    mask = Levels(mask, scale(10, bits), 1, scale(10, bits), 0, scale(255, bits)).std.Inflate()
+    mask = Levels(mask, scale(10, peak), 1, scale(10, peak), 0, scale(255, peak)).std.Inflate()
     
     # prepare a version of the image that has its chroma shifted and less saturated
     input_c = adjust.Tweak(core.resize.Spline36(input, src_left=cx, src_top=cy), sat=strength)
@@ -383,7 +382,7 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('DeHalo_alpha: This is not a clip')
     
-    bits = clp.format.bits_per_sample
+    peak = (1 << clp.format.bits_per_sample) - 1
     
     if clp.format.color_family != vs.GRAY:
         clp_src = clp
@@ -397,7 +396,7 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
     halos = core.resize.Bicubic(clp, m4(ox / rx), m4(oy / ry)).resize.Bicubic(ox, oy, filter_param_a=1, filter_param_b=0)
     are = core.std.Expr([core.std.Maximum(clp), core.std.Minimum(clp)], ['x y -'])
     ugly = core.std.Expr([core.std.Maximum(halos), core.std.Minimum(halos)], ['x y -'])
-    expr = 'y x - y / {peak} * {LOS} - y {i} + {j} / {HIS} + *'.format(peak=(1 << bits) - 1, LOS=scale(lowsens, bits), i=scale(256, bits), j=scale(512, bits), HIS=highsens / 100)
+    expr = 'y x - y / {peak} * {LOS} - y {i} + {j} / {HIS} + *'.format(peak=peak, LOS=scale(lowsens, peak), i=scale(256, peak), j=scale(512, peak), HIS=highsens / 100)
     so = core.std.Expr([ugly, are], [expr])
     lets = core.std.MaskedMerge(halos, clp, so)
     if ss <= 1:
@@ -493,8 +492,8 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     if darkthr is None:
         darkthr = thr / 4
     
-    bits = input.format.bits_per_sample
-    neutral = 1 << (bits - 1)
+    neutral = 1 << (input.format.bits_per_sample - 1)
+    peak = (1 << input.format.bits_per_sample) - 1
     
     isGray = input.format.color_family == vs.GRAY
     if isinstance(planes, int):
@@ -563,7 +562,7 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     
     # Post-Process: Ringing Mask Generating
     if ringmask is None:
-        sobelm = core.std.Sobel(input, min=scale(mthr, bits), planes=[0])
+        sobelm = core.std.Sobel(input, min=scale(mthr, peak), planes=[0])
         fmask = core.misc.Hysteresis(core.std.Median(sobelm, planes=[0]), sobelm, planes=[0])
         if mrad > 0:
             omask = mt_expand_multi(fmask, planes=[0], sw=mrad, sh=mrad)
@@ -584,7 +583,7 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
                 imask = core.std.Inflate(fmask, planes=[0]).std.Minimum(planes=[0])
             else:
                 imask = fmask
-            expr = 'x {peak} y - * {peak} /'.format(peak=(1 << bits) - 1)
+            expr = 'x {peak} y - * {peak} /'.format(peak=peak)
             ringmask = core.std.Expr([omask, imask], [expr] if isGray else [expr, ''])
     
     # Mask Merging & Output
@@ -791,13 +790,13 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if InputType != 1 and not isinstance(TFF, bool):
         raise TypeError("QTGMC: 'TFF' must be set when InputType is not 1. Setting TFF to true means top field first and false means bottom field first")
     
-    bits = Input.format.bits_per_sample
-    shift = bits - 8
-    neutral = 128 << shift
+    shift = Input.format.bits_per_sample - 8
+    neutral = 1 << (Input.format.bits_per_sample - 1)
+    peak = (1 << Input.format.bits_per_sample) - 1
     
     isGray = Input.format.color_family == vs.GRAY
     
-    SOvs = scale(SOvs, bits)
+    SOvs = scale(SOvs, peak)
     
     # Core and Interpolation defaults
     if SourceMatch > 0 and TR2 is None:
@@ -979,14 +978,14 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         spatialBlur = Resize(core.rgvs.RemoveGrain(repair0, [12] if isGray else [12, CMrg]), w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=2, dmode=1)
     if SrchClipPP > 1:
         spatialBlur = core.std.Merge(spatialBlur, repair0, weight=[0.1] if ChromaMotion or isGray else [0.1, 0])
-        expr = 'x {i} + y < x {i} + x {i} - y > x {i} - y ? ?'.format(i=scale(3, bits))
+        expr = 'x {i} + y < x {i} + x {i} - y > x {i} - y ? ?'.format(i=scale(3, peak))
         tweaked = core.std.Expr([repair0, bobbed], [expr] if ChromaMotion or isGray else [expr, ''])
     if SrchClipPP <= 0:
         srchClip = repair0
     elif SrchClipPP < 3:
         srchClip = spatialBlur
     else:
-        expr = 'x {i} + y < x {j} + x {i} - y > x {j} - x 51 * y 49 * + 100 / ? ?'.format(i=scale(7, bits), j=scale(2, bits))
+        expr = 'x {i} + y < x {j} + x {i} - y > x {j} - x 51 * y 49 * + 100 / ? ?'.format(i=scale(7, peak), j=scale(2, peak))
         srchClip = core.std.Expr([spatialBlur, tweaked], [expr] if ChromaMotion or isGray else [expr, ''])
     
     # Calculate forward and backward motion vectors from motion search clip
@@ -1178,7 +1177,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         vresharp1 = core.std.Merge(core.std.Maximum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]),
                                    core.std.Minimum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]))
         if Precise: # Precise mode: reduce tiny overshoot
-            expr = 'x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, bits))
+            expr = 'x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))
             vresharp = core.std.Expr([vresharp1, lossed1], [expr])
         else:
             vresharp = vresharp1
@@ -1410,8 +1409,8 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
 def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
     core = vs.get_core()
     
-    bits = Input.format.bits_per_sample
-    neutral = 1 << (bits - 1)
+    neutral = 1 << (Input.format.bits_per_sample - 1)
+    peak = (1 << Input.format.bits_per_sample) - 1
     
     isGray = Input.format.color_family == vs.GRAY
     planes = [0, 1, 2] if Chroma and not isGray else [0]
@@ -1465,8 +1464,8 @@ def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
         choke2 = core.std.Minimum(choke2, planes=planes)
     
     # Combine above areas to find those areas of difference to restore
-    expr1 = 'x {i} < x y {neutral} < {neutral} y ? ?'.format(i=scale(129, bits), neutral=neutral)
-    expr2 = 'x {i} > x y {neutral} > {neutral} y ? ?'.format(i=scale(127, bits), neutral=neutral)
+    expr1 = 'x {i} < x y {neutral} < {neutral} y ? ?'.format(i=scale(129, peak), neutral=neutral)
+    expr2 = 'x {i} > x y {neutral} > {neutral} y ? ?'.format(i=scale(127, peak), neutral=neutral)
     restore = core.std.Expr([core.std.Expr([diff, choke1], [expr1] if Chroma or isGray else [expr1, '']), choke2], [expr2] if Chroma or isGray else [expr2, ''])
     
     return core.std.MergeDiff(Input, restore, planes=planes)
@@ -1476,8 +1475,8 @@ def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
 def QTGMC_Generate2ndFieldNoise(Input, InterleavedClip, ChromaNoise=False, TFF=None):
     core = vs.get_core()
     
-    bits = Input.format.bits_per_sample
-    neutral = 1 << (bits - 1)
+    neutral = 1 << (Input.format.bits_per_sample - 1)
+    peak = (1 << Input.format.bits_per_sample) - 1
     
     isGray = Input.format.color_family == vs.GRAY
     planes = [0, 1, 2] if ChromaNoise and not isGray else [0]
@@ -1486,7 +1485,7 @@ def QTGMC_Generate2ndFieldNoise(Input, InterleavedClip, ChromaNoise=False, TFF=N
     noiseMax = core.std.Maximum(origNoise, planes=planes).std.Maximum(planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
     noiseMin = core.std.Minimum(origNoise, planes=planes).std.Minimum(planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
     random = core.std.SeparateFields(InterleavedClip, TFF).std.BlankClip(color=[neutral] * Input.format.num_planes).grain.Add(1800, 1800 if ChromaNoise else 0)
-    expr = 'x {neutral} - y * {i} / {neutral} +'.format(neutral=neutral, i=scale(256, bits))
+    expr = 'x {neutral} - y * {i} / {neutral} +'.format(neutral=neutral, i=scale(256, peak))
     varRandom = core.std.Expr([core.std.MakeDiff(noiseMax, noiseMin, planes=planes), random], [expr] if ChromaNoise or isGray else [expr, ''])
     newNoise = core.std.MergeDiff(noiseMin, varRandom, planes=planes)
     return Weave(core.std.Interleave([origNoise, newNoise]), TFF)
@@ -1624,15 +1623,14 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     if not isinstance(source, vs.VideoNode):
         raise TypeError('srestore: This is not a clip')
     if source.format.color_family == vs.GRAY:
-        raise TypeError('srestore: GRAY color family is not supported')
+        raise TypeError('srestore: Gray color family is not supported')
     if dclip is not None and not isinstance(dclip, vs.VideoNode):
         raise TypeError('srestore: dclip is not a clip')
     else:
         dclip = source
     
-    bits = source.format.bits_per_sample
-    neutral = 1 << (bits - 1)
-    peak = (1 << bits) - 1
+    neutral = 1 << (source.format.bits_per_sample - 1)
+    peak = (1 << source.format.bits_per_sample) - 1
     
     ###### parameters & other necessary vars ######
     srad = math.sqrt(abs(speed)) * 4 if speed is not None and abs(speed) >= 1 else 12
@@ -1702,7 +1700,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         diffm = core.std.MakeDiff(sourceDuplicate, source, planes=[0]).std.Maximum(planes=[0])
         expr = 'x {neutral} - dup * dup y {neutral} - dup * + / {peak} *'.format(neutral=neutral, peak=peak)
         bmask = core.std.Expr([qmask1, qmask2], [expr, ''])
-        expr = 'x 2 * y < x {i} < and 0 y 2 * x < y {i} < and {peak} x x y + / {j} * {k} + ? ?'.format(i=scale(4, bits), peak=peak, j=scale(200, bits), k=scale(28, bits))
+        expr = 'x 2 * y < x {i} < and 0 y 2 * x < y {i} < and {peak} x x y + / {j} * {k} + ? ?'.format(i=scale(4, peak), peak=peak, j=scale(200, peak), k=scale(28, peak))
         dmask = core.std.Expr([diffm, core.std.Trim(diffm, 2)], [expr, ''])
         pmask = core.std.Expr([dmask, bmask], ['y 0 > y {peak} < and x 0 = x {peak} = or and x y ?'.format(peak=peak), ''])
         
@@ -1710,7 +1708,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         if omode == 'pp0':
             fin = core.std.Expr([sourceDuplicate, source, sourceTrim1, sourceTrim2], ['x -0.5 * y + z + a -0.5 * +'])
         elif omode == 'pp1':
-            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Expr([core.rgvs.RemoveGrain(dmask, [12, 0])], ['', '{neutral}'.format(neutral=neutral)]))
+            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Expr([core.rgvs.RemoveGrain(dmask, [12, 0])], ['', repr(neutral)]))
         elif omode == 'pp2':
             fin = core.std.MaskedMerge(unblend1, unblend2, core.rgvs.RemoveGrain(bmask, [12, 0]), first_plane=True)
         elif omode == 'pp3':
@@ -2097,7 +2095,8 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('Vinverse: This is not a clip')
     
-    bits = clp.format.bits_per_sample
+    neutral = 1 << (clp.format.bits_per_sample - 1)
+    peak = (1 << clp.format.bits_per_sample) - 1
     
     if not chroma and clp.format.color_family != vs.GRAY:
         clp_src = clp
@@ -2109,13 +2108,13 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
     vblurD = core.std.MakeDiff(clp, vblur)
     vshrp = core.std.Expr([vblur, core.std.Convolution(vblur, matrix=[1, 4, 6, 4, 1], mode='v')], ['x x y - {STR} * +'.format(STR=sstr)])
     vshrpD = core.std.MakeDiff(vshrp, vblur)
-    expr = 'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - 0.25 * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=1 << (bits - 1))
+    expr = 'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - 0.25 * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=neutral)
     vlimD = core.std.Expr([vshrpD, vblurD], [expr])
     last = core.std.MergeDiff(vblur, vlimD)
     if amnt <= 0:
         return clp
     elif amnt < 255:
-        last = core.std.Expr([clp, last], ['x {AMN} + y < x {AMN} + x {AMN} - y > x {AMN} - y ? ?'.format(AMN=scale(amnt, bits))])
+        last = core.std.Expr([clp, last], ['x {AMN} + y < x {AMN} + x {AMN} - y > x {AMN} - y ? ?'.format(AMN=scale(amnt, peak))])
     
     if clp_src is not None:
         return core.std.ShufflePlanes([last, clp_src], planes=[0, 1, 2], colorfamily=clp_src.format.color_family)
@@ -2129,7 +2128,8 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('Vinverse2: This is not a clip')
     
-    bits = clp.format.bits_per_sample
+    neutral = 1 << (clp.format.bits_per_sample - 1)
+    peak = (1 << clp.format.bits_per_sample) - 1
     
     if not chroma and clp.format.color_family != vs.GRAY:
         clp_src = clp
@@ -2141,13 +2141,13 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
     vblurD = core.std.MakeDiff(clp, vblur)
     vshrp = core.std.Expr([vblur, core.std.Convolution(vblur, matrix=[1, 2, 1], mode='v')], ['x x y - {STR} * +'.format(STR=sstr)])
     vshrpD = core.std.MakeDiff(vshrp, vblur)
-    expr = 'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - 0.25 * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=1 << (bits - 1))
+    expr = 'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - 0.25 * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=neutral)
     vlimD = core.std.Expr([vshrpD, vblurD], [expr])
     last = core.std.MergeDiff(vblur, vlimD)
     if amnt <= 0:
         return clp
     elif amnt < 255:
-        last = core.std.Expr([clp, last], ['x {AMN} + y < x {AMN} + x {AMN} - y > x {AMN} - y ? ?'.format(AMN=scale(amnt, bits))])
+        last = core.std.Expr([clp, last], ['x {AMN} + y < x {AMN} + x {AMN} - y > x {AMN} - y ? ?'.format(AMN=scale(amnt, peak))])
     
     if clp_src is not None:
         return core.std.ShufflePlanes([last, clp_src], planes=[0, 1, 2], colorfamily=clp_src.format.color_family)
@@ -2211,15 +2211,14 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
     core = vs.get_core()
     
     if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
-        raise TypeError('LUTDeCrawl: This is not an 8-10 bits YUV or YCOCG clip')
+        raise TypeError('LUTDeCrawl: This is not an 8-10 bits YUV or YCoCg clip')
     
-    bits = input.format.bits_per_sample
-    shift = bits - 8
-    peak = (1 << bits) - 1
+    shift = input.format.bits_per_sample - 8
+    peak = (1 << input.format.bits_per_sample) - 1
     
-    ythresh = scale(ythresh, bits)
-    cthresh = scale(cthresh, bits)
-    maxdiff = scale(maxdiff, bits)
+    ythresh = scale(ythresh, peak)
+    cthresh = scale(cthresh, peak)
+    maxdiff = scale(maxdiff, peak)
     scnchg <<= shift
     
     input_minus = core.std.DuplicateFrames(input, [0])
@@ -2339,14 +2338,13 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
     core = vs.get_core()
     
     if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
-        raise TypeError('LUTDeRainbow: This is not an 8-10 bits YUV or YCOCG clip')
+        raise TypeError('LUTDeRainbow: This is not an 8-10 bits YUV or YCoCg clip')
     
-    bits = input.format.bits_per_sample
-    shift = bits - 8
-    peak = (1 << bits) - 1
+    shift = input.format.bits_per_sample - 8
+    peak = (1 << input.format.bits_per_sample) - 1
     
-    cthresh = scale(cthresh, bits)
-    ythresh = scale(ythresh, bits)
+    cthresh = scale(cthresh, peak)
+    ythresh = scale(ythresh, peak)
     
     input_minus = core.std.DuplicateFrames(input, [0])
     input_plus = core.std.Trim(input, 1) + core.std.Trim(input, input.num_frames - 1)
@@ -2434,7 +2432,8 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     if Lmask is not None and not isinstance(Lmask, vs.VideoNode):
         raise TypeError("GSMC: 'Lmask' is not a clip")
     
-    bits = input.format.bits_per_sample
+    neutral = 1 << (input.format.bits_per_sample - 1)
+    peak = (1 << input.format.bits_per_sample) - 1
     
     HD = input.width > 1024 or input.height > 576
     
@@ -2443,9 +2442,9 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     if thSADC is None:
         thSADC = thSAD // 2
     if limit is not None:
-        limit = scale(limit, bits)
+        limit = scale(limit, peak)
     if limitc is not None:
-        limitc = scale(limitc, bits)
+        limitc = scale(limitc, peak)
     
     isGray = input.format.color_family == vs.GRAY
     if isGray:
@@ -2517,7 +2516,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
         elif adapt >= 255:
             Lmask = core.std.Invert(input_y).rgvs.RemoveGrain(19)
         else:
-            expr = 'x {adapt} - abs {peak} * {adapt} {neutral} - abs {neutral} + /'.format(adapt=scale(adapt, bits), peak=(1 << bits) - 1, neutral=1 << (bits - 1))
+            expr = 'x {adapt} - abs {peak} * {adapt} {neutral} - abs {neutral} + /'.format(adapt=scale(adapt, peak), peak=peak, neutral=neutral)
             Lmask = core.std.Expr([input_y], [expr]).rgvs.RemoveGrain(19)
         return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
 
@@ -2554,7 +2553,7 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
     if not isinstance(input, vs.VideoNode):
         raise TypeError('SMDegrain: This is not a clip')
     
-    bits = input.format.bits_per_sample
+    peak = (1 << input.format.bits_per_sample) - 1
     
     if input.format.color_family == vs.GRAY:
         plane = 0
@@ -2605,11 +2604,11 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
         hpad = blksize
     if vpad is None:
         vpad = blksize
-    limit = scale(limit, bits)
+    limit = scale(limit, peak)
     if limitc is None:
         limitc = limit
     else:
-        limitc = scale(limitc, bits)
+        limitc = scale(limitc, peak)
     
     # Error Report
     if not (ifC or isinstance(contrasharp, int)):
@@ -2655,7 +2654,7 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
         elif prefilter == 0:
             pref = MinBlur(inputP, 0, planes=planes)
         elif prefilter == 3:
-            expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale(16, bits), j=scale(75, bits), peak=(1 << bits) - 1)
+            expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale(16, peak), j=scale(75, peak), peak=peak)
             pref = core.std.MaskedMerge(core.dfttest.DFTTest(inputP, tbsize=1, sstring='0.0:4.0 0.2:9.0 1.0:15.0', planes=planes),
                                         inputP,
                                         core.std.Expr([mvf.GetPlane(inputP, 0)], [expr]),
@@ -2819,7 +2818,7 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('STPresso: This is not a clip')
     
-    bits = clp.format.bits_per_sample
+    peak = (1 << clp.format.bits_per_sample) - 1
     
     isGray = clp.format.color_family == vs.GRAY
     if isGray:
@@ -2831,22 +2830,22 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
     U = 1 in planes
     V = 2 in planes
     
-    limit = scale(limit, bits)
-    tthr = scale(tthr, bits)
-    tlimit = scale(tlimit, bits)
-    back = scale(back, bits)
+    limit = scale(limit, peak)
+    tthr = scale(tthr, peak)
+    tlimit = scale(tlimit, peak)
+    back = scale(back, peak)
     
-    LIM1 = math.floor(limit * 100 / bias - 1 + 0.5) if limit > 0 else math.floor(scale(100 / bias, bits) + 0.5)
-    TLIM1 = math.floor(tlimit * 100 / tbias - 1 + 0.5) if tlimit > 0 else math.floor(scale(100 / tbias, bits) + 0.5)
+    LIM1 = math.floor(limit * 100 / bias - 1 + 0.5) if limit > 0 else math.floor(scale(100 / bias, peak) + 0.5)
+    TLIM1 = math.floor(tlimit * 100 / tbias - 1 + 0.5) if tlimit > 0 else math.floor(scale(100 / tbias, peak) + 0.5)
     
     if limit < 0:
         expr = 'x y - abs {LIM1} < x x 1 x y - x y - abs / * - ?'.format(LIM1=LIM1)
     else:
-        expr = 'x y - abs {i} < x x {LIM1} + y < x {LIM2} + x {LIM1} - y > x {LIM2} - x {j} * y {BIA} * + 100 / ? ? ?'.format(i=scale(1, bits), LIM1=LIM1, LIM2=limit, j=100 - bias, BIA=bias)
+        expr = 'x y - abs {i} < x x {LIM1} + y < x {LIM2} + x {LIM1} - y > x {LIM2} - x {j} * y {BIA} * + 100 / ? ? ?'.format(i=scale(1, peak), LIM1=LIM1, LIM2=limit, j=100 - bias, BIA=bias)
     if tlimit < 0:
         texpr = 'x y - abs {TLIM1} < x x 1 x y - x y - abs / * - ?'.format(TLIM1=TLIM1)
     else:
-        texpr = 'x y - abs {i} < x x {TLIM1} + y < x {TLIM2} + x {TLIM1} - y > x {TLIM2} - x {j} * y {TBIA} * + 100 / ? ? ?'.format(i=scale(1, bits), TLIM1=TLIM1, TLIM2=tlimit, j=100 - tbias, TBIA=tbias)
+        texpr = 'x y - abs {i} < x x {TLIM1} + y < x {TLIM2} + x {TLIM1} - y > x {TLIM2} - x {j} * y {TBIA} * + 100 / ? ? ?'.format(i=scale(1, peak), TLIM1=TLIM1, TLIM2=tlimit, j=100 - tbias, TBIA=tbias)
     
     if RGmode == 4:
         bzz = core.std.Median(clp, planes=planes)
@@ -2876,11 +2875,9 @@ def SigmoidInverse(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
     
     x0 = 1 / (1 + math.exp(cont * thr))
     x1m0 = 1 / (1 + math.exp(cont * (thr - 1))) - x0
-    
     expr = '{thr} 1 x 65536 / {x1m0} * {x0} + 0.000001 max / 1 - 0.000001 max log {cont} / - 65536 *'.format(thr=thr, x1m0=x1m0, x0=x0, cont=cont)
     if src.format.color_family != vs.GRAY:
         expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
-    
     return core.std.Expr([src], expr)
 
 # Convert back a clip to linear luminance
@@ -2892,11 +2889,9 @@ def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
     
     x0 = 1 / (1 + math.exp(cont * thr))
     x1m0 = 1 / (1 + math.exp(cont * (thr - 1))) - x0
-    
     expr = '1 1 {cont} {thr} x 65536 / - * exp + / {x0} - {x1m0} / 65536 *'.format(cont=cont, thr=thr, x0=x0, x1m0=x1m0)
     if src.format.color_family != vs.GRAY:
         expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
-    
     return core.std.Expr([src], expr)
 
 
@@ -2923,10 +2918,9 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('GrainFactory3: This is not a clip')
     
-    bits = clp.format.bits_per_sample
-    shift = bits - 8
-    neutral = 128 << shift
-    peak = (1 << bits) - 1
+    shift = clp.format.bits_per_sample - 8
+    neutral = 1 << (clp.format.bits_per_sample - 1)
+    peak = (1 << clp.format.bits_per_sample) - 1
     
     if clp.format.color_family != vs.GRAY:
         clp_src = clp
@@ -2962,10 +2956,10 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
     c2a = (1 - b2a) / 2
     c3a = (1 - b3a) / 2
     tmpavg = temp_avg / 100
-    th1 = scale(th1, bits)
-    th2 = scale(th2, bits)
-    th3 = scale(th3, bits)
-    th4 = scale(th4, bits)
+    th1 = scale(th1, peak)
+    th2 = scale(th2, peak)
+    th3 = scale(th3, peak)
+    th4 = scale(th4, peak)
     
     grainlayer1 = core.std.BlankClip(clp, width=sx1, height=sy1, color=neutral).grain.Add(g1str)
     if g1size != 1 and (sx1 != ox or sy1 != oy):
@@ -3301,9 +3295,8 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
     if input.format.color_family == vs.RGB:
         raise TypeError('SmoothLevels: RGB color family is not supported')
     
-    bits = input.format.bits_per_sample
-    neutral = 1 << (bits - 1)
-    peak = (1 << bits) - 1
+    neutral = 1 << (input.format.bits_per_sample - 1)
+    peak = (1 << input.format.bits_per_sample) - 1
     
     isGray = input.format.color_family == vs.GRAY
     if chroma <= 0 and not isGray:
@@ -3351,7 +3344,7 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
         else:
             exprL = 1
         
-        tmp = scale(16, bits)
+        tmp = scale(16, peak)
         
         if protect <= -1:
             exprP = 1
@@ -3470,8 +3463,7 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
     if not isinstance(c, vs.VideoNode):
         raise TypeError('FastLineDarkenMOD: This is not a clip')
     
-    bits = c.format.bits_per_sample
-    peak = (1 << bits) - 1
+    peak = (1 << c.format.bits_per_sample) - 1
     
     if c.format.color_family != vs.GRAY:
         c_src = c
@@ -3480,8 +3472,8 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
         c_src = None
     
     Str = strength / 128
-    lum = scale(luma_cap, bits)
-    thr = scale(threshold, bits)
+    lum = scale(luma_cap, peak)
+    thr = scale(threshold, peak)
     thn = thinning / 16
     
     exin = core.std.Maximum(c, threshold=peak // (protection + 1)).std.Minimum()
@@ -3490,7 +3482,7 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
     if thinning <= 0:
         last = thick
     else:
-        tmp = scale(127, bits)
+        tmp = scale(127, peak)
         diff = core.std.Expr([c, exin], ['y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {i} +'.format(lum=lum, thr=thr, i=tmp)])
         expr = 'x {i} - {thn} * {peak} +'.format(i=tmp, thn=thn, peak=peak)
         linemask = core.std.Expr([core.std.Minimum(diff)], [expr]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
@@ -3528,7 +3520,8 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
     
     bits = input.format.bits_per_sample
     neutral = 1 << (bits - 1)
-    multiple = ((1 << bits) - 1) / 255
+    peak = (1 << bits) - 1
+    multiple = peak / 255
     
     if input.format.color_family != vs.GRAY:
         input_src = input
@@ -3536,9 +3529,9 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
     else:
         input_src = None
     
-    lthr = neutral + scale(l_thr, bits)
+    lthr = neutral + scale(l_thr, peak)
     lthr8 = lthr / multiple
-    uthr = neutral + scale(u_thr, bits)
+    uthr = neutral + scale(u_thr, peak)
     uthr8 = uthr / multiple
     ludiff = u_thr - l_thr
     
@@ -3906,10 +3899,9 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if source is not None and (not isinstance(source, vs.VideoNode) or source.format.id != input.format.id):
         raise TypeError("LSFmod: 'source' must be the same format as input")
     
-    bits = input.format.bits_per_sample
-    shift = bits - 8
-    neutral = 128 << shift
-    peak = (1 << bits) - 1
+    shift = input.format.bits_per_sample - 8
+    neutral = 1 << (input.format.bits_per_sample - 1)
+    peak = (1 << input.format.bits_per_sample) - 1
     multiple = peak / 255
     
     isGray = input.format.color_family == vs.GRAY
@@ -4018,7 +4010,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         method = core.std.Merge(dark_limit, bright_limit).rgvs.RemoveGrain(kernel)
     
     if secure:
-        method = core.std.Expr([method, pre], ['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, bits))])
+        method = core.std.Expr([method, pre], ['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))])
     
     if preblur:
         method = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, method))
@@ -4030,8 +4022,8 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         normsharp = core.std.MergeDiff(method, sharpdiff)
     
     ### LIMIT
-    normal = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot, bits), scale(undershoot, bits))
-    second = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot2, bits), scale(undershoot2, bits))
+    normal = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot, peak), scale(undershoot, peak))
+    second = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot2, peak), scale(undershoot2, peak))
     zero = Clamp(normsharp, bright_limit, dark_limit, 0, 0)
     
     if edgemaskHQ:
@@ -4168,7 +4160,6 @@ def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 
     expr = 'x y {overshoot} + > y {overshoot} + x ? z {undershoot} - < z {undershoot} - x y {overshoot} + > y {overshoot} + x ? ?'.format(overshoot=overshoot, undershoot=undershoot)
     if clip.format.color_family != vs.GRAY:
         expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
-    
     return core.std.Expr([clip, bright_limit, dark_limit], expr)
 
 
@@ -4178,7 +4169,7 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('KNLMeansCL: This is not a clip')
     if clip.format.color_family not in [vs.YUV, vs.YCOCG]:
-        raise TypeError('KNLMeansCL: This wrapper is intended to be used for color family of YUV and YCOCG only')
+        raise TypeError('KNLMeansCL: This wrapper is intended to be used for color family of YUV and YCoCg only')
     
     nrY = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id, info=info)
     
@@ -4579,7 +4570,6 @@ def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
     c1 = 1 + c
     c2 = c1 * c
     e = '{k} {c1} {c2} {t} {c} + / - * {t} 1 {k} - * + {i} *'.format(k=k, c1=c1, c2=c2, t=t, c=c, i=256 << shift)
-    
     return core.std.Expr([src], [e] if isGray else [e, 'x {neutral} - 128 * 112 / {neutral} +'.format(neutral=128 << shift) if chroma else ''])
 
 
@@ -4600,14 +4590,11 @@ def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
 #       equal.
 #   Other parameters are the same as mt_xxpand.
 #=============================================================================
-def mt_expand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
+def mt_expand_multi(src, mode='rectangle', planes=None, sw=1, sh=1):
     core = vs.get_core()
     
     if not isinstance(src, vs.VideoNode):
         raise TypeError('mt_expand_multi: This is not a clip')
-    
-    if src.format.color_family == vs.GRAY:
-        planes = [0]
     
     if sw > 0 and sh > 0:
         mode_m = [0, 1, 0, 1, 1, 0, 1, 0] if mode == 'losange' or (mode == 'ellipse' and (sw % 3) != 1) else [1, 1, 1, 1, 1, 1, 1, 1]
@@ -4624,14 +4611,11 @@ def mt_expand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
         return src
 
 
-def mt_inpand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
+def mt_inpand_multi(src, mode='rectangle', planes=None, sw=1, sh=1):
     core = vs.get_core()
     
     if not isinstance(src, vs.VideoNode):
         raise TypeError('mt_inpand_multi: This is not a clip')
-    
-    if src.format.color_family == vs.GRAY:
-        planes = [0]
     
     if sw > 0 and sh > 0:
         mode_m = [0, 1, 0, 1, 1, 0, 1, 0] if mode == 'losange' or (mode == 'ellipse' and (sw % 3) != 1) else [1, 1, 1, 1, 1, 1, 1, 1]
@@ -4648,34 +4632,26 @@ def mt_inpand_multi(src, mode='rectangle', planes=[0, 1, 2], sw=1, sh=1):
         return src
 
 
-def mt_inflate_multi(src, planes=[0, 1, 2], radius=1):
+def mt_inflate_multi(src, planes=None, radius=1):
     core = vs.get_core()
     
     if not isinstance(src, vs.VideoNode):
         raise TypeError('mt_inflate_multi: This is not a clip')
     
-    if src.format.color_family == vs.GRAY:
-        planes = [0]
-    
-    if radius > 0:
-        return mt_inflate_multi(core.std.Inflate(src, planes=planes), planes=planes, radius=radius - 1)
-    else:
-        return src
+    for i in range(radius):
+        src = core.std.Inflate(src, planes=planes)
+    return src
 
 
-def mt_deflate_multi(src, planes=[0, 1, 2], radius=1):
+def mt_deflate_multi(src, planes=None, radius=1):
     core = vs.get_core()
     
     if not isinstance(src, vs.VideoNode):
         raise TypeError('mt_deflate_multi: This is not a clip')
     
-    if src.format.color_family == vs.GRAY:
-        planes = [0]
-    
-    if radius > 0:
-        return mt_deflate_multi(core.std.Deflate(src, planes=planes), planes=planes, radius=radius - 1)
-    else:
-        return src
+    for i in range(radius):
+        src = core.std.Deflate(src, planes=planes)
+    return src
 
 
 ####################
@@ -4689,5 +4665,5 @@ def m4(x):
     return 16 if x < 16 else math.floor(x / 4 + 0.5) * 4
 
 
-def scale(val, bits):
-    return val * ((1 << bits) - 1) // 255
+def scale(value, peak):
+    return value * peak // 255
