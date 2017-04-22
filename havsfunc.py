@@ -36,6 +36,7 @@ Main functions:
     LSFmod
 
 Utility functions:
+    AverageFrames
     Bob
     ChangeFPS
     Clamp
@@ -43,9 +44,8 @@ Utility functions:
     Overlay
     Padding
     Resize
-    TemporalSoften
+    SCDetect
     Weave
-    set_scenechange
     ContraSharpening
     MinBlur
     sbr
@@ -790,7 +790,6 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if InputType != 1 and not isinstance(TFF, bool):
         raise TypeError("QTGMC: 'TFF' must be set when InputType is not 1. Setting TFF to true means top field first and false means bottom field first")
     
-    shift = Input.format.bits_per_sample - 8
     neutral = 1 << (Input.format.bits_per_sample - 1)
     peak = (1 << Input.format.bits_per_sample) - 1
     
@@ -872,7 +871,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if totalRestore <= 0:
         StabilizeNoise = False
     noiseTD = [1, 3, 5][NoiseTR]
-    noiseCentre = 128.5 * 2 ** shift if Denoiser in ['fft3df', 'fft3dfilter'] else neutral
+    noiseCentre = 128.5 * 2 ** (Input.format.bits_per_sample - 8) if Denoiser in ['fft3df', 'fft3dfilter'] else neutral
     
     # MVTools settings
     if Lambda is None:
@@ -945,15 +944,15 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         bobbed = core.std.Convolution(clip, matrix=[1, 2, 1], mode='v')
     
-    CMts = 255 if ChromaMotion else 0
+    CMplanes = [0, 1, 2] if ChromaMotion and not isGray else [0]
     CMrg = 12 if ChromaMotion else 0
     
     # The bobbed clip will shimmer due to being derived from alternating fields. Temporally smooth over the neighboring frames using a binomial kernel. Binomial
     # kernels give equal weight to even and odd frames and hence average away the shimmer. The two kernels used are [1 2 1] and [1 4 6 4 1] for radius 1 and 2.
     # These kernels are approximately Gaussian kernels, which work well as a prefilter before motion analysis (hence the original name for this script)
-    # Create linear weightings of neighbors first                                              -2    -1    0     1     2
-    if TR0 > 0: ts1 = TemporalSoften(bobbed, 1, 255 << shift, CMts << shift, 28 << shift, 2) # 0.00  0.33  0.33  0.33  0.00
-    if TR0 > 1: ts2 = TemporalSoften(bobbed, 2, 255 << shift, CMts << shift, 28 << shift, 2) # 0.20  0.20  0.20  0.20  0.20
+    # Create linear weightings of neighbors first                                                       -2    -1    0     1     2
+    if TR0 > 0: ts1 = AverageFrames(bobbed, weights=[1] * 3, scenechange=28 / 255, planes=CMplanes) # 0.00  0.33  0.33  0.33  0.00
+    if TR0 > 1: ts2 = AverageFrames(bobbed, weights=[1] * 5, scenechange=28 / 255, planes=CMplanes) # 0.20  0.20  0.20  0.20  0.20
     
     # Combine linear weightings to give binomial weightings - TR0=0: (1), TR0=1: (1:2:1), TR0=2: (1:4:6:4:1)
     if TR0 <= 0:
@@ -1024,6 +1023,8 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if NoiseTR > 0:
         fullSuper = core.mv.Super(fullClip, pel=SubPel, levels=1, hpad=hpad, vpad=vpad, chroma=ChromaNoise) #TEST chroma OK?
     
+    CNplanes = [0, 1, 2] if ChromaNoise and not isGray else [0]
+    
     # Create a motion compensated temporal window around current frame and use to guide denoisers
     if NoiseProcess > 0:
         if not DenoiseMC or NoiseTR <= 0:
@@ -1039,7 +1040,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
                                                core.mv.Compensate(fullClip, fullSuper, bVec1, thscd1=ThSCD1, thscd2=ThSCD2),
                                                core.mv.Compensate(fullClip, fullSuper, bVec2, thscd1=ThSCD1, thscd2=ThSCD2)])
         if Denoiser == 'dfttest':
-            dnWindow = core.dfttest.DFTTest(noiseWindow, sigma=Sigma * 4, tbsize=noiseTD, planes=[0, 1, 2] if ChromaNoise and not isGray else [0])
+            dnWindow = core.dfttest.DFTTest(noiseWindow, sigma=Sigma * 4, tbsize=noiseTD, planes=CNplanes)
         elif Denoiser == 'knlmeanscl':
             if ChromaNoise and not isGray:
                 dnWindow = KNLMeansCL(noiseWindow, d=NoiseTR, h=Sigma)
@@ -1062,8 +1063,6 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
                 denoised = core.std.SelectEvery(dnWindow, noiseTD, [NoiseTR])
         else:
             denoised = Weave(core.std.SeparateFields(dnWindow, TFF).std.SelectEvery(noiseTD * 4, [NoiseTR * 2, NoiseTR * 6 + 3]), TFF)
-    
-    CNplanes = [0, 1, 2] if ChromaNoise and not isGray else [0]
     
     # Get actual noise from difference. Then 'deinterlace' where we have weaved noise - create the missing lines of noise in various ways
     if NoiseProcess > 0 and totalRestore > 0:
@@ -2219,7 +2218,6 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
     ythresh = scale(ythresh, peak)
     cthresh = scale(cthresh, peak)
     maxdiff = scale(maxdiff, peak)
-    scnchg <<= shift
     
     input_minus = core.std.DuplicateFrames(input, [0])
     input_plus = core.std.Trim(input, 1) + core.std.Trim(input, input.num_frames - 1)
@@ -2265,7 +2263,7 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
             return clips[1]
     
     input = core.std.DuplicateFrames(input, [0, input.num_frames - 1])
-    input = set_scenechange(input, scnchg)
+    input = SCDetect(input, scnchg / 255)
     input = core.std.DeleteFrames(input, [0, input.num_frames - 1])
     output = core.std.FrameEval(output, eval=functools.partial(YDifferenceFromPrevious, clips=[input, output]), prop_src=input)
     output = core.std.FrameEval(output, eval=functools.partial(YDifferenceToNext, clips=[input, output]), prop_src=input)
@@ -2395,10 +2393,8 @@ def Stab(clp, range=1, dxmax=4, dymax=4, mirror=0):
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('Stab: This is not a clip')
     
-    shift = clp.format.bits_per_sample - 8
-    
-    temp = TemporalSoften(clp, 7, 255 << shift, 255 << shift, 25 << shift, 2)
-    inter = core.std.Interleave([core.rgvs.Repair(temp, TemporalSoften(clp, 1, 255 << shift, 255 << shift, 25 << shift, 2), 1), clp])
+    temp = AverageFrames(clp, weights=[1] * 15, scenechange=25 / 255)
+    inter = core.std.Interleave([core.rgvs.Repair(temp, AverageFrames(clp, weights=[1] * 3, scenechange=25 / 255), 1), clp])
     mdata = core.depan.DePanEstimate(inter, range=range, trust=0, dxmax=dxmax, dymax=dymax)
     last = core.depan.DePan(inter, data=mdata, offset=-1, mirror=mirror)
     return core.std.SelectEvery(last, 2, [0])
@@ -2918,7 +2914,6 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('GrainFactory3: This is not a clip')
     
-    shift = clp.format.bits_per_sample - 8
     neutral = 1 << (clp.format.bits_per_sample - 1)
     peak = (1 << clp.format.bits_per_sample) - 1
     
@@ -2989,7 +2984,7 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
     expr2 = 'x {th3} < 0 x {th4} > {peak} {peak} {th4} {th3} - / x {th3} - * ? ?'.format(th3=th3, th4=th4, peak=peak)
     grainlayer = core.std.MaskedMerge(core.std.MaskedMerge(grainlayer1, grainlayer2, core.std.Expr([clp], [expr1])), grainlayer3, core.std.Expr([clp], [expr2]))
     if temp_avg > 0:
-        grainlayer = core.std.Merge(grainlayer, TemporalSoften(grainlayer, 1, 255 << shift, 0, 0, 2), weight=[tmpavg])
+        grainlayer = core.std.Merge(grainlayer, AverageFrames(grainlayer, weights=[1] * 3), weight=[tmpavg])
     if ontop_grain > 0:
         grainlayer = core.grain.Add(grainlayer, ontop_grain)
     result = core.std.MakeDiff(clp, grainlayer)
@@ -3899,7 +3894,6 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if source is not None and (not isinstance(source, vs.VideoNode) or source.format.id != input.format.id):
         raise TypeError("LSFmod: 'source' must be the same format as input")
     
-    shift = input.format.bits_per_sample - 8
     neutral = 1 << (input.format.bits_per_sample - 1)
     peak = (1 << input.format.bits_per_sample) - 1
     multiple = peak / 255
@@ -4065,7 +4059,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     ### SOOTHE
     if soothe:
         diff = core.std.MakeDiff(tmp, PP1)
-        diff = core.std.Expr([diff, TemporalSoften(diff, 1, 255 << shift, 0, 32 << shift, 2)],
+        diff = core.std.Expr([diff, AverageFrames(diff, weights=[1] * 3, scenechange=32 / 255)],
                              ['x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {i} * + 100 / x ? ?'.format(neutral=neutral, keep=keep, i=100 - keep)])
         PP2 = core.std.MakeDiff(tmp, diff)
     else:
@@ -4111,6 +4105,18 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
 # Utility functions #
 #                   #
 #####################
+
+
+def AverageFrames(clip, weights, scenechange=None, planes=None):
+    core = vs.get_core()
+    
+    if not isinstance(clip, vs.VideoNode):
+        raise TypeError('AverageFrames: This is not a clip')
+    
+    if scenechange:
+        clip = SCDetect(clip, scenechange)
+        scenechange = True
+    return core.misc.AverageFrames(clip, weights=weights, scenechange=scenechange, planes=planes)
 
 
 def Bob(clip, b=1/3, c=1/3, tff=None):
@@ -4297,15 +4303,29 @@ def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None
         return core.fmtc.bitdepth(last, bits=bits, planes=planes2, fulls=fulls, fulld=fulld, dmode=dmode, ampo=ampo, ampn=ampn, dyn=dyn, staticnoise=staticnoise, patsize=patsize)
 
 
-def TemporalSoften(clip, radius=4, luma_threshold=4, chroma_threshold=8, scenechange=15, mode=2):
+def SCDetect(clip, threshold=None):
     core = vs.get_core()
     
     if not isinstance(clip, vs.VideoNode):
-        raise TypeError('TemporalSoften: This is not a clip')
+        raise TypeError('SCDetect: This is not a clip')
     
-    if scenechange:
-        clip = set_scenechange(clip, scenechange)
-    return core.focus2.TemporalSoften2(clip, radius, luma_threshold, chroma_threshold, scenechange)
+    sc = clip
+    
+    if clip.format.color_family == vs.RGB:
+        sc = core.resize.Bicubic(clip, format=vs.GRAY8, matrix_s='709')
+    
+    sc = core.misc.SCDetect(sc, threshold)
+    
+    def copy_property(n, f):
+        fout = f[0].copy()
+        fout.props._SceneChangePrev = f[1].props._SceneChangePrev
+        fout.props._SceneChangeNext = f[1].props._SceneChangeNext
+        return fout
+    
+    if clip.format.color_family == vs.RGB:
+        sc = core.std.ModifyFrame(clip, clips=[clip, sc], selector=copy_property)
+    
+    return sc
 
 
 def Weave(clip, tff):
@@ -4315,33 +4335,6 @@ def Weave(clip, tff):
         raise TypeError('Weave: This is not a clip')
     
     return core.std.DoubleWeave(clip, tff).std.SelectEvery(2, [0])
-
-
-def set_scenechange(clip, thresh=15):
-    core = vs.get_core()
-    
-    if not isinstance(clip, vs.VideoNode):
-        raise TypeError('set_scenechange: This is not a clip')
-    
-    def set_props(n, f):
-        fout = f[0].copy()
-        fout.props._SceneChangePrev = f[1].props._SceneChangePrev
-        fout.props._SceneChangeNext = f[1].props._SceneChangeNext
-        return fout
-    
-    sc = clip
-    
-    if clip.format.color_family == vs.RGB:
-        sc = core.resize.Bicubic(clip, format=vs.GRAY16, matrix_s='709')
-        if sc.format.bits_per_sample != clip.format.bits_per_sample:
-            sc = core.fmtc.bitdepth(sc, bits=clip.format.bits_per_sample, dmode=1)
-    
-    sc = core.scd.Detect(sc, thresh)
-    
-    if clip.format.color_family == vs.RGB:
-        sc = core.std.ModifyFrame(clip, clips=[clip, sc], selector=set_props)
-    
-    return sc
 
 
 ########################################
