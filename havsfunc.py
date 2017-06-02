@@ -4435,12 +4435,7 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
         RG4 = core.std.Median(clp, planes=planes)
     elif r == 2:
         RG11 = core.rgvs.RemoveGrain(clp, M11).std.Convolution(matrix=matrix, planes=planes)
-        if bits == 16:
-            s16 = clp
-            RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=2, planes=planes)
-            RG4 = mvf.LimitFilter(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
-        else:
-            RG4 = core.ctmf.CTMF(clp, radius=2, planes=planes)
+        RG4 = core.ctmf.CTMF(clp, radius=2, planes=planes)
     else:
         RG11 = core.rgvs.RemoveGrain(clp, M11).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
         if bits == 16:
