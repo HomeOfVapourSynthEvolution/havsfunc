@@ -34,6 +34,7 @@ Main functions:
     FastLineDarken 1.4x MT MOD
     Toon
     LSFmod
+    TemporalDegrain
 
 Utility functions:
     AverageFrames
@@ -4097,7 +4098,205 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     else:
         return out
 
+########################
+# Ported version of Temporal Degrain from avisynth
+#
+# Function by Sagekilla, idea + original script created by Didee
+# ported by Hinterwaeldlers
+#
+# Works as a simple temporal degraining function that'll remove MOST grain
+# from video sources, including dancing grain, like the grain found on 300.
+# Also note, the parameters don't need to be tweaked much.
+#
+# Required vapoursynth plugins:
+# * FFT3DFilter, if no pre calmed clip is given
+# * MVTools
+# * hqdn3d
+#
+# Note, the name of the parameters have been slightly changed from the avisynth
+# variant, to hopefully clarify their meaning. In addition the GPU parameter is
+# dropped, as there is no FFT3DFilter GPU variant.
+#
+# Usage:
+# * inpClip:       The clip to process
+# * denoiseClip:   An optional, pre calmed clip. This one should be "dead calm".
+#                  If none is given, a clip is generated with FFT3DFilter
+# * sigma:         FFT3DFilter filter strength
+#                  Not used if a denoised clip is given
+# * blockWidth:    FFT3DFilter block width
+# * blockHeigth:   FFT3DFilter block width
+# * sigma2:        FFT3DFilter sigma2 parameter
+#                  Not used if a denoised clip is given
+# * sigma3:        FFT3DFilter sigma3 parameter
+#                  Not used if a denoised clip is given
+# * sigma4:        FFT3DFilter sigma4 parameter
+#                  Not used if a denoised clip is given
+# * overlapWidth:  FFT3DFilter overlap width parameter
+#                  Not used if a denoised clip is given
+# * overlapHeight: FFT3DFilter overlap height parameter
+#                  Not used if a denoised clip is given
+# * blockSize:     MVTools Analyse block size
+# * pel:           MVTools Analyse subpixel accurancy
+# * overlapValue:  MVTools Analyse overlap parameter
+# * degrain:       Amount of MVTools degrain vectors used.
+#                  Valid values are: 1, 2 and 3
+# * maxPxChange:   Limit the maximum allowed pixel change
+# * thrDegrain1:   MVTools degrain SAD threshold in stage 1
+# * thrDegrain2:   MVTools degrain SAD threshold in stage 2
+# * HQ:            Adjust the filtering level:
+#                  * 0: disable any prefiltering (not recommneded)
+#                  * 1: extra prefiltering step
+#                  * 2: extra pre- and postfiltering step
 
+def TemporalDegrain(          \
+      inpClip                 \
+    , denoiseClip   = None    \
+    , sigma         = 16      \
+    , blockWidth    = 16      \
+    , blockHeight   = 16      \
+    , sigma2        = None    \
+    , sigma3        = None    \
+    , sigma4        = None    \
+    , overlapWidth  = None    \
+    , overlapHeight = None    \
+    , blockSize     = 16      \
+    , pel           = 2       \
+    , overlapValue  = None    \
+    , degrain       = 2       \
+    , maxPxChange   = 255     \
+    , thrDegrain1   = 400     \
+    , thrDegrain2   = 300     \
+    , HQ            = 1       \
+) :
+
+    if int(degrain) != degrain or degrain < 1 or degrain > 3:
+        raise SyntaxError(\
+            "Invalid degrain paramter! Must be 1, 2 or 3 (given as int)")
+
+    # Set the default value of not given values
+    if sigma2 is None:
+        sigma2 = sigma * 0.625
+    if sigma3 is None:
+        sigma3 = sigma * 0.375
+    if sigma4 is None:
+        sigma4 = sigma * 0.250
+    if overlapWidth is None:
+        overlapWidth = blockWidth/2
+    if overlapHeight is None:
+        overlapHeight = blockHeight/2
+    if overlapValue is None:
+        overlapValue = blockSize/2
+
+    # Input adjustments
+    sigma2 = math.floor(sigma2)
+    sigma3 = math.floor(sigma3)
+    sigma4 = math.floor(sigma4)
+    if overlapValue * 2 > blockSize:
+        overlapValue = blockSize/2
+    overlapValue = int(overlapValue)
+
+    core = vs.get_core()
+
+    # Taking care of a missing denoising clip and use of fft3d to determine it
+    if denoiseClip is None:
+        denoiseClip = core.fft3dfilter.FFT3DFilter(inpClip, sigma=sigma\
+            , sigma2=sigma2, sigma3=sigma3, sigma4=sigma4, bw=blockWidth\
+            , bh=int(blockHeight), ow=int(overlapWidth), oh=int(overlapHeight))
+
+    # If HQ is activated, do an additional denoising
+    if HQ > 0:
+        filterClip = core.hqdnd.hqdn3d(denoiseClip, 4,3,6,3)
+    else:
+        denoiseClip
+
+    # "spat" is a prefiltered clip which is used to limit the effect of the 1st
+    # MV-denoise stage. For simplicity, we just use the same FFT3DFilter.
+    # There's lots of other possibilities.
+    spatD = core.std.MakeDiff(inpClip, filterClip)
+
+    # Motion vector search (With very basic parameters. Add your own parameters
+    # as needed.)
+    srchSuper = core.mv.Super(filterClip, pel=pel)
+
+    if degrain == 3:
+        bvec3 = core.mv.Analyse(srchSuper, isb=True, delta=3, blksize=blockSize\
+            , overlap=overlapValue)
+        fvec3 = core.mv.Analyse(srchSuper, isb=False, delta=3, blksize=blockSize\
+            , overlap=overlapValue)
+    else:
+        bvec3 = core.std.BlankClip
+        fvec3 = core.std.BlankClip
+
+    if degrain >= 2:
+        bvec2 = core.mv.Analyse(srchSuper, isb=True, delta=2, blksize=blockSize\
+            , overlap=overlapValue)
+        fvec2 = core.mv.Analyse(srchSuper, isb=False, delta=2, blksize=blockSize\
+            , overlap=overlapValue)
+    else:
+        bvec2 = core.std.BlankClip
+        fvec2 = core.std.BlankClip
+
+    bvec1 = core.mv.Analyse(srchSuper, isb=True, delta=1, blksize=blockSize\
+        , overlap=overlapValue)
+    fvec1 = core.mv.Analyse(srchSuper, isb=False, delta=1, blksize=blockSize\
+        , overlap=overlapValue)
+
+    # First MV-denoising stage. Usually here's some temporal-medianfiltering
+    # going on. For simplicity, we just use MVDegrain.
+    inpSuper = core.mv.Super(inpClip, pel=2, levels=1)
+    if degrain == 3:
+        nr1 = core.mv.Degrain3(inpClip, inpSuper, bvec1, fvec1, bvec2, fvec2\
+            , bvec3, fvec3, thsad=thrDegrain1, limit=maxPxChange)
+    elif degrain == 2:
+        nr1 = core.mv.Degrain2(inpClip, inpSuper, bvec1, fvec1, bvec2, fvec2\
+            , thsad=thrDegrain1, limit=maxPxChange)
+    else:
+        nr1 = core.mv.Degrain1(inpClip, inpSuper, fvec1, bvec1\
+            , thsad=thrDegrain1, limit=maxPxChange)
+    nr1Diff = core.std.MakeDiff(inpClip, nr1)
+
+    # Limit NR1 to not do more than what "spat" would do.
+    dd = core.std.Expr([spatD, nr1Diff], "x 128 - abs y 128 - abs < x y ?")
+    nr1X = core.std.MakeDiff(inpClip, dd, planes=0)
+
+    # Second MV-denoising stage
+    nr1x_super = core.mv.Super(nr1X, pel=2, levels=1)
+
+    if degrain == 3:
+        nr2 = core.mv.Degrain3(nr1X, nr1x_super, bvec1, fvec1, bvec2, fvec2\
+            , bvec3, fvec3, thsad=thrDegrain2, limit=maxPxChange)
+    elif degrain == 2:
+        nr2 = core.mv.Degrain2(nr1X, nr1x_super, bvec1, fvec1, bvec2, fvec2\
+            , thsad=thrDegrain2, limit=maxPxChange)
+    else:
+        nr2 = core.mv.Degrain1(nr1X, nr1x_super, bvec1, fvec1, bvec1\
+            , thsad=thrDegrain2, limit=maxPxChange)
+
+    # Temporal filter to remove the last bits of dancinc pixels, YMMV.
+    if HQ >= 2:
+        nr2 = core.hqdnd.hqdn3d(denoiseClip, 0,0,4,1)
+
+    # Contra-sharpening: sharpen the denoised clip, but don't add more than
+    # what was removed previously.
+    # Here: A simple area-based version with relaxed restriction. The full
+    # version is more complicated.
+
+    # Damp down remaining spots of the denoised clip.
+    denoisedSpots = MinBlur(nr2, 1,1)
+    # The difference achieved by the denoising.
+    denoiseDiff = core.std.MakeDiff(inpClip, nr2)
+    # The difference of a simple kernel blur.
+    #blurDiff = core.std.MakeDiff(denoisedSpots\
+    #         , core.rgvs.RemoveGrain(denoisedSpots, [11, -1]))
+    blurDiff = core.std.MakeDiff(denoisedSpots\
+             , core.rgvs.RemoveGrain(denoisedSpots, 11))
+    # Limit the difference to the max of what the denoising removed locally.
+    repairedDiff = core.rgvs.Repair(blurDiff, denoiseDiff, 1)
+    # abs(diff) after limiting may not be bigger than before.
+    repairedDiff = core.std.Expr([repairedDiff, blurDiff]\
+                            , "x 128 - abs y 128 - abs < x y ?")
+    # Apply the limited difference. (Sharpening is just inverse blurring.)
+    return core.std.MergeDiff(nr2, repairedDiff, planes=0)
 
 
 #####################
