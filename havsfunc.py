@@ -35,6 +35,7 @@ Main functions:
     Toon
     LSFmod
     TemporalDegrain
+    aaf
 
 Utility functions:
     AverageFrames
@@ -4297,6 +4298,114 @@ def TemporalDegrain(          \
                             , "x 128 - abs y 128 - abs < x y ?")
     # Apply the limited difference. (Sharpening is just inverse blurring.)
     return core.std.MergeDiff(nr2, repairedDiff, planes=0)
+
+
+########################
+# Ported version of aaf by MOmonster from avisynth
+# Ported by Hinterwaeldlers
+#
+# aaf is one of the many aaa() modifications, so this is not my own basic idea
+# the difference to aaa() is the repair postprocessing that allows also smaller
+# sampling values without producing artefacts. This makes aaf much faster (with
+# small aas values)
+#
+# needed filters:
+#	- MaskTools v2
+#	- SangNom
+#	- Repair (RemoveGrain pack)
+#
+# parameter description:
+#	- mode
+#			there are two modes you can use to reduce the side effects of sangnom
+#			the default mode is "repair", it´s faster then the second mode="edge" and
+#			avoid most artefacts also for smaller aas values
+#			the mode "edge" filters only on edges and keep details sharper, read also estr/bstr
+#			if you set another string than these two, no postprocessing will be done
+#	- aas
+#			this is the basic quality vs speed factor of aaf	->anti aliasing scaling
+#			negative values process the horizontal and vertical direction without resizing
+#			the complete source, this is much faster than with the absolut value, but will also
+#			create more artefacts if you don´t use a repair mode
+#			that higher the absolut value of aas that higher is the scaling factor, that better
+#			is the quality, that slower the function and that lower the antialiasing effect
+#			with aas=1.0 aaf performs like aa() and aaa()		[-2.0...2.0  -> -0.7]
+#	- aay/aax
+#			with aay and aax you can set the antialiasing strength in horizontal and vertical direction
+#			if you set one of these parameter <=0 this direction won´t be processed
+#			this give a nice speedup, but is only seldom useful	[0...64  ->28,aay]
+#	- estr/bstr
+#			these two parameters regulate the processing strength, they are only used with mode="edge"
+#			estr is the strength on hard edges and bstr is the basic strength on flat areas
+#			softer edges are calculated between these strength limits
+#			estr has to be bigger than bstr		[0...255  ->255,40]
+
+def aaf(                \
+      inputClip         \
+    , mode = "repair"   \
+    , aas  = -0.7       \
+    , aar  = None       \
+    , aay  = 28         \
+    , aax  = None       \
+    , estr = 255        \
+    , bstr = 40         \
+) :
+    if aas < 0:
+        aas = (aas-1)*0.25
+    else:
+        aas = (aas+1)*0.25
+    # Determine the default parameters, which depend on other input
+    if aar is None:
+        aar = math.fabs(aas)
+    if aax is None:
+        aax = aay
+
+    core = vs.get_core()
+    sx = inputClip.width
+    sy = inputClip.height
+
+    if aay > 0:
+        # Do the upscaling
+        if aas < 0:
+            aa = core.resize.Lanczos(inputClip, sx, 4*int(sy*aar))
+        elif aar == 0.5:
+            aa = core.resize.Point(inputClip, 2*sx, 2*sy)
+        else:
+            aa = core.resize.Lanczos(inputClip, 4*int(sx*aar), 4*int(sy*aar))
+
+        # y-Edges
+        aa = core.sangnom.SangNom(aa, aa=aay)
+    else:
+        aa = inputClip
+
+    if aax > 0:
+        if aas < 0:
+            aa = core.resize.Lanczos(aa, 4*int(sx*aar), sy)
+        aa = core.std.Transpose(aa)
+        # x-Edges
+        aa = core.sangnom.SangNom(aa, aa=aax)
+        aa = core.std.Transpose(aa)
+
+    # Restore original scaling
+    aa = core.resize.Lanczos(aa, sx, sy)
+
+    if mode == "repair":
+        return core.rgvs.Repair(aa, inputClip, 18)
+
+    if mode != "edge":
+        return aa
+
+    # u=1, v=1 is not directly so use the copy
+    mask = core.std.MakeDiff(core.std.Maximum(inputClip)\
+                             , core.std.Minimum(inputClip)\
+                             , planes = 0)
+
+    mask = core.std.Expr(mask, "x 218 > " + str(estr) + " x 128 - "\
+                         + str(estr - bstr) + " 90 / * " \
+                         + str(bstr) + " + ?", 0)
+    merged = core.std.MaskedMerge(inputClip, aa, mask)
+    if aas > 0.84:
+        return merged
+    return core.rgvs.Repair(merged, inputClip, [18, 0])
 
 
 #####################
