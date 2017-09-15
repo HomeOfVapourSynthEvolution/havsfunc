@@ -4182,19 +4182,18 @@ def TemporalDegrain(          \
     if sigma4 is None:
         sigma4 = sigma * 0.250
     if overlapWidth is None:
-        overlapWidth = blockWidth/2
+        overlapWidth = blockWidth // 2
     if overlapHeight is None:
-        overlapHeight = blockHeight/2
+        overlapHeight = blockHeight // 2
     if overlapValue is None:
-        overlapValue = blockSize/2
+        overlapValue = blockSize // 2
 
     # Input adjustments
     sigma2 = math.floor(sigma2)
     sigma3 = math.floor(sigma3)
     sigma4 = math.floor(sigma4)
     if overlapValue * 2 > blockSize:
-        overlapValue = blockSize/2
-    overlapValue = int(overlapValue)
+        overlapValue = blockSize // 2
 
     core = vs.get_core()
 
@@ -4202,13 +4201,13 @@ def TemporalDegrain(          \
     if denoiseClip is None:
         denoiseClip = core.fft3dfilter.FFT3DFilter(inpClip, sigma=sigma\
             , sigma2=sigma2, sigma3=sigma3, sigma4=sigma4, bw=blockWidth\
-            , bh=int(blockHeight), ow=int(overlapWidth), oh=int(overlapHeight))
+            , bh=blockHeight, ow=overlapWidth, oh=overlapHeight)
 
     # If HQ is activated, do an additional denoising
     if HQ > 0:
         filterClip = core.hqdnd.hqdn3d(denoiseClip, 4,3,6,3)
     else:
-        denoiseClip
+        filterClip = denoiseClip
 
     # "spat" is a prefiltered clip which is used to limit the effect of the 1st
     # MV-denoise stage. For simplicity, we just use the same FFT3DFilter.
@@ -4224,18 +4223,12 @@ def TemporalDegrain(          \
             , overlap=overlapValue)
         fvec3 = core.mv.Analyse(srchSuper, isb=False, delta=3, blksize=blockSize\
             , overlap=overlapValue)
-    else:
-        bvec3 = core.std.BlankClip
-        fvec3 = core.std.BlankClip
 
     if degrain >= 2:
         bvec2 = core.mv.Analyse(srchSuper, isb=True, delta=2, blksize=blockSize\
             , overlap=overlapValue)
         fvec2 = core.mv.Analyse(srchSuper, isb=False, delta=2, blksize=blockSize\
             , overlap=overlapValue)
-    else:
-        bvec2 = core.std.BlankClip
-        fvec2 = core.std.BlankClip
 
     bvec1 = core.mv.Analyse(srchSuper, isb=True, delta=1, blksize=blockSize\
         , overlap=overlapValue)
@@ -4252,12 +4245,13 @@ def TemporalDegrain(          \
         nr1 = core.mv.Degrain2(inpClip, inpSuper, bvec1, fvec1, bvec2, fvec2\
             , thsad=thrDegrain1, limit=maxPxChange)
     else:
-        nr1 = core.mv.Degrain1(inpClip, inpSuper, fvec1, bvec1\
+        nr1 = core.mv.Degrain1(inpClip, inpSuper, bvec1, fvec1\
             , thsad=thrDegrain1, limit=maxPxChange)
     nr1Diff = core.std.MakeDiff(inpClip, nr1)
 
     # Limit NR1 to not do more than what "spat" would do.
-    dd = core.std.Expr([spatD, nr1Diff], "x 128 - abs y 128 - abs < x y ?")
+    expr = 'x {neutral} - abs y {neutral} - abs < x y ?'.format(neutral=1 << (inpClip.format.bits_per_sample - 1))
+    dd = core.std.Expr([spatD, nr1Diff], expr)
     nr1X = core.std.MakeDiff(inpClip, dd, planes=0)
 
     # Second MV-denoising stage
@@ -4270,34 +4264,18 @@ def TemporalDegrain(          \
         nr2 = core.mv.Degrain2(nr1X, nr1x_super, bvec1, fvec1, bvec2, fvec2\
             , thsad=thrDegrain2, limit=maxPxChange)
     else:
-        nr2 = core.mv.Degrain1(nr1X, nr1x_super, bvec1, fvec1, bvec1\
+        nr2 = core.mv.Degrain1(nr1X, nr1x_super, bvec1, fvec1\
             , thsad=thrDegrain2, limit=maxPxChange)
 
     # Temporal filter to remove the last bits of dancinc pixels, YMMV.
     if HQ >= 2:
-        nr2 = core.hqdnd.hqdn3d(denoiseClip, 0,0,4,1)
+        nr2 = core.hqdnd.hqdn3d(nr2, 0,0,4,1)
 
     # Contra-sharpening: sharpen the denoised clip, but don't add more than
     # what was removed previously.
     # Here: A simple area-based version with relaxed restriction. The full
     # version is more complicated.
-
-    # Damp down remaining spots of the denoised clip.
-    denoisedSpots = MinBlur(nr2, 1,1)
-    # The difference achieved by the denoising.
-    denoiseDiff = core.std.MakeDiff(inpClip, nr2)
-    # The difference of a simple kernel blur.
-    #blurDiff = core.std.MakeDiff(denoisedSpots\
-    #         , core.rgvs.RemoveGrain(denoisedSpots, [11, -1]))
-    blurDiff = core.std.MakeDiff(denoisedSpots\
-             , core.rgvs.RemoveGrain(denoisedSpots, 11))
-    # Limit the difference to the max of what the denoising removed locally.
-    repairedDiff = core.rgvs.Repair(blurDiff, denoiseDiff, 1)
-    # abs(diff) after limiting may not be bigger than before.
-    repairedDiff = core.std.Expr([repairedDiff, blurDiff]\
-                            , "x 128 - abs y 128 - abs < x y ?")
-    # Apply the limited difference. (Sharpening is just inverse blurring.)
-    return core.std.MergeDiff(nr2, repairedDiff, planes=0)
+    return ContraSharpening(nr2, inpClip)
 
 
 ########################
