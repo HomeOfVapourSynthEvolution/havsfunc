@@ -564,7 +564,8 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     
     # Post-Process: Ringing Mask Generating
     if ringmask is None:
-        sobelm = core.std.Sobel(input, min=scale(mthr, peak), planes=[0])
+        expr = 'x {mthr} < 0 x ?'.format(mthr=scale(mthr, peak))
+        sobelm = core.std.Sobel(input, planes=[0]).std.Expr([expr] if isGray else [expr, ''])
         fmask = core.misc.Hysteresis(core.std.Median(sobelm, planes=[0]), sobelm, planes=[0])
         if mrad > 0:
             omask = mt_expand_multi(fmask, planes=[0], sw=mrad, sh=mrad)
