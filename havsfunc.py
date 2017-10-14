@@ -170,7 +170,7 @@ def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, nsize=None, 
         return core.eedi2.EEDI2(c, field=field)
     elif type == 'eedi3':
         sclip = core.nnedi3.nnedi3(c, field=field, dh=dh, nsize=nsize, nns=nns)
-        return core.eedi3.eedi3(c, field=field, dh=dh, vcheck=vcheck, sclip=sclip)
+        return core.eedi3m.EEDI3(c, field=field, dh=dh, vcheck=vcheck, sclip=sclip)
     elif type == 'sangnom':
         if dh:
             cshift = -0.25
@@ -1386,10 +1386,10 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
     elif EdiMode == 'nnedi3':
         interp = core.nnedi3.nnedi3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual)
     elif EdiMode == 'eedi3+nnedi3':
-        interp = core.eedi3.eedi3(Input, field=field, planes=planes, mdis=EdiMaxD,
-                                  sclip=core.nnedi3.nnedi3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual))
+        interp = core.eedi3m.EEDI3(Input, field=field, planes=planes, mdis=EdiMaxD,
+                                   sclip=core.nnedi3.nnedi3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual))
     elif EdiMode == 'eedi3':
-        interp = core.eedi3.eedi3(Input, field=field, planes=planes, mdis=EdiMaxD)
+        interp = core.eedi3m.EEDI3(Input, field=field, planes=planes, mdis=EdiMaxD)
     else:
         if isinstance(Fallback, vs.VideoNode):
             interp = Fallback
