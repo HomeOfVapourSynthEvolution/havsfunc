@@ -4284,9 +4284,9 @@ def TemporalDegrain(          \
 # Ported by Hinterwaeldlers
 #
 # aaf is one of the many aaa() modifications, so this is not my own basic idea
-# the difference to aaa() is the repair postprocessing that allows also smaller
-# sampling values without producing artefacts. This makes aaf much faster (with
-# small aas values)
+# the difference to aaa() is the repair postprocessing that allows also smaller sampling
+# values without producing artefacts
+# this makes aaf much faster (with small aas values)
 #
 # needed filters:
 #	- MaskTools v2
@@ -4328,6 +4328,7 @@ def aaf(                \
     , estr = 255        \
     , bstr = 40         \
 ) :
+    mode = mode.lower()
     if aas < 0:
         aas = (aas-1)*0.25
     else:
@@ -4341,6 +4342,11 @@ def aaf(                \
     core = vs.get_core()
     sx = inputClip.width
     sy = inputClip.height
+
+    neutral = 1 << (inputClip.format.bits_per_sample - 1)
+    peak = (1 << inputClip.format.bits_per_sample) - 1
+
+    isGray = (inputClip.format.color_family == vs.GRAY)
 
     if aay > 0:
         # Do the upscaling
@@ -4367,24 +4373,25 @@ def aaf(                \
     # Restore original scaling
     aa = core.resize.Lanczos(aa, sx, sy)
 
+    repMode = [18] if isGray else [18, 0]
+
     if mode == "repair":
-        return core.rgvs.Repair(aa, inputClip, 18)
+        return core.rgvs.Repair(aa, inputClip, repMode)
 
     if mode != "edge":
         return aa
 
     # u=1, v=1 is not directly so use the copy
-    mask = core.std.MakeDiff(core.std.Maximum(inputClip)\
-                             , core.std.Minimum(inputClip)\
-                             , planes = 0)
+    mask = core.std.MakeDiff(core.std.Maximum(inputClip, planes=0)\
+                             , core.std.Minimum(inputClip, planes=0)\
+                             , planes=0)
+    expr = 'x {i} > {estr} x {neutral} - {j} 90 / * {bstr} + ?'.format(i=scale(218, peak), estr=scale(estr, peak), neutral=neutral, j=estr - bstr, bstr=scale(bstr, peak))
+    mask = core.std.Expr(mask, [expr] if isGray else [expr, ''])
 
-    mask = core.std.Expr(mask, "x 218 > " + str(estr) + " x 128 - "\
-                         + str(estr - bstr) + " 90 / * " \
-                         + str(bstr) + " + ?", 0)
-    merged = core.std.MaskedMerge(inputClip, aa, mask)
+    merged = core.std.MaskedMerge(inputClip, aa, mask, planes=0)
     if aas > 0.84:
         return merged
-    return core.rgvs.Repair(merged, inputClip, [18, 0])
+    return core.rgvs.Repair(merged, inputClip, repMode)
 
 
 #####################
