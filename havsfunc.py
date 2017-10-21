@@ -69,13 +69,13 @@ Utility functions:
 
 
 # Anti-aliasing with contra-sharpening by Didée
-def daa(c):
+def daa(c, opencl=False):
     core = vs.get_core()
     
     if not isinstance(c, vs.VideoNode):
         raise TypeError('daa: This is not a clip')
     
-    nn = core.nnedi3.nnedi3(c, field=3)
+    nn = core.nnedi3cl.NNEDI3CL(c, field=3) if opencl else core.nnedi3.nnedi3(c, field=3)
     dbl = core.std.Merge(core.std.SelectEvery(nn, 2, [0]), core.std.SelectEvery(nn, 2, [1]))
     dblD = core.std.MakeDiff(c, dbl)
     if c.width > 1100:
@@ -96,7 +96,7 @@ def daa(c):
 # http://sam.zoy.org/wtfpl/COPYING for more details.
 #
 # type = "nnedi3", "eedi2", "eedi3" or "sangnom"
-def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None, halfres=False, typeh=None, typev=None):
+def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None, halfres=False, typeh=None, typev=None, opencl=False):
     core = vs.get_core()
     
     if not isinstance(c, vs.VideoNode):
@@ -118,9 +118,9 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vch
     fhh = fh if strv < 0 else h
     
     if strh >= 0:
-        c = santiag_dir(c, strh, typeh, halfres, nns, aa, nsize, vcheck, fwh, fhh)
+        c = santiag_dir(c, strh, typeh, halfres, nns, aa, nsize, vcheck, fwh, fhh, opencl)
     if strv >= 0:
-        c = santiag_dir(core.std.Transpose(c), strv, typev, halfres, nns, aa, nsize, vcheck, fh, fw).std.Transpose()
+        c = santiag_dir(core.std.Transpose(c), strv, typev, halfres, nns, aa, nsize, vcheck, fh, fw, opencl).std.Transpose()
     
     if fw is None:
         fw = w
@@ -131,7 +131,7 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vch
     else:
         return c
 
-def santiag_dir(c, strength, type, halfres, nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None):
+def santiag_dir(c, strength, type, halfres, nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None, opencl=False):
     core = vs.get_core()
     
     if fw is None:
@@ -139,28 +139,35 @@ def santiag_dir(c, strength, type, halfres, nns=None, aa=None, nsize=None, vchec
     if fh is None:
         fh = c.height
     
-    c = santiag_stronger(c, strength, type, halfres, nns, aa, nsize, vcheck)
+    c = santiag_stronger(c, strength, type, halfres, nns, aa, nsize, vcheck, opencl)
     
     cshift = 0 if halfres else 0.5
     if c.format.color_family != vs.GRAY:
         cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
     return Resize(c, fw, fh, sy=cshift, dmode=1)
 
-def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, nsize=None, vcheck=None):
+def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, nsize=None, vcheck=None, opencl=False):
     core = vs.get_core()
+    
+    if opencl:
+        myNNEDI3 = core.nnedi3cl.NNEDI3CL
+        myEEDI3 = core.eedi3m.EEDI3CL
+    else:
+        myNNEDI3 = core.nnedi3.nnedi3
+        myEEDI3 = core.eedi3m.EEDI3
     
     strength = max(strength, 0)
     field = strength % 2
-    dh = strength <= 0 and not halfres
+    dh = (strength <= 0 and not halfres)
     
     if strength > 0:
-        c = santiag_stronger(c, strength - 1, type, halfres, nns, aa, nsize, vcheck)
+        c = santiag_stronger(c, strength - 1, type, halfres, nns, aa, nsize, vcheck, opencl)
     
     w = c.width
     h = c.height
     
     if type == 'nnedi3':
-        return core.nnedi3.nnedi3(c, field=field, dh=dh, nsize=nsize, nns=nns)
+        return myNNEDI3(c, field=field, dh=dh, nsize=nsize, nns=nns)
     elif type == 'eedi2':
         if not dh:
             cshift = 1 - field
@@ -169,8 +176,8 @@ def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, nsize=None, 
             c = Resize(c, w, h // 2, sy=cshift, kernel='point', dmode=1)
         return core.eedi2.EEDI2(c, field=field)
     elif type == 'eedi3':
-        sclip = core.nnedi3.nnedi3(c, field=field, dh=dh, nsize=nsize, nns=nns)
-        return core.eedi3m.EEDI3(c, field=field, dh=dh, vcheck=vcheck, sclip=sclip)
+        sclip = myNNEDI3(c, field=field, dh=dh, nsize=nsize, nns=nns)
+        return myEEDI3(c, field=field, dh=dh, vcheck=vcheck, sclip=sclip)
     elif type == 'sangnom':
         if dh:
             cshift = -0.25
@@ -654,7 +661,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
           MatchPreset=None, MatchEdi=None, MatchPreset2=None, MatchEdi2=None, MatchTR2=1, MatchEnhance=0.5, Lossless=0, NoiseProcess=None, EZDenoise=None,
           EZKeepGrain=None, NoisePreset='Fast', Denoiser=None, FftThreads=1, DenoiseMC=None, NoiseTR=None, Sigma=None, ChromaNoise=False, ShowNoise=0.,
           GrainRestore=None, NoiseRestore=None, NoiseDeint=None, StabilizeNoise=None, InputType=0, ProgSADMask=None, FPSDivisor=1, ShutterBlur=0,
-          ShutterAngleSrc=180, ShutterAngleOut=180, SBlurLimit=4, Border=False, Precise=None, Tuning='None', ShowSettings=False, ForceTR=0, TFF=None):
+          ShutterAngleSrc=180, ShutterAngleOut=180, SBlurLimit=4, Border=False, Precise=None, Tuning='None', ShowSettings=False, ForceTR=0, TFF=None, opencl=False):
     core = vs.get_core()
     
     #---------------------------------------
@@ -1104,7 +1111,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if EdiExt is not None:
         edi1 = core.resize.Point(EdiExt, w, h, src_top=(EdiExt.height - h) / 2, src_height=h + epsilon)
     else:
-        edi1 = QTGMC_Interpolate(ediInput, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, bobbed, ChromaEdi, TFF)
+        edi1 = QTGMC_Interpolate(ediInput, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, bobbed, ChromaEdi, TFF, opencl)
     
     # InputType=2,3: use motion mask to blend luma between original clip & reweaved clip based on ProgSADMask setting. Use chroma from original clip in any case
     if ProgSADMask > 0:
@@ -1161,7 +1168,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         match = QTGMC_ApplySourceMatch(repair1, InputType, ediInput, bVec1 if maxTR > 0 else None, fVec1 if maxTR > 0 else None, bVec2 if maxTR > 1 else None,
                                        fVec2 if maxTR > 1 else None, SubPel, SubPelInterp, hpad, vpad, ThSAD1, ThSCD1, ThSCD2, SourceMatch, MatchTR1, MatchEdi,
                                        MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, MatchTR2, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2,
-                                       MatchEdiMaxD2, MatchEnhance, TFF)
+                                       MatchEdiMaxD2, MatchEnhance, TFF, opencl)
     
     # Lossless=2 - after preparing an interpolated, de-shimmered clip, restore the original source fields into it and clean up any artefacts.
     # This mode will not give a true lossless result because the resharpening and final temporal smooth are still to come, but it will add further detail.
@@ -1371,8 +1378,15 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
 
 # Interpolate input clip using method given in EdiMode. Use Fallback or Bob as result if mode not in list. If ChromaEdi string if set then interpolate chroma
 # separately with that method (only really useful for EEDIx). The function is used as main algorithm starting point and for first two source-match stages
-def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, Fallback=None, ChromaEdi='', TFF=None):
+def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, Fallback=None, ChromaEdi='', TFF=None, opencl=False):
     core = vs.get_core()
+    
+    if opencl:
+        myNNEDI3 = core.nnedi3cl.NNEDI3CL
+        myEEDI3 = core.eedi3m.EEDI3CL
+    else:
+        myNNEDI3 = core.nnedi3.nnedi3
+        myEEDI3 = core.eedi3m.EEDI3
     
     isGray = Input.format.color_family == vs.GRAY
     if isGray:
@@ -1384,12 +1398,12 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
     if InputType == 1:
         return Input
     elif EdiMode == 'nnedi3':
-        interp = core.nnedi3.nnedi3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual)
+        interp = myNNEDI3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual)
     elif EdiMode == 'eedi3+nnedi3':
-        interp = core.eedi3m.EEDI3(Input, field=field, planes=planes, mdis=EdiMaxD,
-                                   sclip=core.nnedi3.nnedi3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual))
+        interp = myEEDI3(Input, field=field, planes=planes, mdis=EdiMaxD,
+                         sclip=myNNEDI3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual))
     elif EdiMode == 'eedi3':
-        interp = core.eedi3m.EEDI3(Input, field=field, planes=planes, mdis=EdiMaxD)
+        interp = myEEDI3(Input, field=field, planes=planes, mdis=EdiMaxD)
     else:
         if isinstance(Fallback, vs.VideoNode):
             interp = Fallback
@@ -1397,7 +1411,7 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
             interp = Bob(Input, 0, 0.5, TFF)
     
     if ChromaEdi == 'nnedi3':
-        interpuv = core.nnedi3.nnedi3(Input, field=field, planes=[1, 2], nsize=4, nns=0, qual=1)
+        interpuv = myNNEDI3(Input, field=field, planes=[1, 2], nsize=4, nns=0, qual=1)
     elif ChromaEdi == 'bob':
         interpuv = Bob(Input, 0, 0.5, TFF)
     else:
@@ -1523,7 +1537,7 @@ def QTGMC_MakeLossless(Input, Source, InputType, TFF):
 # the source without introducing shimmer. All other arguments defined in main script
 def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, fVec2, SubPel, SubPelInterp, hpad, vpad, ThSAD1, ThSCD1, ThSCD2,
                            SourceMatch, MatchTR1, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD,
-                           MatchTR2, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, MatchEnhance, TFF):
+                           MatchTR2, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, MatchEnhance, TFF, opencl):
     core = vs.get_core()
     
     # Basic source-match. Find difference between source clip & equivalent fields in interpolated/smoothed clip (called the "error" in formula below). Ideally
@@ -1545,7 +1559,7 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
     else:
         match1Update = core.std.Expr([Source, match1Clip], ['x {} * y {} * -'.format(errorAdjust1 + 1, errorAdjust1)])
     if SourceMatch > 0:
-        match1Edi = QTGMC_Interpolate(match1Update, InputType, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, TFF=TFF)
+        match1Edi = QTGMC_Interpolate(match1Update, InputType, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, TFF=TFF, opencl=opencl)
         if MatchTR1 > 0:
             match1Super = core.mv.Super(match1Edi, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
             match1Degrain1 = core.mv.Degrain1(match1Edi, match1Super, bVec1, fVec1, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)
@@ -1578,7 +1592,7 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
         match2Clip = Weave(core.std.SeparateFields(match1Shp, TFF).std.SelectEvery(4, [0, 3]), TFF)
     if SourceMatch > 1:
         match2Diff = core.std.MakeDiff(Source, match2Clip)
-        match2Edi = QTGMC_Interpolate(match2Diff, InputType, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, TFF=TFF)
+        match2Edi = QTGMC_Interpolate(match2Diff, InputType, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, TFF=TFF, opencl=opencl)
         if MatchTR2 > 0:
             match2Super = core.mv.Super(match2Edi, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
             match2Degrain1 = core.mv.Degrain1(match2Edi, match2Super, bVec1, fVec1, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)
