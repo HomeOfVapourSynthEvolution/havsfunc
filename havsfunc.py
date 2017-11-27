@@ -75,7 +75,7 @@ def daa(c, opencl=False):
     if not isinstance(c, vs.VideoNode):
         raise TypeError('daa: This is not a clip')
     
-    nn = core.nnedi3cl.NNEDI3CL(c, field=3) if opencl else core.nnedi3.nnedi3(c, field=3)
+    nn = core.nnedi3cl.NNEDI3CL(c, field=3) if opencl else core.znedi3.nnedi3(c, field=3)
     dbl = core.std.Merge(core.std.SelectEvery(nn, 2, [0]), core.std.SelectEvery(nn, 2, [1]))
     dblD = core.std.MakeDiff(c, dbl)
     if c.width > 1100:
@@ -153,7 +153,7 @@ def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, nsize=None, 
         myNNEDI3 = core.nnedi3cl.NNEDI3CL
         myEEDI3 = core.eedi3m.EEDI3CL
     else:
-        myNNEDI3 = core.nnedi3.nnedi3
+        myNNEDI3 = core.znedi3.nnedi3
         myEEDI3 = core.eedi3m.EEDI3
     
     strength = max(strength, 0)
@@ -1385,7 +1385,7 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
         myNNEDI3 = core.nnedi3cl.NNEDI3CL
         myEEDI3 = core.eedi3m.EEDI3CL
     else:
-        myNNEDI3 = core.nnedi3.nnedi3
+        myNNEDI3 = core.znedi3.nnedi3
         myEEDI3 = core.eedi3m.EEDI3
     
     isGray = Input.format.color_family == vs.GRAY
