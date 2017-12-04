@@ -2042,7 +2042,7 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=Fal
 ###
 ### v0.1 - 22 Mar 2012
 ###      - First release
-def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=4, h=6):
+def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
     core = vs.get_core()
 
     if not (isinstance(dlg, vs.VideoNode) and isinstance(src, vs.VideoNode)):
