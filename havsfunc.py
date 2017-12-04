@@ -69,13 +69,20 @@ Utility functions:
 
 
 # Anti-aliasing with contra-sharpening by Didée
-def daa(c, opencl=False):
+def daa(c, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, opencl=False):
     core = vs.get_core()
     
     if not isinstance(c, vs.VideoNode):
         raise TypeError('daa: This is not a clip')
     
-    nn = core.nnedi3cl.NNEDI3CL(c, field=3) if opencl else core.znedi3.nnedi3(c, field=3)
+    if opencl:
+        myNNEDI3 = core.nnedi3cl.NNEDI3CL
+        nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn)
+    else:
+        myNNEDI3 = core.znedi3.nnedi3
+        nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
+    
+    nn = myNNEDI3(c, field=3, **nnedi3_args)
     dbl = core.std.Merge(core.std.SelectEvery(nn, 2, [0]), core.std.SelectEvery(nn, 2, [1]))
     dblD = core.std.MakeDiff(c, dbl)
     if c.width > 1100:
@@ -96,8 +103,64 @@ def daa(c, opencl=False):
 # http://sam.zoy.org/wtfpl/COPYING for more details.
 #
 # type = "nnedi3", "eedi2", "eedi3" or "sangnom"
-def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None, halfres=False, typeh=None, typev=None, opencl=False):
+def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, aa=None,
+            alpha=None, beta=None, gamma=None, nrad=None, mdis=None, vcheck=None, fw=None, fh=None, halfres=False, typeh=None, typev=None, opencl=False):
     core = vs.get_core()
+    
+    def santiag_dir(c, strength, type, fw=None, fh=None):
+        if fw is None:
+            fw = c.width
+        if fh is None:
+            fh = c.height
+        
+        c = santiag_stronger(c, strength, type)
+        
+        cshift = 0 if halfres else 0.5
+        if c.format.color_family != vs.GRAY:
+            cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
+        return Resize(c, fw, fh, sy=cshift, dmode=1)
+    
+    def santiag_stronger(c, strength, type):
+        if opencl:
+            myNNEDI3 = core.nnedi3cl.NNEDI3CL
+            myEEDI3 = core.eedi3m.EEDI3CL
+            nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn)
+        else:
+            myNNEDI3 = core.znedi3.nnedi3
+            myEEDI3 = core.eedi3m.EEDI3
+            nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
+        
+        strength = max(strength, 0)
+        field = strength % 2
+        dh = (strength <= 0 and not halfres)
+        
+        if strength > 0:
+            c = santiag_stronger(c, strength - 1, type)
+        
+        w = c.width
+        h = c.height
+        
+        if type == 'nnedi3':
+            return myNNEDI3(c, field=field, dh=dh, **nnedi3_args)
+        elif type == 'eedi2':
+            if not dh:
+                cshift = 1 - field
+                if c.format.color_family != vs.GRAY:
+                    cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
+                c = Resize(c, w, h // 2, sy=cshift, kernel='point', dmode=1)
+            return core.eedi2.EEDI2(c, field=field)
+        elif type == 'eedi3':
+            sclip = myNNEDI3(c, field=field, dh=dh, **nnedi3_args)
+            return myEEDI3(c, field=field, dh=dh, alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck, sclip=sclip)
+        elif type == 'sangnom':
+            if dh:
+                cshift = -0.25
+                if c.format.color_family != vs.GRAY:
+                    cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
+                c = Resize(c, w, h * 2, sy=cshift, dmode=1)
+            return core.sangnom.SangNom(c, order=field, aa=aa)
+        else:
+            raise ValueError('santiag: unexpected value for type')
     
     if not isinstance(c, vs.VideoNode):
         raise TypeError('santiag: This is not a clip')
@@ -118,9 +181,9 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vch
     fhh = fh if strv < 0 else h
     
     if strh >= 0:
-        c = santiag_dir(c, strh, typeh, halfres, nns, aa, nsize, vcheck, fwh, fhh, opencl)
+        c = santiag_dir(c, strh, typeh, fwh, fhh)
     if strv >= 0:
-        c = santiag_dir(core.std.Transpose(c), strv, typev, halfres, nns, aa, nsize, vcheck, fh, fw, opencl).std.Transpose()
+        c = santiag_dir(core.std.Transpose(c), strv, typev, fh, fw).std.Transpose()
     
     if fw is None:
         fw = w
@@ -130,63 +193,6 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nns=None, aa=None, nsize=None, vch
         return core.resize.Spline36(c, fw, fh)
     else:
         return c
-
-def santiag_dir(c, strength, type, halfres, nns=None, aa=None, nsize=None, vcheck=None, fw=None, fh=None, opencl=False):
-    core = vs.get_core()
-    
-    if fw is None:
-        fw = c.width
-    if fh is None:
-        fh = c.height
-    
-    c = santiag_stronger(c, strength, type, halfres, nns, aa, nsize, vcheck, opencl)
-    
-    cshift = 0 if halfres else 0.5
-    if c.format.color_family != vs.GRAY:
-        cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-    return Resize(c, fw, fh, sy=cshift, dmode=1)
-
-def santiag_stronger(c, strength, type, halfres, nns=None, aa=None, nsize=None, vcheck=None, opencl=False):
-    core = vs.get_core()
-    
-    if opencl:
-        myNNEDI3 = core.nnedi3cl.NNEDI3CL
-        myEEDI3 = core.eedi3m.EEDI3CL
-    else:
-        myNNEDI3 = core.znedi3.nnedi3
-        myEEDI3 = core.eedi3m.EEDI3
-    
-    strength = max(strength, 0)
-    field = strength % 2
-    dh = (strength <= 0 and not halfres)
-    
-    if strength > 0:
-        c = santiag_stronger(c, strength - 1, type, halfres, nns, aa, nsize, vcheck, opencl)
-    
-    w = c.width
-    h = c.height
-    
-    if type == 'nnedi3':
-        return myNNEDI3(c, field=field, dh=dh, nsize=nsize, nns=nns)
-    elif type == 'eedi2':
-        if not dh:
-            cshift = 1 - field
-            if c.format.color_family != vs.GRAY:
-                cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-            c = Resize(c, w, h // 2, sy=cshift, kernel='point', dmode=1)
-        return core.eedi2.EEDI2(c, field=field)
-    elif type == 'eedi3':
-        sclip = myNNEDI3(c, field=field, dh=dh, nsize=nsize, nns=nns)
-        return myEEDI3(c, field=field, dh=dh, vcheck=vcheck, sclip=sclip)
-    elif type == 'sangnom':
-        if dh:
-            cshift = -0.25
-            if c.format.color_family != vs.GRAY:
-                cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-            c = Resize(c, w, h * 2, sy=cshift, dmode=1)
-        return core.sangnom.SangNom(c, order=field, aa=aa)
-    else:
-        raise ValueError('santiag: unexpected value for type')
 
 
 # FixChromaBleedingMod v1.35
@@ -460,7 +466,7 @@ def YAHR(clp, blur=2, depth=32):
 ###
 ### HQDering mod v1.8      by mawen1250      2014.03.22
 ###
-### Requirements: GenericFilters, RemoveGrain/Repair, CTMF
+### Requirements: Miscellaneous Filters, RGVS, CTMF
 ###
 ### Applies deringing by using a smart smoother near edges (where ringing occurs) only
 ###
@@ -630,13 +636,13 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
 #
 # Core plugins:
 #   MVTools
-#   nnedi3
-#   RemoveGrain/Repair
+#   Miscellaneous Filters
+#   znedi3
+#   RGVS
 #   fmtconv
-#   SceneChange
 #
 # Additional plugins:
-#   eedi3 - if selected directly or via a source-match preset
+#   eedi3m - if selected directly or via a source-match preset
 #   FFT3DFilter - if selected for noise processing
 #   DFTTest - if selected for noise processing
 #   KNLMeansCL - if selected for noise processing
@@ -654,14 +660,13 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
 #
 # There are many settings for tweaking the script, full details in the main documentation. You can display settings currently being used with "ShowSettings":
 #   QTGMC( Preset="Slow", ShowSettings=True )
-def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=0, Rep2=None, EdiMode=None, RepChroma=True, NNSize=None, NNeurons=None,
-          EdiQual=1, EdiMaxD=None, ChromaEdi='', EdiExt=None, Sharpness=None, SMode=None, SLMode=None, SLRad=None, SOvs=0, SVThin=0., Sbb=None, SrchClipPP=None,
-          SubPel=None, SubPelInterp=2, BlockSize=None, Overlap=None, Search=None, SearchParam=None, PelSearch=None, ChromaMotion=None, TrueMotion=False,
-          Lambda=None, LSAD=None, PNew=None, PLevel=None, GlobalMotion=True, DCT=0, ThSAD1=640, ThSAD2=256, ThSCD1=180, ThSCD2=98, SourceMatch=0,
-          MatchPreset=None, MatchEdi=None, MatchPreset2=None, MatchEdi2=None, MatchTR2=1, MatchEnhance=0.5, Lossless=0, NoiseProcess=None, EZDenoise=None,
-          EZKeepGrain=None, NoisePreset='Fast', Denoiser=None, FftThreads=1, DenoiseMC=None, NoiseTR=None, Sigma=None, ChromaNoise=False, ShowNoise=0.,
-          GrainRestore=None, NoiseRestore=None, NoiseDeint=None, StabilizeNoise=None, InputType=0, ProgSADMask=None, FPSDivisor=1, ShutterBlur=0,
-          ShutterAngleSrc=180, ShutterAngleOut=180, SBlurLimit=4, Border=False, Precise=None, Tuning='None', ShowSettings=False, ForceTR=0, TFF=None, opencl=False):
+def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=0, Rep2=None, EdiMode=None, RepChroma=True, NNSize=None, NNeurons=None, EdiQual=1, EdiMaxD=None, ChromaEdi='',
+          EdiExt=None, Sharpness=None, SMode=None, SLMode=None, SLRad=None, SOvs=0, SVThin=0., Sbb=None, SrchClipPP=None, SubPel=None, SubPelInterp=2, BlockSize=None, Overlap=None, Search=None,
+          SearchParam=None, PelSearch=None, ChromaMotion=None, TrueMotion=False, Lambda=None, LSAD=None, PNew=None, PLevel=None, GlobalMotion=True, DCT=0, ThSAD1=640, ThSAD2=256, ThSCD1=180, ThSCD2=98,
+          SourceMatch=0, MatchPreset=None, MatchEdi=None, MatchPreset2=None, MatchEdi2=None, MatchTR2=1, MatchEnhance=0.5, Lossless=0, NoiseProcess=None, EZDenoise=None, EZKeepGrain=None,
+          NoisePreset='Fast', Denoiser=None, FftThreads=1, DenoiseMC=None, NoiseTR=None, Sigma=None, ChromaNoise=False, ShowNoise=0., GrainRestore=None, NoiseRestore=None, NoiseDeint=None,
+          StabilizeNoise=None, InputType=0, ProgSADMask=None, FPSDivisor=1, ShutterBlur=0, ShutterAngleSrc=180, ShutterAngleOut=180, SBlurLimit=4, Border=False, Precise=None, Tuning='None',
+          ShowSettings=False, ForceTR=0, TFF=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, alpha=None, beta=None, gamma=None, nrad=None, vcheck=None, opencl=False):
     core = vs.get_core()
     
     #---------------------------------------
@@ -707,42 +712,42 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     bs = [16, 16, 32][tNum]
     bs2 = 32 if bs >= 16 else bs * 2
     
-    #                                                   Very                                                              Very       Super      Ultra
-    # Preset groups:                          Placebo   Slow       Slower     Slow       Medium     Fast       Faster     Fast       Fast       Fast       Draft
-    if TR0          is None: TR0          = [ 2,        2,         2,         2,         2,         2,         1,         1,         1,         1,         0      ][pNum]
-    if TR1          is None: TR1          = [ 2,        2,         2,         1,         1,         1,         1,         1,         1,         1,         1      ][pNum]
+    #                                                   Very                                                        Very      Super     Ultra
+    # Preset groups:                          Placebo   Slow      Slower    Slow      Medium    Fast      Faster    Fast      Fast      Fast      Draft
+    if TR0          is None: TR0          = [ 2,        2,        2,        2,        2,        2,        1,        1,        1,        1,        0      ][pNum]
+    if TR1          is None: TR1          = [ 2,        2,        2,        1,        1,        1,        1,        1,        1,        1,        1      ][pNum]
     if TR2 is not None:
         TR2X = TR2
     else:
-        TR2X                              = [ 3,        2,         1,         1,         1,         0,         0,         0,         0,         0,         0      ][pNum]
-    if Rep0         is None: Rep0         = [ 4,        4,         4,         4,         3,         3,         0,         0,         0,         0,         0      ][pNum]
-    if Rep2         is None: Rep2         = [ 4,        4,         4,         4,         4,         4,         4,         4,         3,         3,         0      ][pNum]
+        TR2X                              = [ 3,        2,        1,        1,        1,        0,        0,        0,        0,        0,        0      ][pNum]
+    if Rep0         is None: Rep0         = [ 4,        4,        4,        4,        3,        3,        0,        0,        0,        0,        0      ][pNum]
+    if Rep2         is None: Rep2         = [ 4,        4,        4,        4,        4,        4,        4,        4,        3,        3,        0      ][pNum]
     if EdiMode is not None:
         EdiMode = EdiMode.lower()
     else:
-        EdiMode                           = ['nnedi3', 'nnedi3',  'nnedi3',  'nnedi3',  'nnedi3',  'nnedi3',  'nnedi3',  'nnedi3',  'nnedi3',  'nnedi3',  'bob'   ][pNum]
-    if NNSize       is None: NNSize       = [ 1,        1,         1,         1,         5,         5,         4,         4,         4,         4,         4      ][pNum]
-    if NNeurons     is None: NNeurons     = [ 2,        2,         1,         1,         1,         0,         0,         0,         0,         0,         0      ][pNum]
-    if EdiMaxD      is None: EdiMaxD      = [ 12,       10,        8,         7,         7,         6,         6,         5,         4,         4,         4      ][pNum]
+        EdiMode                           = ['nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'bob'   ][pNum]
+    if NNSize       is None: NNSize       = [ 1,        1,        1,        1,        5,        5,        4,        4,        4,        4,        4      ][pNum]
+    if NNeurons     is None: NNeurons     = [ 2,        2,        1,        1,        1,        0,        0,        0,        0,        0,        0      ][pNum]
+    if EdiMaxD      is None: EdiMaxD      = [ 12,       10,       8,        7,        7,        6,        6,        5,        4,        4,        4      ][pNum]
     ChromaEdi = ChromaEdi.lower()
-    if SMode        is None: SMode        = [ 2,        2,         2,         2,         2,         2,         2,         2,         2,         2,         0      ][pNum]
+    if SMode        is None: SMode        = [ 2,        2,        2,        2,        2,        2,        2,        2,        2,        2,        0      ][pNum]
     if SLMode is not None:
         SLModeX = SLMode
     else:
-        SLModeX                           = [ 2,        2,         2,         2,         2,         2,         2,         2,         0,         0,         0      ][pNum]
-    if SLRad        is None: SLRad        = [ 3,        1,         1,         1,         1,         1,         1,         1,         1,         1,         1      ][pNum]
-    if Sbb          is None: Sbb          = [ 3,        1,         1,         0,         0,         0,         0,         0,         0,         0,         0      ][pNum]
-    if SrchClipPP   is None: SrchClipPP   = [ 3,        3,         3,         3,         3,         2,         2,         2,         1,         1,         0      ][pNum]
-    if SubPel       is None: SubPel       = [ 2,        2,         2,         2,         1,         1,         1,         1,         1,         1,         1      ][pNum]
-    if BlockSize    is None: BlockSize    = [ bs,       bs,        bs,        bs,        bs,        bs,        bs2,       bs2,       bs2,       bs2,       bs2    ][pNum]
+        SLModeX                           = [ 2,        2,        2,        2,        2,        2,        2,        2,        0,        0,        0      ][pNum]
+    if SLRad        is None: SLRad        = [ 3,        1,        1,        1,        1,        1,        1,        1,        1,        1,        1      ][pNum]
+    if Sbb          is None: Sbb          = [ 3,        1,        1,        0,        0,        0,        0,        0,        0,        0,        0      ][pNum]
+    if SrchClipPP   is None: SrchClipPP   = [ 3,        3,        3,        3,        3,        2,        2,        2,        1,        1,        0      ][pNum]
+    if SubPel       is None: SubPel       = [ 2,        2,        2,        2,        1,        1,        1,        1,        1,        1,        1      ][pNum]
+    if BlockSize    is None: BlockSize    = [ bs,       bs,       bs,       bs,       bs,       bs,       bs2,      bs2,      bs2,      bs2,      bs2    ][pNum]
     bs = BlockSize
-    if Overlap      is None: Overlap      = [bs // 2,   bs // 2,   bs // 2,   bs // 2,   bs // 2,   bs // 2,   bs // 2,   bs // 4,   bs // 4,   bs // 4,   bs // 4][pNum]
-    if Search       is None: Search       = [ 5,        4,         4,         4,         4,         4,         4,         4,         0,         0,         0      ][pNum]
-    if SearchParam  is None: SearchParam  = [ 2,        2,         2,         2,         2,         2,         2,         1,         1,         1,         1      ][pNum]
-    if PelSearch    is None: PelSearch    = [ 2,        2,         2,         2,         1,         1,         1,         1,         1,         1,         1      ][pNum]
-    if ChromaMotion is None: ChromaMotion = [ True,     True,      True,      False,     False,     False,     False,     False,     False,     False,     False  ][pNum]
-    if Precise      is None: Precise      = [ True,     True,      False,     False,     False,     False,     False,     False,     False,     False,     False  ][pNum]
-    if ProgSADMask  is None: ProgSADMask  = [ 10.,      10.,       10.,       10.,       10.,       0.,        0.,        0.,        0.,        0.,        0.     ][pNum]
+    if Overlap      is None: Overlap      = [ bs // 2,  bs // 2,  bs // 2,  bs // 2,  bs // 2,  bs // 2,  bs // 2,  bs // 4,  bs // 4,  bs // 4,  bs // 4][pNum]
+    if Search       is None: Search       = [ 5,        4,        4,        4,        4,        4,        4,        4,        0,        0,        0      ][pNum]
+    if SearchParam  is None: SearchParam  = [ 2,        2,        2,        2,        2,        2,        2,        1,        1,        1,        1      ][pNum]
+    if PelSearch    is None: PelSearch    = [ 2,        2,        2,        2,        1,        1,        1,        1,        1,        1,        1      ][pNum]
+    if ChromaMotion is None: ChromaMotion = [ True,     True,     True,     False,    False,    False,    False,    False,    False,    False,    False  ][pNum]
+    if Precise      is None: Precise      = [ True,     True,     False,    False,    False,    False,    False,    False,    False,    False,    False  ][pNum]
+    if ProgSADMask  is None: ProgSADMask  = [ 10.,      10.,      10.,      10.,      10.,      0.,       0.,       0.,       0.,       0.,       0.     ][pNum]
     
     # Noise presets                               Slower      Slow       Medium     Fast      Faster
     if Denoiser is not None:
@@ -760,8 +765,8 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # The basic source-match step corrects and re-runs the interpolation of the input clip. So it initialy uses same interpolation settings as the main preset
     MatchNNSize = NNSize
     MatchNNeurons = NNeurons
-    MatchEdiMaxD = EdiMaxD
     MatchEdiQual = EdiQual
+    MatchEdiMaxD = EdiMaxD
     
     # However, can use a faster initial interpolation when using source-match allowing the basic source-match step to "correct" it with higher quality settings
     if SourceMatch > 0 and mpNum1 < pNum:
@@ -772,8 +777,8 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         #           Placebo   Slow   Slower   Slow   Medium   Fast   Faster   Fast   Fast    Fast
         NNSize   = [1,        1,     1,       1,     5,       5,     4,       4,     4,      4][mpNum1]
         NNeurons = [2,        2,     1,       1,     1,       0,     0,       0,     0,      0][mpNum1]
-        EdiMaxD  = [12,       10,    8,       7,     7,       6,     6,       5,     4,      4][mpNum1]
         EdiQual  = [1,        1,     1,       1,     1,       1,     1,       1,     1,      1][mpNum1]
+        EdiMaxD  = [12,       10,    8,       7,     7,       6,     6,       5,     4,      4][mpNum1]
     TempEdi = EdiMode # Main interpolation is actually done by basic-source match step when enabled, so a little swap and wriggle is needed
     if SourceMatch > 0 and MatchEdi is not None:
         EdiMode = MatchEdi.lower()
@@ -787,8 +792,8 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         MatchEdi2                   = ['nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', 'nnedi3', ''][mpNum2]
     MatchNNSize2                    = [ 1,        1,        1,        1,        5,        5,        4,        4,        4,       4 ][mpNum2]
     MatchNNeurons2                  = [ 2,        2,        1,        1,        1,        0,        0,        0,        0,       0 ][mpNum2]
-    MatchEdiMaxD2                   = [ 12,       10,       8,        7,        7,        6,        6,        5,        4,       4 ][mpNum2]
     MatchEdiQual2                   = [ 1,        1,        1,        1,        1,        1,        1,        1,        1,       1 ][mpNum2]
+    MatchEdiMaxD2                   = [ 12,       10,       8,        7,        7,        6,        6,        5,        4,       4 ][mpNum2]
     
     #---------------------------------------
     # Settings
@@ -803,17 +808,16 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     neutral = 1 << (Input.format.bits_per_sample - 1)
     peak = (1 << Input.format.bits_per_sample) - 1
     
-    isGray = Input.format.color_family == vs.GRAY
+    isGray = (Input.format.color_family == vs.GRAY)
     
     SOvs = scale(SOvs, peak)
     
-    # Core and Interpolation defaults
-    if SourceMatch > 0 and TR2 is None:
-        TR2 = 1 if TR2X <= 0 else TR2X # ***TR2 defaults always at least 1 when using source-match***
+    # Core defaults
+    if SourceMatch > 0:
+        if TR2 is None:
+            TR2 = 1 if TR2X <= 0 else TR2X # ***TR2 defaults always at least 1 when using source-match***
     else:
         TR2 = TR2X
-    if EdiMode == 'nnedi3' and EdiQual > 2:
-        EdiQual = 2 # Smaller range for EdiQual in NNEDI3
     
     # Source-match defaults
     MatchTR1 = TR1
@@ -821,9 +825,9 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # Sharpness defaults. Sharpness default is always 1.0 (0.2 with source-match), but adjusted to give roughly same sharpness for all settings
     if Sharpness is not None and Sharpness <= 0:
         SMode = 0
-    if SourceMatch > 0: # ***Sharpness limiting disabled by default for source-match***
+    if SourceMatch > 0:
         if SLMode is None:
-            SLMode = 0
+            SLMode = 0 # ***Sharpness limiting disabled by default for source-match***
     else:
         SLMode = SLModeX
     if SLRad <= 0:
@@ -881,7 +885,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if totalRestore <= 0:
         StabilizeNoise = False
     noiseTD = [1, 3, 5][NoiseTR]
-    noiseCentre = 128.5 * 2 ** (Input.format.bits_per_sample - 8) if Denoiser in ['fft3df', 'fft3dfilter'] else neutral
+    noiseCentre = neutral if Denoiser == 'dfttest' else 128.5 * 2 ** (Input.format.bits_per_sample - 8)
     
     # MVTools settings
     if Lambda is None:
@@ -894,8 +898,8 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         PLevel = 1 if TrueMotion else 0
     
     # Motion blur settings
-    if ShutterAngleOut * FPSDivisor == ShutterAngleSrc: # If motion blur output is same as input
-        ShutterBlur = 0
+    if ShutterAngleOut * FPSDivisor == ShutterAngleSrc:
+        ShutterBlur = 0 # If motion blur output is same as input
     
     # Miscellaneous
     if InputType < 2:
@@ -904,18 +908,10 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     
     # Get maximum temporal radius needed
     maxTR = SLRad if temporalSL else 0
-    if MatchTR2 > maxTR:
-        maxTR = MatchTR2
-    if TR1 > maxTR:
-        maxTR = TR1
-    if TR2 > maxTR:
-        maxTR = TR2
-    if NoiseTR > maxTR:
-        maxTR = NoiseTR
+    maxTR = max(maxTR, MatchTR2, TR1, TR2, NoiseTR)
     if (ProgSADMask > 0 or StabilizeNoise or ShutterBlur > 0) and maxTR < 1:
         maxTR = 1
-    if ForceTR > maxTR:
-        maxTR = ForceTR
+    maxTR = max(maxTR, ForceTR)
     
     #---------------------------------------
     # Pre-Processing
@@ -938,10 +934,8 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # Calculate padding needed for MVTools super clips to avoid crashes [fixed in latest MVTools, but keeping this code for a while]
     hpad = w - ((w - Overlap) // (BlockSize - Overlap) * (BlockSize - Overlap) + Overlap)
     vpad = h - ((h - Overlap) // (BlockSize - Overlap) * (BlockSize - Overlap) + Overlap)
-    if hpad < 8: # But match default padding if possible
-        hpad = 8
-    if vpad < 8:
-        vpad = 8
+    hpad = max(hpad, 8) # But match default padding if possible
+    vpad = max(vpad, 8)
     
     #---------------------------------------
     # Motion Analysis
@@ -960,7 +954,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # The bobbed clip will shimmer due to being derived from alternating fields. Temporally smooth over the neighboring frames using a binomial kernel. Binomial
     # kernels give equal weight to even and odd frames and hence average away the shimmer. The two kernels used are [1 2 1] and [1 4 6 4 1] for radius 1 and 2.
     # These kernels are approximately Gaussian kernels, which work well as a prefilter before motion analysis (hence the original name for this script)
-    # Create linear weightings of neighbors first                                                       -2    -1    0     1     2
+    # Create linear weightings of neighbors first                                                     -2    -1    0     1     2
     if TR0 > 0: ts1 = AverageFrames(bobbed, weights=[1] * 3, scenechange=28 / 255, planes=CMplanes) # 0.00  0.33  0.33  0.33  0.00
     if TR0 > 1: ts2 = AverageFrames(bobbed, weights=[1] * 5, scenechange=28 / 255, planes=CMplanes) # 0.20  0.20  0.20  0.20  0.20
     
@@ -970,8 +964,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     elif TR0 == 1:
         binomial0 = core.std.Merge(ts1, bobbed, weight=[0.25] if ChromaMotion or isGray else [0.25, 0])
     else:
-        binomial0 = core.std.Merge(core.std.Merge(ts1, ts2, weight=[0.357] if ChromaMotion or isGray else [0.357, 0]), bobbed,
-                                   weight=[0.125] if ChromaMotion or isGray else [0.125, 0])
+        binomial0 = core.std.Merge(core.std.Merge(ts1, ts2, weight=[0.357] if ChromaMotion or isGray else [0.357, 0]), bobbed, weight=[0.125] if ChromaMotion or isGray else [0.125, 0])
     
     # Remove areas of difference between temporal blurred motion search clip and bob that are not due to bob-shimmer - removes general motion blur
     if Rep0 <= 0:
@@ -984,42 +977,32 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if SrchClipPP == 1:
         spatialBlur = core.resize.Bilinear(repair0, w // 2, h // 2).rgvs.RemoveGrain([12] if isGray else [12, CMrg]).resize.Bilinear(w, h)
     elif SrchClipPP >= 2:
-        spatialBlur = Resize(core.rgvs.RemoveGrain(repair0, [12] if isGray else [12, CMrg]), w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=2, dmode=1)
+        spatialBlur = Resize(core.rgvs.RemoveGrain(repair0, [12] if isGray else [12, CMrg]), w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=2, dmode=1)
     if SrchClipPP > 1:
         spatialBlur = core.std.Merge(spatialBlur, repair0, weight=[0.1] if ChromaMotion or isGray else [0.1, 0])
-        expr = 'x {i} + y < x {i} + x {i} - y > x {i} - y ? ?'.format(i=scale(3, peak))
-        tweaked = core.std.Expr([repair0, bobbed], [expr] if ChromaMotion or isGray else [expr, ''])
     if SrchClipPP <= 0:
         srchClip = repair0
     elif SrchClipPP < 3:
         srchClip = spatialBlur
     else:
+        expr = 'x {i} + y < x {i} + x {i} - y > x {i} - y ? ?'.format(i=scale(3, peak))
+        tweaked = core.std.Expr([repair0, bobbed], [expr] if ChromaMotion or isGray else [expr, ''])
         expr = 'x {i} + y < x {j} + x {i} - y > x {j} - x 51 * y 49 * + 100 / ? ?'.format(i=scale(7, peak), j=scale(2, peak))
         srchClip = core.std.Expr([spatialBlur, tweaked], [expr] if ChromaMotion or isGray else [expr, ''])
     
     # Calculate forward and backward motion vectors from motion search clip
     if maxTR > 0:
+        analyse_args = dict(blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch, truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel,
+                            _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
         srchSuper = DitherLumaRebuild(srchClip, s0=1, chroma=ChromaMotion).mv.Super(pel=SubPel, sharp=SubPelInterp, hpad=hpad, vpad=vpad, chroma=ChromaMotion)
-        bVec1 = core.mv.Analyse(
-          srchSuper, isb=True, delta=1, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-          truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
-        fVec1 = core.mv.Analyse(
-          srchSuper, isb=False, delta=1, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-          truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
+        bVec1 = core.mv.Analyse(srchSuper, isb=True, delta=1, **analyse_args)
+        fVec1 = core.mv.Analyse(srchSuper, isb=False, delta=1, **analyse_args)
     if maxTR > 1:
-        bVec2 = core.mv.Analyse(
-          srchSuper, isb=True, delta=2, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-          truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
-        fVec2 = core.mv.Analyse(
-          srchSuper, isb=False, delta=2, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-          truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
+        bVec2 = core.mv.Analyse(srchSuper, isb=True, delta=2, **analyse_args)
+        fVec2 = core.mv.Analyse(srchSuper, isb=False, delta=2, **analyse_args)
     if maxTR > 2:
-        bVec3 = core.mv.Analyse(
-          srchSuper, isb=True, delta=3, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-          truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
-        fVec3 = core.mv.Analyse(
-          srchSuper, isb=False, delta=3, blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch,
-          truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel, _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
+        bVec3 = core.mv.Analyse(srchSuper, isb=True, delta=3, **analyse_args)
+        fVec3 = core.mv.Analyse(srchSuper, isb=False, delta=3, **analyse_args)
     
     #---------------------------------------
     # Noise Processing
@@ -1058,7 +1041,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
                 dnWindow = core.knlm.KNLMeansCL(noiseWindow, d=NoiseTR, h=Sigma)
         else:
             dnWindow = core.fft3dfilter.FFT3DFilter(noiseWindow, sigma=Sigma, plane=4 if ChromaNoise else 0, bt=noiseTD, ncpu=FftThreads)
-    
+        
         # Rework denoised clip to match source format - various code paths here: discard the motion compensation window, discard doubled lines (from point resize)
         # Also reweave to get interlaced noise if source was interlaced (could keep the full frame of noise, but it will be poor quality from the point resize)
         if not DenoiseMC:
@@ -1111,16 +1094,19 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if EdiExt is not None:
         edi1 = core.resize.Point(EdiExt, w, h, src_top=(EdiExt.height - h) / 2, src_height=h + epsilon)
     else:
-        edi1 = QTGMC_Interpolate(ediInput, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, bobbed, ChromaEdi, TFF, opencl)
+        edi1 = QTGMC_Interpolate(ediInput, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, pscrn, int16_prescreener, int16_predictor, exp, alpha, beta, gamma, nrad, vcheck,
+                                 bobbed, ChromaEdi, TFF, opencl)
     
     # InputType=2,3: use motion mask to blend luma between original clip & reweaved clip based on ProgSADMask setting. Use chroma from original clip in any case
-    if ProgSADMask > 0:
-        inputTypeBlend = core.mv.Mask(srchClip, bVec1, kind=1, ml=ProgSADMask)
     if InputType < 2:
         edi = edi1
     elif ProgSADMask <= 0:
-        edi = core.std.Merge(edi1, innerClip, weight=[0, 1] if not isGray else [0])
+        if not isGray:
+            edi = core.std.ShufflePlanes([edi1, innerClip], planes=[0, 1, 2], colorfamily=Input.format.color_family)
+        else:
+            edi = edi1
     else:
+        inputTypeBlend = core.mv.Mask(srchClip, bVec1, kind=1, ml=ProgSADMask)
         edi = core.std.MaskedMerge(innerClip, edi1, inputTypeBlend, planes=[0])
     
     # Get the max/min value for each pixel over neighboring motion-compensated frames - used for temporal sharpness limiting
@@ -1165,13 +1151,13 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if SourceMatch <= 0:
         match = repair1
     else:
-        match = QTGMC_ApplySourceMatch(repair1, InputType, ediInput, bVec1 if maxTR > 0 else None, fVec1 if maxTR > 0 else None, bVec2 if maxTR > 1 else None,
-                                       fVec2 if maxTR > 1 else None, SubPel, SubPelInterp, hpad, vpad, ThSAD1, ThSCD1, ThSCD2, SourceMatch, MatchTR1, MatchEdi,
-                                       MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, MatchTR2, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2,
-                                       MatchEdiMaxD2, MatchEnhance, TFF, opencl)
+        match = QTGMC_ApplySourceMatch(repair1, InputType, ediInput, bVec1 if maxTR > 0 else None, fVec1 if maxTR > 0 else None, bVec2 if maxTR > 1 else None, fVec2 if maxTR > 1 else None, SubPel,
+                                       SubPelInterp, hpad, vpad, ThSAD1, ThSCD1, ThSCD2, SourceMatch, MatchTR1, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, MatchTR2, MatchEdi2,
+                                       MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, MatchEnhance, pscrn, int16_prescreener, int16_predictor, exp, alpha, beta, gamma, nrad, vcheck,
+                                       TFF, opencl)
     
-    # Lossless=2 - after preparing an interpolated, de-shimmered clip, restore the original source fields into it and clean up any artefacts.
-    # This mode will not give a true lossless result because the resharpening and final temporal smooth are still to come, but it will add further detail.
+    # Lossless=2 - after preparing an interpolated, de-shimmered clip, restore the original source fields into it and clean up any artefacts
+    # This mode will not give a true lossless result because the resharpening and final temporal smooth are still to come, but it will add further detail
     # However, it can introduce minor combing. This setting is best used together with source-match (it's effectively the final source-match stage)
     if Lossless >= 2:
         lossed1 = QTGMC_MakeLossless(match, innerClip, InputType, TFF)
@@ -1182,19 +1168,16 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # Resharpen / retouch output
     
     # Resharpen to counteract temporal blurs. Little sharpening needed for source-match mode since it has already recovered sharpness from source
-    if SMode >= 2:
-        vresharp1 = core.std.Merge(core.std.Maximum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]),
-                                   core.std.Minimum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]))
-        if Precise: # Precise mode: reduce tiny overshoot
-            expr = 'x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))
-            vresharp = core.std.Expr([vresharp1, lossed1], [expr])
-        else:
-            vresharp = vresharp1
     if SMode <= 0:
         resharp = lossed1
     elif SMode == 1:
         resharp = core.std.Expr([lossed1, core.rgvs.RemoveGrain(lossed1, rgBlur)], ['x x y - {sharpAdj} * +'.format(sharpAdj=sharpAdj)])
     else:
+        vresharp1 = core.std.Merge(core.std.Maximum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]), core.std.Minimum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]))
+        if Precise:
+            vresharp = core.std.Expr([vresharp1, lossed1], ['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))]) # Precise mode: reduce tiny overshoot
+        else:
+            vresharp = vresharp1
         resharp = core.std.Expr([lossed1, core.rgvs.RemoveGrain(vresharp, rgBlur)], ['x x y - {sharpAdj} * +'.format(sharpAdj=sharpAdj)])
     
     # Slightly thin down 1-pixel high horizontal edges that have been widened into neigboring field lines by the interpolator
@@ -1202,7 +1185,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if SVThin > 0:
         expr = 'y x - {SVThinSc} * {neutral} +'.format(SVThinSc=SVThinSc, neutral=neutral)
         vertMedD = core.std.Expr([lossed1, core.rgvs.VerticalCleaner(lossed1, [1] if isGray else [1, 0])], [expr] if isGray else [expr, ''])
-        vertMedD = core.std.Convolution(vertMedD, matrix=[1, 2, 1], mode='h')
+        vertMedD = core.std.Convolution(vertMedD, matrix=[1, 2, 1], planes=[0], mode='h')
         expr = 'y {neutral} - abs x {neutral} - abs > y {neutral} ?'.format(neutral=neutral)
         neighborD = core.std.Expr([vertMedD, core.rgvs.RemoveGrain(vertMedD, [rgBlur] if isGray else [rgBlur, 0])], [expr] if isGray else [expr, ''])
         thin = core.std.MergeDiff(resharp, neighborD, planes=[0])
@@ -1215,7 +1198,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         backBlend1 = core.std.MakeDiff(thin,
                                        Resize(core.std.MakeDiff(thin, lossed1, planes=[0]).rgvs.RemoveGrain([12] if isGray else [12, 0]),
-                                              w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=5, dmode=1),
+                                              w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=5, dmode=1),
                                        planes=[0])
     
     # Limit over-sharpening by clamping to neighboring (spatial or temporal) min/max values in original
@@ -1236,7 +1219,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         backBlend2 = core.std.MakeDiff(sharpLimit1,
                                        Resize(core.std.MakeDiff(sharpLimit1, lossed1, planes=[0]).rgvs.RemoveGrain([12] if isGray else [12, 0]),
-                                              w, h, 0, 0, w + epsilon, h + epsilon, kernel='gauss', a1=5, dmode=1),
+                                              w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=5, dmode=1),
                                        planes=[0])
     
     # Add back any extracted noise, prior to final temporal smooth - this will restore detail that was removed as "noise" without restoring the noise itself
@@ -1283,7 +1266,6 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         lossed2 = QTGMC_MakeLossless(sharpLimit2, innerClip, InputType, TFF)
     else:
         lossed2 = sharpLimit2
-    lossed2 = core.std.SetFrameProp(lossed2, prop='_FieldBased', intval=0)
     
     # Add back any extracted noise, after final temporal smooth. This will appear as noise/grain in the output
     # Average luma of FFT3DFilter extracted noise is 128.5, so deal with that too
@@ -1312,10 +1294,10 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     rBlockDivide = BlockSize // rBlockSize
     rLambda = Lambda // (rBlockDivide * rBlockDivide)
     if ShutterBlur > 1:
-        sbBVec1 = core.mv.Recalculate(srchSuper, bVec1, thsad=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam,
-                                      truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT, chroma=ChromaMotion)
-        sbFVec1 = core.mv.Recalculate(srchSuper, fVec1, thsad=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam,
-                                      truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT, chroma=ChromaMotion)
+        recalculate_args = dict(thsad=ThSAD1, blksize=rBlockSize, overlap=rOverlap, search=Search, searchparam=SearchParam, truemotion=TrueMotion, _lambda=rLambda, pnew=PNew, dct=DCT,
+                                chroma=ChromaMotion)
+        sbBVec1 = core.mv.Recalculate(srchSuper, bVec1, **recalculate_args)
+        sbFVec1 = core.mv.Recalculate(srchSuper, fVec1, **recalculate_args)
     elif ShutterBlur > 0:
         sbBVec1 = bVec1
         sbFVec1 = fVec1
@@ -1326,13 +1308,12 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         sblur = core.mv.FlowBlur(addNoise2, sblurSuper, sbBVec1, sbFVec1, blur=blurLevel, thscd1=ThSCD1, thscd2=ThSCD2)
     
     # Shutter motion blur - use motion mask to reduce blurring in areas of low motion - also helps reduce blur "bleeding" into static areas, then select blur type
-    if ShutterBlur > 0 and SBlurLimit > 0:
-        sbMotionMask = core.mv.Mask(srchClip, bVec1, kind=0, ml=SBlurLimit)
     if ShutterBlur <= 0:
         sblurred = addNoise2
     elif SBlurLimit <= 0:
         sblurred = sblur
     else:
+        sbMotionMask = core.mv.Mask(srchClip, bVec1, kind=0, ml=SBlurLimit)
         sblurred = core.std.MaskedMerge(addNoise2, sblur, sbMotionMask)
     
     # Reduce frame rate
@@ -1344,7 +1325,6 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # Crop off temporary vertical padding
     if Border:
         cropped = core.std.CropRel(decimated, top=4, bottom=4)
-        h -= 8
     else:
         cropped = decimated
     
@@ -1378,17 +1358,21 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
 
 # Interpolate input clip using method given in EdiMode. Use Fallback or Bob as result if mode not in list. If ChromaEdi string if set then interpolate chroma
 # separately with that method (only really useful for EEDIx). The function is used as main algorithm starting point and for first two source-match stages
-def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, Fallback=None, ChromaEdi='', TFF=None, opencl=False):
+def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, pscrn, int16_prescreener, int16_predictor, exp, alpha, beta, gamma, nrad, vcheck,
+                      Fallback=None, ChromaEdi='', TFF=None, opencl=False):
     core = vs.get_core()
     
     if opencl:
         myNNEDI3 = core.nnedi3cl.NNEDI3CL
         myEEDI3 = core.eedi3m.EEDI3CL
+        nnedi3_args = dict(nsize=NNSize, nns=NNeurons, qual=EdiQual, pscrn=pscrn)
     else:
         myNNEDI3 = core.znedi3.nnedi3
         myEEDI3 = core.eedi3m.EEDI3
+        nnedi3_args = dict(nsize=NNSize, nns=NNeurons, qual=EdiQual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
+    eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck)
     
-    isGray = Input.format.color_family == vs.GRAY
+    isGray = (Input.format.color_family == vs.GRAY)
     if isGray:
         ChromaEdi = ''
     
@@ -1398,12 +1382,11 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
     if InputType == 1:
         return Input
     elif EdiMode == 'nnedi3':
-        interp = myNNEDI3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual)
+        interp = myNNEDI3(Input, field=field, planes=planes, **nnedi3_args)
     elif EdiMode == 'eedi3+nnedi3':
-        interp = myEEDI3(Input, field=field, planes=planes, mdis=EdiMaxD,
-                         sclip=myNNEDI3(Input, field=field, planes=planes, nsize=NNSize, nns=NNeurons, qual=EdiQual))
+        interp = myEEDI3(Input, field=field, planes=planes, **eedi3_args, sclip=myNNEDI3(Input, field=field, planes=planes, **nnedi3_args))
     elif EdiMode == 'eedi3':
-        interp = myEEDI3(Input, field=field, planes=planes, mdis=EdiMaxD)
+        interp = myEEDI3(Input, field=field, planes=planes, **eedi3_args)
     else:
         if isinstance(Fallback, vs.VideoNode):
             interp = Fallback
@@ -1417,7 +1400,7 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
     else:
         return interp
     
-    return core.std.Merge(interp, interpuv, weight=[0, 1])
+    return core.std.ShufflePlanes([interp, interpuv], planes=[0, 1, 2], colorfamily=Input.format.color_family)
 
 # Helper function: Compare processed clip with reference clip: only allow thin, horizontal areas of difference, i.e. bob shimmer fixes
 # Rough algorithm: Get difference, deflate vertically by a couple of pixels or so, then inflate again. Thin regions will be removed
@@ -1428,7 +1411,7 @@ def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
     neutral = 1 << (Input.format.bits_per_sample - 1)
     peak = (1 << Input.format.bits_per_sample) - 1
     
-    isGray = Input.format.color_family == vs.GRAY
+    isGray = (Input.format.color_family == vs.GRAY)
     planes = [0, 1, 2] if Chroma and not isGray else [0]
     
     # ed is the erosion distance - how much to deflate then reflate to remove thin areas of interest: 0 = minimum to 6 = maximum
@@ -1444,7 +1427,7 @@ def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
     if ed > 2: choke1 = core.std.Minimum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]) #      . . . x x x x x    1 pixel    |  Deflate to remove thin areas
     if ed > 5: choke1 = core.std.Minimum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]) #      . . . . . . x x    1 pixel   /
     if ed % 3 != 0: choke1 = core.std.Deflate(choke1, planes=planes)                                  #      . x x . x x . x    A bit more deflate & some horizonal effect
-    if ed in [2, 5]: choke1 = core.std.Median(choke1)                                                 #      . . x . . x . .    Local median
+    if ed in [2, 5]: choke1 = core.std.Median(choke1, planes=planes)                                  #      . . x . . x . .    Local median
     choke1 = core.std.Maximum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])            #      x x x x x x x x    1 pixel  \
     if ed > 1: choke1 = core.std.Maximum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]) #      . . x x x x x x    1 pixel   | Reflate again
     if ed > 4: choke1 = core.std.Maximum(choke1, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]) #      . . . . . x x x    1 pixel  /
@@ -1459,19 +1442,14 @@ def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
     
     # Areas of negative difference (similar to above)
     choke2 = core.std.Maximum(diff, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
-    if ed > 2:
-        choke2 = core.std.Maximum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
-    if ed > 5:
-        choke2 = core.std.Maximum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
-    if ed % 3 != 0:
-        choke2 = core.std.Inflate(choke2, planes=planes)
-    if ed in [2, 5]:
-        choke2 = core.std.Median(choke2)
+    if ed > 2: choke2 = core.std.Maximum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+    if ed > 5: choke2 = core.std.Maximum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+    if ed % 3 != 0: choke2 = core.std.Inflate(choke2, planes=planes)
+    if ed in [2, 5]: choke2 = core.std.Median(choke2, planes=planes)
     choke2 = core.std.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
-    if ed > 1:
-        choke2 = core.std.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
-    if ed > 4:
-        choke2 = core.std.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+    if ed > 1: choke2 = core.std.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+    if ed > 4: choke2 = core.std.Minimum(choke2, planes=planes, coordinates=[0, 1, 0, 0, 0, 0, 1, 0])
+    
     if od == 1:
         choke2 = core.std.Deflate(choke2, planes=planes)
     elif od == 2:
@@ -1494,16 +1472,17 @@ def QTGMC_Generate2ndFieldNoise(Input, InterleavedClip, ChromaNoise=False, TFF=N
     neutral = 1 << (Input.format.bits_per_sample - 1)
     peak = (1 << Input.format.bits_per_sample) - 1
     
-    isGray = Input.format.color_family == vs.GRAY
+    isGray = (Input.format.color_family == vs.GRAY)
     planes = [0, 1, 2] if ChromaNoise and not isGray else [0]
     
     origNoise = core.std.SeparateFields(Input, TFF)
     noiseMax = core.std.Maximum(origNoise, planes=planes).std.Maximum(planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
     noiseMin = core.std.Minimum(origNoise, planes=planes).std.Minimum(planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
-    random = core.std.SeparateFields(InterleavedClip, TFF).std.BlankClip(color=[neutral] * Input.format.num_planes).grain.Add(1800, 1800 if ChromaNoise else 0)
+    random = core.std.SeparateFields(InterleavedClip, TFF).std.BlankClip(color=[neutral] * Input.format.num_planes).grain.Add(var=1800, uvar=1800 if ChromaNoise else 0)
     expr = 'x {neutral} - y * {i} / {neutral} +'.format(neutral=neutral, i=scale(256, peak))
     varRandom = core.std.Expr([core.std.MakeDiff(noiseMax, noiseMin, planes=planes), random], [expr] if ChromaNoise or isGray else [expr, ''])
     newNoise = core.std.MergeDiff(noiseMin, varRandom, planes=planes)
+    
     return Weave(core.std.Interleave([origNoise, newNoise]), TFF)
 
 # Insert the source lines into the result to create a true lossless output. However, the other lines in the result have had considerable processing and won't
@@ -1535,9 +1514,9 @@ def QTGMC_MakeLossless(Input, Source, InputType, TFF):
 
 # Source-match, a three stage process that takes the difference between deinterlaced input and the original interlaced source, to shift the input more towards
 # the source without introducing shimmer. All other arguments defined in main script
-def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, fVec2, SubPel, SubPelInterp, hpad, vpad, ThSAD1, ThSCD1, ThSCD2,
-                           SourceMatch, MatchTR1, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD,
-                           MatchTR2, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, MatchEnhance, TFF, opencl):
+def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, fVec2, SubPel, SubPelInterp, hpad, vpad, ThSAD1, ThSCD1, ThSCD2, SourceMatch,
+                           MatchTR1, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, MatchTR2, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, MatchEnhance,
+                           pscrn, int16_prescreener, int16_predictor, exp, alpha, beta, gamma, nrad, vcheck, TFF, opencl):
     core = vs.get_core()
     
     # Basic source-match. Find difference between source clip & equivalent fields in interpolated/smoothed clip (called the "error" in formula below). Ideally
@@ -1549,7 +1528,7 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
     # "temporal similarity" of the error from frame to frame, i.e. S = average over all pixels of [neighbor frame error / current frame error] . Decreasing
     # S will make the result sharper, sensible range is about -0.25 to 1.0. Empirically, S=0.5 is effective [will do deeper analysis later]
     errorTemporalSimilarity = 0.5 # S in formula described above
-    errorAdjust1 = [1, 2 / (1 + errorTemporalSimilarity), 8 / (3 + 5 * errorTemporalSimilarity)][MatchTR1]
+    errorAdjust1 = [1., 2 / (1 + errorTemporalSimilarity), 8 / (3 + 5 * errorTemporalSimilarity)][MatchTR1]
     if SourceMatch < 1 or InputType == 1:
         match1Clip = Deinterlace
     else:
@@ -1559,7 +1538,8 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
     else:
         match1Update = core.std.Expr([Source, match1Clip], ['x {} * y {} * -'.format(errorAdjust1 + 1, errorAdjust1)])
     if SourceMatch > 0:
-        match1Edi = QTGMC_Interpolate(match1Update, InputType, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, TFF=TFF, opencl=opencl)
+        match1Edi = QTGMC_Interpolate(match1Update, InputType, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, pscrn, int16_prescreener, int16_predictor, exp, alpha, beta, gamma,
+                                      nrad, vcheck, TFF=TFF, opencl=opencl)
         if MatchTR1 > 0:
             match1Super = core.mv.Super(match1Edi, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
             match1Degrain1 = core.mv.Degrain1(match1Edi, match1Super, bVec1, fVec1, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)
@@ -1573,6 +1553,7 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
         match1 = core.std.Merge(match1Degrain1, match1Edi, weight=[0.25])
     else:
         match1 = core.std.Merge(core.std.Merge(match1Degrain1, match1Degrain2, weight=[0.2]), match1Edi, weight=[0.0625])
+    
     if SourceMatch < 2:
         return match1
     
@@ -1592,7 +1573,8 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
         match2Clip = Weave(core.std.SeparateFields(match1Shp, TFF).std.SelectEvery(4, [0, 3]), TFF)
     if SourceMatch > 1:
         match2Diff = core.std.MakeDiff(Source, match2Clip)
-        match2Edi = QTGMC_Interpolate(match2Diff, InputType, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, TFF=TFF, opencl=opencl)
+        match2Edi = QTGMC_Interpolate(match2Diff, InputType, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, pscrn, int16_prescreener, int16_predictor, exp, alpha, beta, gamma,
+                                      nrad, vcheck, TFF=TFF, opencl=opencl)
         if MatchTR2 > 0:
             match2Super = core.mv.Super(match2Edi, pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
             match2Degrain1 = core.mv.Degrain1(match2Edi, match2Super, bVec1, fVec1, thsad=ThSAD1, thscd1=ThSCD1, thscd2=ThSCD2)
@@ -1608,7 +1590,7 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
         match2 = core.std.Merge(core.std.Merge(match2Degrain1, match2Degrain2, weight=[0.2]), match2Edi, weight=[0.0625])
     
     # Source-match second refinement - correct error introduced in the refined difference by temporal smoothing. Similar to error correction from basic step
-    errorAdjust2 = [1, 2 / (1 + errorTemporalSimilarity), 8 / (3 + 5 * errorTemporalSimilarity)][MatchTR2]
+    errorAdjust2 = [1., 2 / (1 + errorTemporalSimilarity), 8 / (3 + 5 * errorTemporalSimilarity)][MatchTR2]
     if SourceMatch < 3 or MatchTR2 <= 0:
         match3Update = match2Edi
     else:
@@ -2052,7 +2034,7 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None):
 ### +----------------+
 ###
 ### -> KNLMeansCL
-### -> RemoveGrain/Repair
+### -> RGVS
 ###
 ### +-----------+
 ### | CHANGELOG |
@@ -2421,7 +2403,7 @@ def Stab(clp, range=1, dxmax=4, dymax=4, mirror=0):
 ###
 ### GrainStabilizeMC v1.0      by mawen1250      2014.03.22
 ###
-### Requirements: MVTools, RemoveGrain/Repair
+### Requirements: MVTools, RGVS
 ###
 ### Temporal-only on-top grain stabilizer
 ### Only stabilize the difference ( on-top grain ) between source clip and spatial-degrained clip
@@ -3157,7 +3139,7 @@ def InterFrame(Input, Preset='Medium', Tuning='Film', NewNum=None, NewDen=1, GPU
 #########################################################################################
 ### 
 ### 
-### /!\ Needed filters : RemoveGrain/Repair, f3kdb
+### /!\ Needed filters : RGVS, f3kdb
 ### --------------------
 ###
 ###
@@ -3629,8 +3611,7 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
 ### | DEPENDENCIES |
 ### +--------------+
 ###
-### -> fmtconv
-### -> RemoveGrain/Repair
+### -> RGVS
 ###
 ###
 ###
