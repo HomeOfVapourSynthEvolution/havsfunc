@@ -1945,13 +1945,13 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
 
 
 # Version 1.1
-def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None):
+def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=False):
     core = vs.get_core()
 
     if not isinstance(src, vs.VideoNode):
         raise TypeError('ivtc_txt60mc: This is not a clip')
     if not (srcbob or isinstance(tff, bool)):
-        raise TypeError("ivtc_txt60mc: 'tff' must be set if srcbob is not true. Setting tff to true means top field first and false means bottom field first")
+        raise TypeError("ivtc_txt60mc: 'tff' must be set when srcbob=False. Setting tff to true means top field first and false means bottom field first")
 
     field_ref = frame_ref if srcbob else frame_ref * 2
     field_ref %= 5
@@ -1965,16 +1965,16 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None):
     elif draft:
         last = Bob(src, tff=tff)
     else:
-        last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff)
+        last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff, opencl=opencl)
 
     if invpos > 1:
-        clean = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 5, [6 - invpos]), fpsnum=12000, fpsden=1001)
+        clean = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 5, [6 - invpos]), fpsnum=6000, fpsden=1001)
     else:
-        clean = core.std.SelectEvery(last, 5, [1 - invpos])
+        clean = core.std.SelectEvery(last, 5, [1 - invpos]).std.AssumeFPS(fpsnum=6000, fpsden=1001)
     if invpos > 3:
-        jitter = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 5, [4 - invpos, 8 - invpos]), fpsnum=24000, fpsden=1001)
+        jitter = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 5, [4 - invpos, 8 - invpos]), fpsnum=12000, fpsden=1001)
     else:
-        jitter = core.std.SelectEvery(last, 5, [3 - invpos, 4 - invpos])
+        jitter = core.std.SelectEvery(last, 5, [3 - invpos, 4 - invpos]).std.AssumeFPS(fpsnum=12000, fpsden=1001)
     jsup_pre = DitherLumaRebuild(jitter, s0=1).mv.Super(pel=pel)
     jsup = core.mv.Super(jitter, pel=pel, levels=1)
     vect_f = core.mv.Analyse(jsup_pre, blksize=blksize, isb=False, delta=1, overlap=overlap)
