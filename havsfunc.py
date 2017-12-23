@@ -356,7 +356,7 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     if remX or remY:
         strongD2 = core.resize.Point(strongD2, sw + remX, sh + remY, src_width=sw + remX, src_height=sh + remY)
     expr = 'x {neutral} - 1.01 * {neutral} +'.format(neutral=neutral)
-    strongD3 = core.std.Expr([strongD2], [expr] if uv >= 3 or isGray else [expr, '']).dct.Filter([1, 1, 0, 0, 0, 0, 0, 0]).std.CropRel(right=remX, bottom=remY)
+    strongD3 = core.std.Expr([strongD2], [expr] if uv >= 3 or isGray else [expr, '']).dctf.DCTFilter(factors=[1, 1, 0, 0, 0, 0, 0, 0], planes=planes).std.Crop(right=remX, bottom=remY)
 
     # apply compensation from "normal" deblocking to the borders of the full-block-compensations calculated from "strong" deblocking ...
     expr = 'y {neutral} = x y ?'.format(neutral=neutral)
@@ -368,12 +368,12 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     # simple decisions how to treat chroma
     if not isGray:
         if uv <= -1:
-            deblocked = core.std.Merge(deblocked, strong, weight=[0, 1])
+            deblocked = core.std.ShufflePlanes([deblocked, strong], planes=[0, 1, 2], colorfamily=clp.format.color_family)
         elif uv <= 1:
-            deblocked = core.std.Merge(deblocked, normal, weight=[0, 1])
+            deblocked = core.std.ShufflePlanes([deblocked, normal], planes=[0, 1, 2], colorfamily=clp.format.color_family)
 
     # remove mod 8 borders
-    return core.std.CropRel(deblocked, right=padX, bottom=padY)
+    return core.std.Crop(deblocked, right=padX, bottom=padY)
 
 
 # rx, ry [float, 1.0 ... 2.0 ... ~3.0]
