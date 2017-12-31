@@ -4688,13 +4688,13 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
 
     bits = clp.format.bits_per_sample
 
-    isGray = clp.format.color_family == vs.GRAY
+    isGray = (clp.format.color_family == vs.GRAY)
     if isGray:
         planes = [0]
     if isinstance(planes, int):
         planes = [planes]
 
-    expr = 'x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=1 << (bits - 1))
+    expr = 'x y - x z - * 0 < x x y - abs x z - abs < y z ? ?'
     if 0 in planes:
         Y11 = 11
         Yexpr = expr
@@ -4730,13 +4730,11 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
         if bits == 16:
             s16 = clp
             RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=3, planes=planes)
-            RG4 = mvf.LimitFilter(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=1, elast=2, planes=planes)
+            RG4 = mvf.LimitFilter(s16, core.fmtc.bitdepth(RG4, bits=16, planes=planes), thr=0.0625, elast=2, planes=planes)
         else:
             RG4 = core.ctmf.CTMF(clp, radius=3, planes=planes)
-    RG11D = core.std.MakeDiff(clp, RG11, planes=planes)
-    RG4D = core.std.MakeDiff(clp, RG4, planes=planes)
-    DD = core.std.Expr([RG11D, RG4D], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
-    return core.std.MakeDiff(clp, DD, planes=planes)
+
+    return core.std.Expr([clp, RG11, RG4], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
 
 
 # make a highpass on a blur's difference (well, kind of that)
