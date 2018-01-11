@@ -1738,7 +1738,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         ldet = -1 if n + pos == ldet else n + pos
 
         ### diff value shifting ###
-        d_v = f[1].props.PlaneStatsMax + 0.015625
+        d_v = f[1].props['PlaneStatsMax'] + 0.015625
         if jmp:
             d43 = d32
             d32 = d21
@@ -1751,7 +1751,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
             d43 = d32 = d21 = d10 = d01 = d12 = d23 = d_v
         d34 = d_v
 
-        m_v = f[2].props.PlaneStatsDiff * 255 + 0.015625 if not bom and abs(omode) > 5 else 1
+        m_v = f[2].props['PlaneStatsDiff'] * 255 + 0.015625 if not bom and abs(omode) > 5 else 1
         if jmp:
             m53 = m42
             m42 = m31
@@ -1765,10 +1765,10 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         m24 = m_v
 
         ### get blend and clear values ###
-        b_v = 128 - f[0].props.PlaneStatsMin
+        b_v = 128 - f[0].props['PlaneStatsMin']
         if b_v < 1:
             b_v = 0.125
-        c_v = f[0].props.PlaneStatsMax - 128
+        c_v = f[0].props['PlaneStatsMax'] - 128
         if c_v < 1:
             c_v = 0.125
 
@@ -2251,12 +2251,12 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
     output = core.std.ShufflePlanes([core.std.MaskedMerge(input_y, fixed_y, themask), input], planes=[0, 1, 2], colorfamily=input.format.color_family)
 
     def YDifferenceFromPrevious(n, f, clips):
-        if f.props._SceneChangePrev:
+        if f.props['_SceneChangePrev']:
             return clips[0]
         else:
             return clips[1]
     def YDifferenceToNext(n, f, clips):
-        if f.props._SceneChangeNext:
+        if f.props['_SceneChangeNext']:
             return clips[0]
         else:
             return clips[1]
@@ -4607,8 +4607,8 @@ def SCDetect(clip, threshold=None):
 
     def copy_property(n, f):
         fout = f[0].copy()
-        fout.props._SceneChangePrev = f[1].props._SceneChangePrev
-        fout.props._SceneChangeNext = f[1].props._SceneChangeNext
+        fout.props['_SceneChangePrev'] = f[1].props['_SceneChangePrev']
+        fout.props['_SceneChangeNext'] = f[1].props['_SceneChangeNext']
         return fout
 
     if clip.format.color_family == vs.RGB:
