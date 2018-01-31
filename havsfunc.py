@@ -1,3 +1,4 @@
+from vapoursynth import core
 import vapoursynth as vs
 import mvsfunc as mvf
 import adjust
@@ -70,8 +71,6 @@ Utility functions:
 
 # Anti-aliasing with contra-sharpening by Didée
 def daa(c, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, opencl=False):
-    core = vs.get_core()
-
     if not isinstance(c, vs.VideoNode):
         raise TypeError('daa: This is not a clip')
 
@@ -105,8 +104,6 @@ def daa(c, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, 
 # type = "nnedi3", "eedi2", "eedi3" or "sangnom"
 def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, aa=None,
             alpha=None, beta=None, gamma=None, nrad=None, mdis=None, vcheck=None, fw=None, fh=None, halfres=False, typeh=None, typev=None, opencl=False):
-    core = vs.get_core()
-
     def santiag_dir(c, strength, type, fw=None, fh=None):
         if fw is None:
             fw = c.width
@@ -204,8 +201,6 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, p
 #  strength (float) - Saturation strength in clip to be merged with the original chroma. Value below 1.0 reduces the saturation, a value of 1.0 leaves the saturation intact. Default is 0.8
 #  blur (bool)      - Set to true to blur the mask clip. Default is false
 def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
-    core = vs.get_core()
-
     if not isinstance(input, vs.VideoNode):
         raise TypeError('FixChromaBleedingMod: This is not a clip')
     if input.format.color_family == vs.GRAY:
@@ -302,8 +297,6 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
 #  bOff2 (int)  - "sensitivity to detect blocking" for block interiors. Default is 2
 #  uv (int)     - 3: use proposed method for chroma deblocking, 2: no chroma deblocking at all(fastest method), 1|-1: directly use chroma debl. from the normal|strong Deblock(). Default is 3
 def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, uv=3):
-    core = vs.get_core()
-
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('Deblock_QED: This is not a clip')
 
@@ -392,8 +385,6 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
 # ss [float, 1.0 ... 1.5 ...]
 # Supersampling factor, to avoid creation of aliasing.
 def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highsens=50, ss=1.5):
-    core = vs.get_core()
-
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('DeHalo_alpha: This is not a clip')
 
@@ -436,8 +427,6 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
 #  blur (int)  - "blur" parameter of AWarpSharp2. Default is 2
 #  depth (int) - "depth" parameter of AWarpSharp2. Default is 32
 def YAHR(clp, blur=2, depth=32):
-    core = vs.get_core()
-
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('YAHR: This is not a clip')
 
@@ -493,8 +482,6 @@ def YAHR(clp, blur=2, depth=32):
 ######
 def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, mthr=60, minp=1, nrmode=None, sharp=1, drrep=24,
                 thr=12., elast=2., darkthr=None, planes=[0], show=False):
-    core = vs.get_core()
-
     if not isinstance(input, vs.VideoNode):
         raise TypeError('HQDeringmod: This is not a clip')
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
@@ -667,8 +654,6 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
           NoisePreset='Fast', Denoiser=None, FftThreads=1, DenoiseMC=None, NoiseTR=None, Sigma=None, ChromaNoise=False, ShowNoise=0., GrainRestore=None, NoiseRestore=None, NoiseDeint=None,
           StabilizeNoise=None, InputType=0, ProgSADMask=None, FPSDivisor=1, ShutterBlur=0, ShutterAngleSrc=180, ShutterAngleOut=180, SBlurLimit=4, Border=False, Precise=None, Tuning='None',
           ShowSettings=False, ForceTR=0, TFF=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, alpha=None, beta=None, gamma=None, nrad=None, vcheck=None, opencl=False):
-    core = vs.get_core()
-
     #---------------------------------------
     # Presets
 
@@ -1360,8 +1345,6 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
 # separately with that method (only really useful for EEDIx). The function is used as main algorithm starting point and for first two source-match stages
 def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, pscrn, int16_prescreener, int16_predictor, exp, alpha, beta, gamma, nrad, vcheck,
                       Fallback=None, ChromaEdi='', TFF=None, opencl=False):
-    core = vs.get_core()
-
     if opencl:
         myNNEDI3 = core.nnedi3cl.NNEDI3CL
         myEEDI3 = core.eedi3m.EEDI3CL
@@ -1406,8 +1389,6 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
 # Rough algorithm: Get difference, deflate vertically by a couple of pixels or so, then inflate again. Thin regions will be removed
 #                  by this process. Restore remaining areas of difference back to as they were in reference clip
 def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
-    core = vs.get_core()
-
     neutral = 1 << (Input.format.bits_per_sample - 1)
     peak = (1 << Input.format.bits_per_sample) - 1
 
@@ -1467,8 +1448,6 @@ def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
 # Given noise extracted from an interlaced source (i.e. the noise is interlaced), generate "progressive" noise with a new "field" of noise injected. The new
 # noise is centered on a weighted local average and uses the difference between local min & max as an estimate of local variance
 def QTGMC_Generate2ndFieldNoise(Input, InterleavedClip, ChromaNoise=False, TFF=None):
-    core = vs.get_core()
-
     neutral = 1 << (Input.format.bits_per_sample - 1)
     peak = (1 << Input.format.bits_per_sample) - 1
 
@@ -1488,8 +1467,6 @@ def QTGMC_Generate2ndFieldNoise(Input, InterleavedClip, ChromaNoise=False, TFF=N
 # Insert the source lines into the result to create a true lossless output. However, the other lines in the result have had considerable processing and won't
 # exactly match source lines. There will be some slight residual combing. Use vertical medians to clean a little of this away
 def QTGMC_MakeLossless(Input, Source, InputType, TFF):
-    core = vs.get_core()
-
     if InputType == 1:
         raise ValueError('QTGMC: Lossless modes are incompatible with InputType=1')
 
@@ -1517,8 +1494,6 @@ def QTGMC_MakeLossless(Input, Source, InputType, TFF):
 def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, fVec2, SubPel, SubPelInterp, hpad, vpad, ThSAD1, ThSCD1, ThSCD2, SourceMatch,
                            MatchTR1, MatchEdi, MatchNNSize, MatchNNeurons, MatchEdiQual, MatchEdiMaxD, MatchTR2, MatchEdi2, MatchNNSize2, MatchNNeurons2, MatchEdiQual2, MatchEdiMaxD2, MatchEnhance,
                            pscrn, int16_prescreener, int16_predictor, exp, alpha, beta, gamma, nrad, vcheck, TFF, opencl):
-    core = vs.get_core()
-
     # Basic source-match. Find difference between source clip & equivalent fields in interpolated/smoothed clip (called the "error" in formula below). Ideally
     # there should be no difference, we want the fields in the output to be as close as possible to the source whilst remaining shimmer-free. So adjust the
     # *source* in such a way that smoothing it will give a result closer to the unadjusted source. Then rerun the interpolation (edi) and binomial smooth with
@@ -1616,8 +1591,6 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
 
 ###### srestore v2.7e ######
 def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=None):
-    core = vs.get_core()
-
     if not isinstance(source, vs.VideoNode):
         raise TypeError('srestore: This is not a clip')
     if source.format.color_family == vs.GRAY:
@@ -1946,8 +1919,6 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
 
 # Version 1.1
 def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=False):
-    core = vs.get_core()
-
     if not isinstance(src, vs.VideoNode):
         raise TypeError('ivtc_txt60mc: This is not a clip')
     if not (srcbob or isinstance(tff, bool)):
@@ -2043,8 +2014,6 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=Fal
 ### v0.1 - 22 Mar 2012
 ###      - First release
 def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
-    core = vs.get_core()
-
     if not (isinstance(dlg, vs.VideoNode) and isinstance(src, vs.VideoNode)):
         raise TypeError('logoNR: This is not a clip')
     if dlg.format.id != src.format.id:
@@ -2088,8 +2057,6 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
 # amnt  : change no pixel by more than this (default=255: unrestricted)
 # chroma: chroma mode, True=process chroma, False=pass chroma through
 def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
-    core = vs.get_core()
-
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('Vinverse: This is not a clip')
 
@@ -2121,8 +2088,6 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
 
 
 def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
-    core = vs.get_core()
-
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('Vinverse2: This is not a clip')
 
@@ -2206,8 +2171,6 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
 #
 ###################
 def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=True, mask=False):
-    core = vs.get_core()
-
     if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
         raise TypeError('LUTDeCrawl: This is not an 8-10 bits YUV or YCoCg clip')
 
@@ -2332,8 +2295,6 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
 #
 ###################
 def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False):
-    core = vs.get_core()
-
     if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
         raise TypeError('LUTDeRainbow: This is not an 8-10 bits YUV or YCoCg clip')
 
@@ -2387,8 +2348,6 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
 # latest version from December 10, 2008                                      #
 ##############################################################################
 def Stab(clp, range=1, dxmax=4, dymax=4, mirror=0):
-    core = vs.get_core()
-
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('Stab: This is not a clip')
 
@@ -2418,8 +2377,6 @@ def Stab(clp, range=1, dxmax=4, dymax=4, mirror=0):
 ######
 def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, planes=[0, 1, 2],
          thSAD=300, thSADC=None, thSCD1=300, thSCD2=100, limit=None, limitc=None):
-    core = vs.get_core()
-
     if not isinstance(input, vs.VideoNode):
         raise TypeError('GSMC: This is not a clip')
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
@@ -2543,8 +2500,6 @@ bv6 = bv4 = bv3 = bv2 = bv1 = fv1 = fv2 = fv3 = fv4 = fv6 = None
 def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasharp=None, CClip=None, interlaced=False, tff=None, plane=4, Globals=0,
               pel=None, subpixel=2, prefilter=-1, mfilter=None, blksize=None, overlap=None, search=4, truemotion=None, MVglobal=None, dct=0,
               limit=255, limitc=None, thSCD1=None, thSCD2=130, chroma=True, hpad=None, vpad=None, Str=1., Amp=0.0625):
-    core = vs.get_core()
-
     if not isinstance(input, vs.VideoNode):
         raise TypeError('SMDegrain: This is not a clip')
 
@@ -2808,8 +2763,6 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
 #  back (int)     - After all changes have been calculated, reduce all pixel changes by this value (shift "back" towards original value). Default is 1
 #  planes (int[]) - Whether to process the corresponding plane. The other planes will be passed through unchanged. Default is [0, 1, 2]
 def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=1, planes=[0, 1, 2]):
-    core = vs.get_core()
-
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('STPresso: This is not a clip')
 
@@ -2863,8 +2816,6 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
 
 # Apply the inverse sigmoid curve to a clip in linear luminance
 def SigmoidInverse(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
-    core = vs.get_core()
-
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
         raise TypeError('SigmoidInverse: This is not a 16-bit clip')
 
@@ -2877,8 +2828,6 @@ def SigmoidInverse(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
 
 # Convert back a clip to linear luminance
 def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
-    core = vs.get_core()
-
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
         raise TypeError('SigmoidDirect: This is not a 16-bit clip')
 
@@ -2908,8 +2857,6 @@ def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
 #  th4 (int)           - end of midtone->bright mixing zone. Default is 160
 def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shrp=80, g1size=1.5, g2size=1.2, g3size=0.9, temp_avg=0, ontop_grain=0.,
                   th1=24, th2=56, th3=128, th4=160):
-    core = vs.get_core()
-
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('GrainFactory3: This is not a clip')
 
@@ -3008,8 +2955,6 @@ def GrainFactory3(clp, g1str=7., g2str=5., g3str=3., g1shrp=60, g2shrp=66, g3shr
 # For news go to spirton.com
 def InterFrame(Input, Preset='Medium', Tuning='Film', NewNum=None, NewDen=1, GPU=False, InputType='2D', OverrideAlgo=None, OverrideArea=None,
                FrameDouble=False):
-    core = vs.get_core()
-
     if not isinstance(Input, vs.VideoNode):
         raise TypeError('InterFrame: This is not a clip')
 
@@ -3282,8 +3227,6 @@ def InterFrame(Input, Preset='Medium', Tuning='Film', NewNum=None, NewDen=1, GPU
 #########################################################################################
 def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, output_high=None, chroma=50, limiter=0, Lmode=0, DarkSTR=100, BrightSTR=100,
                  Ecenter=None, protect=-1, Ecurve=0, Smode=-2, Mfactor=2, RGmode=12, useDB=True):
-    core = vs.get_core()
-
     if not isinstance(input, vs.VideoNode):
         raise TypeError('SmoothLevels: This is not a clip')
     if input.format.color_family == vs.RGB:
@@ -3452,8 +3395,6 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
 #  1.1  - added luma_cap option
 #  1.0  - initial release
 def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, thinning=0):
-    core = vs.get_core()
-
     if not isinstance(c, vs.VideoNode):
         raise TypeError('FastLineDarkenMOD: This is not a clip')
 
@@ -3507,8 +3448,6 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
 #   blur (int)  - "blur" parameter of AWarpSharp2. Default is 2
 #   depth (int) - "depth" parameter of AWarpSharp2. Default is 32
 def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
-    core = vs.get_core()
-
     if not isinstance(input, vs.VideoNode):
         raise TypeError('Toon: This is not a clip')
 
@@ -3885,8 +3824,6 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
 def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=False, secure=None, source=None,
            Szrp=16, Spwr=None, SdmpLo=None, SdmpHi=None, Lmode=None, overshoot=None, undershoot=None, overshoot2=None, undershoot2=None,
            soft=None, soothe=None, keep=None, edgemode=0, edgemaskHQ=None, ss_x=None, ss_y=None, dest_x=None, dest_y=None, defaults='fast'):
-    core = vs.get_core()
-
     if not isinstance(input, vs.VideoNode):
         raise TypeError('LSFmod: This is not a clip')
     if source is not None and (not isinstance(source, vs.VideoNode) or source.format.id != input.format.id):
@@ -4191,8 +4128,6 @@ def TemporalDegrain(          \
     if overlapValue * 2 > blockSize:
         overlapValue = blockSize // 2
 
-    core = vs.get_core()
-
     # Taking care of a missing denoising clip and use of fft3d to determine it
     if denoiseClip is None:
         denoiseClip = core.fft3dfilter.FFT3DFilter(inpClip, sigma=sigma\
@@ -4334,7 +4269,6 @@ def aaf(                \
     if aax is None:
         aax = aay
 
-    core = vs.get_core()
     sx = inputClip.width
     sy = inputClip.height
 
@@ -4397,8 +4331,6 @@ def aaf(                \
 
 
 def AverageFrames(clip, weights, scenechange=None, planes=None):
-    core = vs.get_core()
-
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('AverageFrames: This is not a clip')
 
@@ -4409,8 +4341,6 @@ def AverageFrames(clip, weights, scenechange=None, planes=None):
 
 
 def Bob(clip, b=1/3, c=1/3, tff=None):
-    core = vs.get_core()
-
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('Bob: This is not a clip')
     if not isinstance(tff, bool):
@@ -4426,8 +4356,6 @@ def Bob(clip, b=1/3, c=1/3, tff=None):
 
 
 def ChangeFPS(clip, fpsnum, fpsden=1):
-    core = vs.get_core()
-
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('ChangeFPS: This is not a clip')
 
@@ -4443,8 +4371,6 @@ def ChangeFPS(clip, fpsnum, fpsden=1):
 
 
 def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 1, 2]):
-    core = vs.get_core()
-
     if not (isinstance(clip, vs.VideoNode) and isinstance(bright_limit, vs.VideoNode) and isinstance(dark_limit, vs.VideoNode)):
         raise TypeError('Clamp: This is not a clip')
     if bright_limit.format.id != clip.format.id or dark_limit.format.id != clip.format.id:
@@ -4459,8 +4385,6 @@ def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 
 
 
 def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, device_type=None, device_id=None, info=None):
-    core = vs.get_core()
-
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('KNLMeansCL: This is not a clip')
     if clip.format.color_family not in [vs.YUV, vs.YCOCG]:
@@ -4480,8 +4404,6 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
 
 
 def Overlay(clipa, clipb, x=0, y=0, mask=None):
-    core = vs.get_core()
-
     if not (isinstance(clipa, vs.VideoNode) and isinstance(clipb, vs.VideoNode)):
         raise TypeError('Overlay: This is not a clip')
     if clipa.format.subsampling_w > 0 or clipa.format.subsampling_h > 0:
@@ -4521,8 +4443,6 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None):
 
 
 def Padding(clip, left=0, right=0, top=0, bottom=0):
-    core = vs.get_core()
-
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('Padding: This is not a clip')
     if left < 0 or right < 0 or top < 0 or bottom < 0:
@@ -4535,8 +4455,6 @@ def Padding(clip, left=0, right=0, top=0, bottom=0):
 def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None, a1=None, a2=None, invks=None, invkstaps=None, css=None, planes=None,
            center=None, cplace=None, cplaces=None, cplaced=None, interlaced=None, interlacedd=None, tff=None, tffd=None, flt=None, noring=False,
            bits=None, fulls=None, fulld=None, dmode=None, ampo=None, ampn=None, dyn=None, staticnoise=None, patsize=None):
-    core = vs.get_core()
-
     if not isinstance(src, vs.VideoNode):
         raise TypeError('Resize: This is not a clip')
 
@@ -4593,8 +4511,6 @@ def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None
 
 
 def SCDetect(clip, threshold=None):
-    core = vs.get_core()
-
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('SCDetect: This is not a clip')
 
@@ -4618,8 +4534,6 @@ def SCDetect(clip, threshold=None):
 
 
 def Weave(clip, tff):
-    core = vs.get_core()
-
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('Weave: This is not a clip')
 
@@ -4636,8 +4550,6 @@ def Weave(clip, tff):
 #  radius (int) - Spatial radius of RemoveGrain for kernel blur(1-3). Default is 1
 #  rep (int)    - Mode of repair to limit the difference. Default is 1
 def ContraSharpening(denoised, original, radius=1, rep=1):
-    core = vs.get_core()
-
     if not (isinstance(denoised, vs.VideoNode) and isinstance(original, vs.VideoNode)):
         raise TypeError('ContraSharpening: This is not a clip')
     if denoised.format.id != original.format.id:
@@ -4681,8 +4593,6 @@ def ContraSharpening(denoised, original, radius=1, rep=1):
 # MinBlur   by Didée (http://avisynth.nl/index.php/MinBlur)
 # Nifty Gauss/Median combination
 def MinBlur(clp, r=1, planes=[0, 1, 2]):
-    core = vs.get_core()
-
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('MinBlur: This is not a clip')
 
@@ -4739,8 +4649,6 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
 
 # make a highpass on a blur's difference (well, kind of that)
 def sbr(c, r=1, planes=[0, 1, 2]):
-    core = vs.get_core()
-
     if not isinstance(c, vs.VideoNode):
         raise TypeError('sbr: This is not a clip')
 
@@ -4790,8 +4698,6 @@ def sbr(c, r=1, planes=[0, 1, 2]):
 
 
 def sbrV(c, r=1, planes=[0, 1, 2]):
-    core = vs.get_core()
-
     if not isinstance(c, vs.VideoNode):
         raise TypeError('sbrV: This is not a clip')
 
@@ -4831,8 +4737,6 @@ def sbrV(c, r=1, planes=[0, 1, 2]):
 # Converts luma (and chroma) to PC levels, and optionally allows tweaking for pumping up the darks. (for the clip to be fed to motion search only)
 # By courtesy of cretindesalpes. (http://forum.doom9.org/showthread.php?p=1548318#post1548318)
 def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
-    core = vs.get_core()
-
     if not isinstance(src, vs.VideoNode):
         raise TypeError('DitherLumaRebuild: This is not a clip')
 
@@ -4866,8 +4770,6 @@ def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
 #   Other parameters are the same as mt_xxpand.
 #=============================================================================
 def mt_expand_multi(src, mode='rectangle', planes=None, sw=1, sh=1):
-    core = vs.get_core()
-
     if not isinstance(src, vs.VideoNode):
         raise TypeError('mt_expand_multi: This is not a clip')
 
@@ -4887,8 +4789,6 @@ def mt_expand_multi(src, mode='rectangle', planes=None, sw=1, sh=1):
 
 
 def mt_inpand_multi(src, mode='rectangle', planes=None, sw=1, sh=1):
-    core = vs.get_core()
-
     if not isinstance(src, vs.VideoNode):
         raise TypeError('mt_inpand_multi: This is not a clip')
 
@@ -4908,8 +4808,6 @@ def mt_inpand_multi(src, mode='rectangle', planes=None, sw=1, sh=1):
 
 
 def mt_inflate_multi(src, planes=None, radius=1):
-    core = vs.get_core()
-
     if not isinstance(src, vs.VideoNode):
         raise TypeError('mt_inflate_multi: This is not a clip')
 
@@ -4919,8 +4817,6 @@ def mt_inflate_multi(src, planes=None, radius=1):
 
 
 def mt_deflate_multi(src, planes=None, radius=1):
-    core = vs.get_core()
-
     if not isinstance(src, vs.VideoNode):
         raise TypeError('mt_deflate_multi: This is not a clip')
 
