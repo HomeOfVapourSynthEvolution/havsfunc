@@ -885,7 +885,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if totalRestore <= 0:
         StabilizeNoise = False
     noiseTD = [1, 3, 5][NoiseTR]
-    noiseCentre = neutral if Denoiser == 'dfttest' else 128.5 * 2 ** (Input.format.bits_per_sample - 8)
+    noiseCentre = 128.5 * 2 ** (Input.format.bits_per_sample - 8) if Denoiser in ['fft3df', 'fft3dfilter'] else neutral
 
     # MVTools settings
     if Lambda is None:
