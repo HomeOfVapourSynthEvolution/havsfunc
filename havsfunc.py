@@ -82,7 +82,7 @@ def daa(c, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, 
         nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
 
     nn = myNNEDI3(c, field=3, **nnedi3_args)
-    dbl = core.std.Merge(core.std.SelectEvery(nn, 2, [0]), core.std.SelectEvery(nn, 2, [1]))
+    dbl = core.std.Merge(nn[::2], nn[1::2])
     dblD = core.std.MakeDiff(c, dbl)
     if c.width > 1100:
         shrpD = core.std.MakeDiff(dbl, core.std.Convolution(dbl, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]))
@@ -1951,7 +1951,7 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=Fal
     vect_f = core.mv.Analyse(jsup_pre, blksize=blksize, isb=False, delta=1, overlap=overlap)
     vect_b = core.mv.Analyse(jsup_pre, blksize=blksize, isb=True, delta=1, overlap=overlap)
     comp = core.mv.FlowInter(jitter, jsup, vect_b, vect_f)
-    fixed = core.std.SelectEvery(comp, 2, [0])
+    fixed = comp[::2]
     last = core.std.Interleave([clean, fixed])
     return core.std.Trim(last, invpos // 2).std.AssumeFPS(fpsnum=24000, fpsden=1001)
 
@@ -2355,7 +2355,7 @@ def Stab(clp, range=1, dxmax=4, dymax=4, mirror=0):
     inter = core.std.Interleave([core.rgvs.Repair(temp, AverageFrames(clp, weights=[1] * 3, scenechange=25 / 255), 1), clp])
     mdata = core.depan.DePanEstimate(inter, range=range, trust=0, dxmax=dxmax, dymax=dymax)
     last = core.depan.DePan(inter, data=mdata, offset=-1, mirror=mirror)
-    return core.std.SelectEvery(last, 2, [0])
+    return last[::2]
 
 
 ######
@@ -4537,7 +4537,7 @@ def Weave(clip, tff):
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('Weave: This is not a clip')
 
-    return core.std.DoubleWeave(clip, tff).std.SelectEvery(2, [0])
+    return core.std.DoubleWeave(clip, tff)[::2]
 
 
 ########################################
