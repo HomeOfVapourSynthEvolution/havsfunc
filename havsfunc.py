@@ -449,7 +449,7 @@ def YAHR(clp, blur=2, depth=32):
 
     b1 = core.rgvs.RemoveGrain(MinBlur(clp, 2), 11)
     b1D = core.std.MakeDiff(clp, b1)
-    w1 = Padding(clp, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.CropRel(6, 6, 6, 6)
+    w1 = Padding(clp, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.Crop(6, 6, 6, 6)
     w1b1 = core.rgvs.RemoveGrain(MinBlur(w1, 2), 11)
     w1b1D = core.std.MakeDiff(w1, w1b1)
     DD = core.rgvs.Repair(b1D, w1b1D, 13)
@@ -1324,7 +1324,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
 
     # Crop off temporary vertical padding
     if Border:
-        cropped = core.std.CropRel(decimated, top=4, bottom=4)
+        cropped = core.std.Crop(decimated, top=4, bottom=4)
     else:
         cropped = decimated
 
@@ -2018,7 +2018,7 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=Fal
 ### l/t/r/b [int, default: 0]
 ### ------------------
 ###    left/top/right/bottom pixels to be cropped for logo area.
-###    Have the same restriction as CropRel, e.g., no odd value for YV12.
+###    Have the same restriction as Crop, e.g., no odd value for YV12.
 ###    logoNR only filters the logo areas in logo frames, no matter l/t/r/b are set or not.
 ###    So if you have other heavy filters running in a pipeline and don't care much about the speed of logoNR,
 ###    it is safe to left these values unset.
@@ -2062,8 +2062,8 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
 
     b_crop = l != 0 or t != 0 or r != 0 or b != 0
     if b_crop:
-        src = core.std.CropRel(src, l, r, t, b)
-        last = core.std.CropRel(dlg, l, r, t, b)
+        src = core.std.Crop(src, l, r, t, b)
+        last = core.std.Crop(dlg, l, r, t, b)
     else:
         last = dlg
 
@@ -3107,21 +3107,21 @@ def InterFrame(Input, Preset='Medium', Tuning='Film', NewNum=None, NewDen=1, GPU
 
     # Get either 1 or 2 clips depending on InputType
     if InputType == 'SBS':
-        FirstEye = InterFrameProcess(core.std.CropRel(Input, right=Input.width // 2))
-        SecondEye = InterFrameProcess(core.std.CropRel(Input, left=Input.width // 2))
+        FirstEye = InterFrameProcess(core.std.Crop(Input, right=Input.width // 2))
+        SecondEye = InterFrameProcess(core.std.Crop(Input, left=Input.width // 2))
         return core.std.StackHorizontal([FirstEye, SecondEye])
     elif InputType == 'OU':
-        FirstEye = InterFrameProcess(core.std.CropRel(Input, bottom=Input.height // 2))
-        SecondEye = InterFrameProcess(core.std.CropRel(Input, top=Input.height // 2))
+        FirstEye = InterFrameProcess(core.std.Crop(Input, bottom=Input.height // 2))
+        SecondEye = InterFrameProcess(core.std.Crop(Input, top=Input.height // 2))
         return core.std.StackVertical([FirstEye, SecondEye])
     elif InputType == 'HSBS':
-        FirstEye = InterFrameProcess(core.std.CropRel(Input, right=Input.width // 2).resize.Spline36(Input.width, Input.height))
-        SecondEye = InterFrameProcess(core.std.CropRel(Input, left=Input.width // 2).resize.Spline36(Input.width, Input.height))
+        FirstEye = InterFrameProcess(core.std.Crop(Input, right=Input.width // 2).resize.Spline36(Input.width, Input.height))
+        SecondEye = InterFrameProcess(core.std.Crop(Input, left=Input.width // 2).resize.Spline36(Input.width, Input.height))
         return core.std.StackHorizontal([core.resize.Spline36(FirstEye, Input.width // 2, Input.height),
                                          core.resize.Spline36(SecondEye, Input.width // 2, Input.height)])
     elif InputType == 'HOU':
-        FirstEye = InterFrameProcess(core.std.CropRel(Input, bottom=Input.height // 2).resize.Spline36(Input.width, Input.height))
-        SecondEye = InterFrameProcess(core.std.CropRel(Input, top=Input.height // 2).resize.Spline36(Input.width, Input.height))
+        FirstEye = InterFrameProcess(core.std.Crop(Input, bottom=Input.height // 2).resize.Spline36(Input.width, Input.height))
+        SecondEye = InterFrameProcess(core.std.Crop(Input, top=Input.height // 2).resize.Spline36(Input.width, Input.height))
         return core.std.StackVertical([core.resize.Spline36(FirstEye, Input.width, Input.height // 2),
                                        core.resize.Spline36(SecondEye, Input.width, Input.height // 2)])
     else:
@@ -3532,10 +3532,10 @@ def Toon(input, str=1., l_thr=2, u_thr=12, blur=2, depth=32):
     last = core.std.MakeDiff(core.std.Maximum(input).std.Minimum(), input)
     if bits != 8:
         s16 = last
-        warp = Padding(core.fmtc.bitdepth(last, bits=8, dmode=1), 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.CropRel(6, 6, 6, 6)
+        warp = Padding(core.fmtc.bitdepth(last, bits=8, dmode=1), 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.Crop(6, 6, 6, 6)
         warp = mvf.LimitFilter(s16, core.fmtc.bitdepth(warp, bits=bits), thr=1, elast=2)
     else:
-        warp = Padding(last, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.CropRel(6, 6, 6, 6)
+        warp = Padding(last, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.Crop(6, 6, 6, 6)
     last = core.std.Expr([last, warp], ['x y min'])
     expr = 'y {lthr} <= {neutral} y {uthr} >= x {uthr8} y {multiple} / - 128 * x {multiple} / y {multiple} / {lthr8} - * + {ludiff} / {multiple} * ? {neutral} - {str} * {neutral} + ?'.format(lthr=lthr, neutral=neutral, uthr=uthr, uthr8=uthr8, multiple=multiple, lthr8=lthr8, ludiff=ludiff, str=str)
     last = core.std.MakeDiff(input, core.std.Expr([last, core.std.Maximum(last)], [expr]))
@@ -4509,8 +4509,8 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None):
     ct, pt = min(t, 0) * -1, max(t, 0)
     cb, pb = min(b, 0) * -1, max(b, 0)
     # Crop and padding
-    clipb = core.std.CropRel(clipb, cl, cr, ct, cb)
-    mask = core.std.CropRel(mask, cl, cr, ct, cb)
+    clipb = core.std.Crop(clipb, cl, cr, ct, cb)
+    mask = core.std.Crop(mask, cl, cr, ct, cb)
     clipb = core.std.AddBorders(clipb, pl, pr, pt, pb)
     mask = core.std.AddBorders(mask, pl, pr, pt, pb)
     # Return padded clip
