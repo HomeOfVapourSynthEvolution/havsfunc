@@ -26,6 +26,7 @@ Main functions:
     LUTDeRainbow
     Stab
     GrainStabilizeMC
+    MCTemporalDenoise
     SMDegrain
     STPresso
     SigmoidInverse, SigmoidDirect
@@ -2375,8 +2376,7 @@ def Stab(clp, range=1, dxmax=4, dymax=4, mirror=0):
 ###  planes (int[]) - Whether to process the corresponding plane. The other planes will be passed through unchanged. Default is [0, 1, 2]
 ###
 ######
-def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, planes=[0, 1, 2],
-         thSAD=300, thSADC=None, thSCD1=300, thSCD2=100, limit=None, limitc=None):
+def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, planes=[0, 1, 2], thSAD=300, thSADC=None, thSCD1=300, thSCD2=100, limit=None, limitc=None):
     if not isinstance(input, vs.VideoNode):
         raise TypeError('GSMC: This is not a clip')
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
@@ -2471,6 +2471,352 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
             expr = 'x {adapt} - abs {peak} * {adapt} {neutral} - abs {neutral} + /'.format(adapt=scale(adapt, peak), peak=peak, neutral=neutral)
             Lmask = core.std.Expr([input_y], [expr]).rgvs.RemoveGrain(19)
         return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
+
+
+####################################################################################################################################
+###                                                                                                                              ###
+###                                   Motion-Compensated Temporal Denoise: MCTemporalDenoise()                                   ###
+###                                                                                                                              ###
+###                                                     v1.4.20 by "LaTo INV."                                                   ###
+###                                                                                                                              ###
+###                                                           2 July 2010                                                        ###
+###                                                                                                                              ###
+####################################################################################################################################
+### 
+### 
+### 
+### /!\ Needed filters: MVTools,
+### ------------------- FFT3DFilter,
+###                     RGVS,
+###                     Deblock, DCTFilter.
+###
+### 
+### 
+### USAGE: MCTemporalDenoise(i, radius, sigma, twopass, limit, limit2, post, chroma,
+###                          deblock, useQED, quant1, quant2, 
+###                          bwbh, owoh, blksize, overlap,
+###                          bt, ncpu,
+###                          thSAD, thSAD2, thSCD1, thSCD2,
+###                          truemotion, MVglobal, pel, pelsearch, search, searchparam, MVsharp, DCT,
+###                          p, settings)
+###
+###
+###
+### PARAMETERS:
+### -----------
+###
+### +---------+
+### | DENOISE |
+### +---------+-----------------------------------------------------------------------------------------------+
+### | radius     : Temporal radius [1...6]                                                                    |
+### | sigma      : FFT3D sigma for the pre-filtering clip [0=no pre-filtering,1...]                           |
+### | twopass    : Do the denoising job in 2 stages (stronger but very slow)                                  |
+### | limit      : Limit the effect of the first denoising [-1=auto,0=off,1...255]                            |
+### | limit2     : Limit the effect of the second denoising (if twopass=true) [-1=auto,0=off,1...255]         |
+### | post       : Sigma value for post-denoising with FFT3D [0=off,...]                                      |
+### | chroma     : Process or not the chroma plane                                                            |
+### +---------------------------------------------------------------------------------------------------------+
+###
+###
+### +---------+
+### | DEBLOCK |
+### +---------+-----------------------------------------------------------------------------------+
+### | deblock : Enable deblocking before the denoising                                            |
+### | useQED  : If true, use Deblock_QED, else use Deblock (faster & stronger)                    |
+### | quant1  : Deblock_QED "quant1" parameter (Deblock "quant" parameter is "(quant1+quant2)/2") |
+### | quant2  : Deblock_QED "quant2" parameter (Deblock "quant" parameter is "(quant1+quant2)/2") |
+### +---------------------------------------------------------------------------------------------+
+###
+###
+### +---------------------+
+### | BLOCKSIZE / OVERLAP |
+### +---------------------+----------------+
+### | bwbh    : FFT3D blocksize            |
+### | owoh    : FFT3D overlap              |
+### |             - for speed:   bwbh/4    |
+### |             - for quality: bwbh/2    |
+### | blksize : MVTools blocksize          |
+### | overlap : MVTools overlap            |
+### |             - for speed:   blksize/4 |
+### |             - for quality: blksize/2 |
+### +--------------------------------------+
+###
+###
+### +-------+
+### | FFT3D |
+### +-------+-------------------------------+
+### | bt        : FFT3D block temporal size |
+### | ncpu      : FFT3DFilter ncpu          |
+### +---------------------------------------+
+###
+###
+### +---------+
+### | MVTOOLS |
+### +---------+----------------------------------------------------+
+### | thSAD  : MVTools thSAD for the first pass                    |
+### | thSAD2 : MVTools thSAD for the second pass (if twopass=true) |
+### | thSCD1 : MVTools thSCD1                                      |
+### | thSCD2 : MVTools thSCD2                                      |
+### +-----------------------------------+--------------------------+
+### | truemotion  : MVTools truemotion  |
+### | MVglobal    : MVTools global      |
+### | pel         : MVTools pel         |
+### | pelsearch   : MVTools pelsearch   |
+### | search      : MVTools search      |
+### | searchparam : MVTools searchparam |
+### | MVsharp     : MVTools sharp       |
+### | DCT         : MVTools DCT         |
+### +-----------------------------------+
+###
+###
+### +--------+
+### | GLOBAL |
+### +--------+-----------------------------------------------------+
+### | p        : Set an external prefilter clip                    |
+### | settings : Global MCTemporalDenoise settings [default="low"] |
+### |             - "very low"                                     |
+### |             - "low"                                          |
+### |             - "medium"                                       |
+### |             - "high"                                         |
+### |             - "very high"                                    |
+### +--------------------------------------------------------------+
+###
+###
+###
+### DEFAULTS:
+### ---------
+###
+### +-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+
+### | SETTINGS    |      VERY LOW               |      LOW                    |      MEDIUM                 |      HIGH                   |      VERY HIGH              |
+### |-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------|
+### | radius      |      1                      |      2                      |      3                      |      2                      |      3                      |
+### | sigma       |      2                      |      4                      |      8                      |      12                     |      16                     |
+### | twopass     |      false                  |      false                  |      false                  |      true                   |      true                   |
+### | limit       |      -1                     |      -1                     |      -1                     |      -1                     |      0                      |
+### | limit2      |      -1                     |      -1                     |      -1                     |      0                      |      0                      |
+### | post        |      0                      |      0                      |      0                      |      0                      |      0                      |
+### | chroma      |      false                  |      false                  |      true                   |      true                   |      true                   |
+### |-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------|
+### | deblock     |      false                  |      false                  |      false                  |      false                  |      false                  |
+### | useQED      |      true                   |      true                   |      true                   |      false                  |      false                  |
+### | quant1      |      10                     |      20                     |      30                     |      30                     |      40                     |
+### | quant2      |      20                     |      40                     |      60                     |      60                     |      80                     |
+### |-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------|
+### | bwbh        |      HD?16:8                |      HD?16:8                |      HD?16:8                |      HD?16:8                |      HD?16:8                |
+### | owoh        |      HD? 8:4                |      HD? 8:4                |      HD? 8:4                |      HD? 8:4                |      HD? 8:4                |
+### | blksize     |      HD?16:8                |      HD?16:8                |      HD?16:8                |      HD?16:8                |      HD?16:8                |
+### | overlap     |      HD? 8:4                |      HD? 8:4                |      HD? 8:4                |      HD? 8:4                |      HD? 8:4                |
+### |-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------|
+### | bt          |      1                      |      3                      |      3                      |      3                      |      4                      |
+### | ncpu        |      1                      |      1                      |      1                      |      1                      |      1                      |
+### |-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------|
+### | thSAD       |      200                    |      300                    |      400                    |      500                    |      600                    |
+### | thSAD2      |      200                    |      300                    |      400                    |      500                    |      600                    |
+### | thSCD1      |      200                    |      300                    |      400                    |      500                    |      600                    |
+### | thSCD2      |      90                     |      100                    |      100                    |      130                    |      130                    |
+### |-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------|
+### | truemotion  |      false                  |      false                  |      false                  |      false                  |      false                  |
+### | MVglobal    |      true                   |      true                   |      true                   |      true                   |      true                   |
+### | pel         |      1                      |      2                      |      2                      |      2                      |      2                      |
+### | pelsearch   |      1                      |      2                      |      2                      |      2                      |      2                      |
+### | search      |      2                      |      2                      |      2                      |      2                      |      2                      |
+### | searchparam |      2                      |      2                      |      2                      |      2                      |      2                      |
+### | MVsharp     |      2                      |      2                      |      2                      |      1                      |      0                      |
+### | DCT         |      0                      |      0                      |      0                      |      0                      |      0                      |
+### +-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+
+###
+####################################################################################################################################
+def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, limit=None, limit2=None, post=0, chroma=None, deblock=False, useQED=None, quant1=None, quant2=None,
+                      bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None, thSAD2=None, thSCD1=None, thSCD2=None,
+                      truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=2, searchparam=2, MVsharp=None, DCT=0, p=None, settings='low'):
+    if not isinstance(i, vs.VideoNode):
+        raise TypeError('MCTemporalDenoise: This is not a clip')
+    if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != i.format.id):
+        raise TypeError("MCTemporalDenoise: 'p' must be the same format as input")
+
+    neutral = 1 << (i.format.bits_per_sample - 1)
+    peak = (1 << i.format.bits_per_sample) - 1
+
+    isGray = (i.format.color_family == vs.GRAY)
+
+    ### DEFAULTS
+    try:
+        settings_num = ['very low', 'low', 'medium', 'high', 'very high'].index(settings.lower())
+    except:
+        raise ValueError('MCTemporalDenoise: These settings do not exist')
+
+    HD = i.width > 1024 or i.height > 576
+
+    if radius is None:
+        radius = [1, 2, 3, 2, 3][settings_num]
+    if sigma is None:
+        sigma = [2, 4, 8, 12, 16][settings_num]
+    if twopass is None:
+        twopass = [False, False, False, True, True][settings_num]
+    if limit is None:
+        limit = [-1, -1, -1, -1, 0][settings_num]
+    if limit2 is None:
+        limit2 = [-1, -1, -1, 0, 0][settings_num]
+    if chroma is None:
+        chroma = [False, False, True, True, True][settings_num]
+    if useQED is None:
+        useQED = [True, True, True, False, False][settings_num]
+    if quant1 is None:
+        quant1 = [10, 20, 30, 30, 40][settings_num]
+    if quant2 is None:
+        quant2 = [20, 40, 60, 60, 80][settings_num]
+    if bwbh is None:
+        bwbh = 16 if HD else 8
+    if owoh is None:
+        owoh = 8 if HD else 4
+    if blksize is None:
+        blksize = 16 if HD else 8
+    if overlap is None:
+        overlap = 8 if HD else 4
+    if bt is None:
+        bt = [1, 3, 3, 3, 4][settings_num]
+    if thSAD is None:
+        thSAD = [200, 300, 400, 500, 600][settings_num]
+    if thSAD2 is None:
+        thSAD2 = [200, 300, 400, 500, 600][settings_num]
+    if thSCD1 is None:
+        thSCD1 = [200, 300, 400, 500, 600][settings_num]
+    if thSCD2 is None:
+        thSCD2 = [90, 100, 100, 130, 130][settings_num]
+    if pel is None:
+        pel = [1, 2, 2, 2, 2][settings_num]
+    if pelsearch is None:
+        pelsearch = [1, 2, 2, 2, 2][settings_num]
+    if MVsharp is None:
+        MVsharp = [2, 2, 2, 1, 0][settings_num]
+
+    sigma *= peak / 255
+    limit = scale(limit, peak)
+    limit2 = scale(limit2, peak)
+    post *= peak / 255
+    planes = [0, 1, 2] if chroma and not isGray else [0]
+
+    ### INPUT
+    mod = bwbh if bwbh >= blksize else blksize
+    xi = i.width
+    xf = math.ceil(xi / mod) * mod - xi + mod
+    xn = int(xi + xf)
+    yi = i.height
+    yf = math.ceil(yi / mod) * mod - yi + mod
+    yn = int(yi + yf)
+
+    pointresize_args = dict(width=xn, height=yn, src_left=-xf / 2, src_top=-yf / 2, src_width=xn, src_height=yn)
+    i = core.resize.Point(i, **pointresize_args)
+
+    ### PREFILTERING
+    fft3d_args = dict(planes=planes, bw=bwbh, bh=bwbh, bt=bt, ow=owoh, oh=owoh, ncpu=ncpu)
+    if p is not None:
+        p = core.resize.Point(p, **pointresize_args)
+    elif sigma <= 0:
+        p = i
+    else:
+        p = core.fft3dfilter.FFT3DFilter(i, sigma=sigma * 0.8, sigma2=sigma * 0.6, sigma3=sigma * 0.4, sigma4=sigma * 0.2, **fft3d_args)
+
+    ### DEBLOCKING
+    if not deblock:
+        d = i
+    elif useQED:
+        d = Deblock_QED(core.std.Crop(i, xf / 2, xf / 2, yf / 2, yf / 2), quant1=quant1, quant2=quant2, uv=3 if chroma else 2).resize.Point(**pointresize_args)
+    else:
+        d = core.std.Crop(i, xf / 2, xf / 2, yf / 2, yf / 2).deblock.Deblock(quant=quant1 * 0.5 + quant2 * 0.5).resize.Point(**pointresize_args)
+
+    ### PREPARING
+    super_args = dict(hpad=0, vpad=0, pel=pel, chroma=chroma, sharp=MVsharp)
+    pMVS = DitherLumaRebuild(p, s0=1, chroma=chroma).mv.Super(**super_args)
+
+    analyse_args = dict(blksize=blksize, search=search, searchparam=searchparam, pelsearch=pelsearch, chroma=chroma, truemotion=truemotion, _global=MVglobal, overlap=overlap, dct=DCT)
+    f1v = core.mv.Analyse(pMVS, isb=False, delta=1, **analyse_args)
+    b1v = core.mv.Analyse(pMVS, isb=True, delta=1, **analyse_args)
+    if radius > 1:
+        f2v = core.mv.Analyse(pMVS, isb=False, delta=2, **analyse_args)
+        b2v = core.mv.Analyse(pMVS, isb=True, delta=2, **analyse_args)
+    if radius > 2:
+        f3v = core.mv.Analyse(pMVS, isb=False, delta=3, **analyse_args)
+        b3v = core.mv.Analyse(pMVS, isb=True, delta=3, **analyse_args)
+    if radius > 3:
+        f4v = core.mv.Analyse(pMVS, isb=False, delta=4, **analyse_args)
+        b4v = core.mv.Analyse(pMVS, isb=True, delta=4, **analyse_args)
+    if radius > 4:
+        f5v = core.mv.Analyse(pMVS, isb=False, delta=5, **analyse_args)
+        b5v = core.mv.Analyse(pMVS, isb=True, delta=5, **analyse_args)
+    if radius > 5:
+        f6v = core.mv.Analyse(pMVS, isb=False, delta=6, **analyse_args)
+        b6v = core.mv.Analyse(pMVS, isb=True, delta=6, **analyse_args)
+
+    def MCTD_MVD(i, iMVS, thSAD):
+        degrain_args = dict(thsad=thSAD, plane=4 if chroma else 0, thscd1=thSCD1, thscd2=thSCD2)
+
+        if radius == 4:
+            mv12 = core.mv.Degrain2(i, iMVS, b1v, f1v, b2v, f2v, **degrain_args)
+            mv34 = core.mv.Degrain2(i, iMVS, b3v, f3v, b4v, f4v, **degrain_args)
+        if radius == 5:
+            mv45 = core.mv.Degrain2(i, iMVS, b4v, f4v, b5v, f5v, **degrain_args)
+        if radius >= 5:
+            mv123 = core.mv.Degrain3(i, iMVS, b1v, f1v, b2v, f2v, b3v, f3v, **degrain_args)
+        if radius >= 6:
+            mv456 = core.mv.Degrain3(i, iMVS, b4v, f4v, b5v, f5v, b6v, f6v, **degrain_args)
+
+        if radius <= 1:
+            sm = core.mv.Degrain1(i, iMVS, b1v, f1v, **degrain_args)
+        elif radius == 2:
+            sm = core.mv.Degrain2(i, iMVS, b1v, f1v, b2v, f2v, **degrain_args)
+        elif radius == 3:
+            sm = core.mv.Degrain3(i, iMVS, b1v, f1v, b2v, f2v, b3v, f3v, **degrain_args)
+        elif radius == 4:
+            sm = core.std.Merge(mv12, mv34, weight=[0.4444])
+        elif radius == 5:
+            sm = core.std.Merge(mv123, mv45, weight=[0.4545])
+        else:
+            sm = core.std.Merge(mv123, mv456, weight=[0.4615])
+
+        return sm
+
+    ### DENOISING: FIRST PASS
+    dMVS = core.mv.Super(d, levels=1, **super_args)
+    sm = MCTD_MVD(d, dMVS, thSAD)
+
+    pD = core.std.MakeDiff(i, p, planes=planes)
+
+    if limit <= -1:
+        smD = core.std.MakeDiff(i, sm, planes=planes)
+        expr = 'x {neutral} - abs y {neutral} - abs < x y ?'.format(neutral=neutral)
+        DD = core.std.Expr([pD, smD], [expr] if chroma or isGray else [expr, ''])
+        smL = core.std.MakeDiff(i, DD, planes=planes)
+    elif limit > 0:
+        expr = 'x y - abs {limit} <= x x y - 0 < y {limit} - y {limit} + ? ?'.format(limit=limit)
+        smL = core.std.Expr([sm, i], [expr] if chroma or isGray else [expr, ''])
+    else:
+        smL = sm
+
+    ### DENOISING: SECOND PASS
+    if twopass:
+        smLMVS = core.mv.Super(smL, levels=1, **super_args)
+        sm = MCTD_MVD(smL, smLMVS, thSAD2)
+
+        if limit2 <= -1:
+            smD = core.std.MakeDiff(i, sm, planes=planes)
+            expr = 'x {neutral} - abs y {neutral} - abs < x y ?'.format(neutral=neutral)
+            DD = core.std.Expr([pD, smD], [expr] if chroma or isGray else [expr, ''])
+            smL = core.std.MakeDiff(i, DD, planes=planes)
+        elif limit2 > 0:
+            expr = 'x y - abs {limit2} <= x x y - 0 < y {limit2} - y {limit2} + ? ?'.format(limit2=limit2)
+            smL = core.std.Expr([sm, i], [expr] if chroma or isGray else [expr, ''])
+        else:
+            smL = sm
+
+    ### POST-DENOISING: FFT3D
+    if post <= 0:
+        smP = smL
+    else:
+        smP = core.fft3dfilter.FFT3DFilter(smL, sigma=post * 0.8, sigma2=post * 0.6, sigma3=post * 0.4, sigma4=post * 0.2, **fft3d_args)
+
+    ### OUTPUT
+    return core.std.Crop(smP, xf / 2, xf / 2, yf / 2, yf / 2)
 
 
 ################################################################################################
