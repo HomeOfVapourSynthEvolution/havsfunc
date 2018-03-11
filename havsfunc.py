@@ -88,7 +88,7 @@ def daa(c, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, 
     if c.width > 1100:
         shrpD = core.std.MakeDiff(dbl, core.std.Convolution(dbl, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]))
     else:
-        shrpD = core.std.MakeDiff(dbl, core.rgvs.RemoveGrain(dbl, 11))
+        shrpD = core.std.MakeDiff(dbl, core.std.Convolution(dbl, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
     DD = core.rgvs.Repair(shrpD, dblD, 13)
     return core.std.MergeDiff(dbl, DD)
 
@@ -236,7 +236,7 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
     # prepare to work on the V channel
     vch = mvf.GetPlane(adjust.Tweak(input, sat=thr), 2)
     if blur:
-        area = core.rgvs.RemoveGrain(vch, 11)
+        area = core.std.Convolution(vch, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     else:
         area = vch
 
@@ -247,7 +247,7 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
     # merge both masks
     mask = core.std.Merge(red, blue)
     if not blur:
-        mask = core.rgvs.RemoveGrain(mask, 11)
+        mask = core.std.Convolution(mask, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     mask = Levels(mask, scale(250, peak), 1, scale(250, peak), scale(255, peak), 0)
 
     # expand to cover beyond the bleeding areas and shift to compensate the resizing
@@ -437,10 +437,10 @@ def YAHR(clp, blur=2, depth=32):
     else:
         clp_src = None
 
-    b1 = core.rgvs.RemoveGrain(MinBlur(clp, 2), 11)
+    b1 = core.std.Convolution(MinBlur(clp, 2), matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     b1D = core.std.MakeDiff(clp, b1)
     w1 = Padding(clp, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.Crop(6, 6, 6, 6)
-    w1b1 = core.rgvs.RemoveGrain(MinBlur(w1, 2), 11)
+    w1b1 = core.std.Convolution(MinBlur(w1, 2), matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     w1b1D = core.std.MakeDiff(w1, w1b1)
     DD = core.rgvs.Repair(b1D, w1b1D, 13)
     DD2 = core.std.MakeDiff(b1D, DD)
@@ -510,29 +510,22 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     expr = 'x {neutral} - abs y {neutral} - abs <= x y ?'.format(neutral=neutral)
     if 0 in planes:
         Y = True
-        Y11 = 11
         Yexpr = expr
     else:
         Y = False
-        Y11 = 0
         Yexpr = ''
     if 1 in planes:
         U = True
-        U11 = 11
         Uexpr = expr
     else:
         U = False
-        U11 = 0
         Uexpr = ''
     if 2 in planes:
         V = True
-        V11 = 11
         Vexpr = expr
     else:
         V = False
-        V11 = 0
         Vexpr = ''
-    M11 = [Y11] if isGray else [Y11, U11, V11]
     matrix = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
     if sharp <= 0:
@@ -540,11 +533,11 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     else:
         pre = core.std.Median(p, planes=planes)
         if sharp == 1:
-            method = core.rgvs.RemoveGrain(pre, M11)
+            method = core.std.Convolution(pre, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
         elif sharp == 2:
-            method = core.rgvs.RemoveGrain(pre, M11).std.Convolution(matrix=matrix, planes=planes)
+            method = core.std.Convolution(pre, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes)
         else:
-            method = core.rgvs.RemoveGrain(pre, M11).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
+            method = core.std.Convolution(pre, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
         sharpdiff = core.std.MakeDiff(pre, method, planes=planes)
         allD = core.std.MakeDiff(input, p, planes=planes)
         ssDD = core.rgvs.Repair(sharpdiff, allD, [1] if isGray else [1 if Y else 0, 1 if U else 0, 1 if V else 0])
@@ -890,7 +883,6 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # Miscellaneous
     if InputType < 2:
         ProgSADMask = 0.
-    rgBlur = 11 if Precise else 12
 
     # Get maximum temporal radius needed
     maxTR = SLRad if temporalSL else 0
@@ -935,7 +927,6 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         bobbed = core.std.Convolution(clip, matrix=[1, 2, 1], mode='v')
 
     CMplanes = [0, 1, 2] if ChromaMotion and not isGray else [0]
-    CMrg = 12 if ChromaMotion else 0
 
     # The bobbed clip will shimmer due to being derived from alternating fields. Temporally smooth over the neighboring frames using a binomial kernel. Binomial
     # kernels give equal weight to even and odd frames and hence average away the shimmer. The two kernels used are [1 2 1] and [1 4 6 4 1] for radius 1 and 2.
@@ -961,9 +952,9 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # Blur image and soften edges to assist in motion matching of edge blocks. Blocks are matched by SAD (sum of absolute differences between blocks), but even
     # a slight change in an edge from frame to frame will give a high SAD due to the higher contrast of edges
     if SrchClipPP == 1:
-        spatialBlur = core.resize.Bilinear(repair0, w // 2, h // 2).rgvs.RemoveGrain([12] if isGray else [12, CMrg]).resize.Bilinear(w, h)
+        spatialBlur = core.resize.Bilinear(repair0, w // 2, h // 2).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=CMplanes).resize.Bilinear(w, h)
     elif SrchClipPP >= 2:
-        spatialBlur = Resize(core.rgvs.RemoveGrain(repair0, [12] if isGray else [12, CMrg]), w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=2, dmode=1)
+        spatialBlur = Resize(core.std.Convolution(repair0, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=CMplanes), w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=2, dmode=1)
     if SrchClipPP > 1:
         spatialBlur = core.std.Merge(spatialBlur, repair0, weight=[0.1] if ChromaMotion or isGray else [0.1, 0])
     if SrchClipPP <= 0:
@@ -1157,14 +1148,14 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if SMode <= 0:
         resharp = lossed1
     elif SMode == 1:
-        resharp = core.std.Expr([lossed1, core.rgvs.RemoveGrain(lossed1, rgBlur)], ['x x y - {sharpAdj} * +'.format(sharpAdj=sharpAdj)])
+        resharp = core.std.Expr([lossed1, core.std.Convolution(lossed1, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])], ['x x y - {sharpAdj} * +'.format(sharpAdj=sharpAdj)])
     else:
         vresharp1 = core.std.Merge(core.std.Maximum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]), core.std.Minimum(lossed1, coordinates=[0, 1, 0, 0, 0, 0, 1, 0]))
         if Precise:
             vresharp = core.std.Expr([vresharp1, lossed1], ['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))]) # Precise mode: reduce tiny overshoot
         else:
             vresharp = vresharp1
-        resharp = core.std.Expr([lossed1, core.rgvs.RemoveGrain(vresharp, rgBlur)], ['x x y - {sharpAdj} * +'.format(sharpAdj=sharpAdj)])
+        resharp = core.std.Expr([lossed1, core.std.Convolution(vresharp, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])], ['x x y - {sharpAdj} * +'.format(sharpAdj=sharpAdj)])
 
     # Slightly thin down 1-pixel high horizontal edges that have been widened into neigboring field lines by the interpolator
     SVThinSc = SVThin * 6.
@@ -1173,7 +1164,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         vertMedD = core.std.Expr([lossed1, core.rgvs.VerticalCleaner(lossed1, [1] if isGray else [1, 0])], [expr] if isGray else [expr, ''])
         vertMedD = core.std.Convolution(vertMedD, matrix=[1, 2, 1], planes=[0], mode='h')
         expr = 'y {neutral} - abs x {neutral} - abs > y {neutral} ?'.format(neutral=neutral)
-        neighborD = core.std.Expr([vertMedD, core.rgvs.RemoveGrain(vertMedD, [rgBlur] if isGray else [rgBlur, 0])], [expr] if isGray else [expr, ''])
+        neighborD = core.std.Expr([vertMedD, core.std.Convolution(vertMedD, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0])], [expr] if isGray else [expr, ''])
         thin = core.std.MergeDiff(resharp, neighborD, planes=[0])
     else:
         thin = resharp
@@ -1183,7 +1174,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         backBlend1 = thin
     else:
         backBlend1 = core.std.MakeDiff(thin,
-                                       Resize(core.std.MakeDiff(thin, lossed1, planes=[0]).rgvs.RemoveGrain([12] if isGray else [12, 0]),
+                                       Resize(core.std.MakeDiff(thin, lossed1, planes=[0]).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0]),
                                               w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=5, dmode=1),
                                        planes=[0])
 
@@ -1204,7 +1195,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
         backBlend2 = sharpLimit1
     else:
         backBlend2 = core.std.MakeDiff(sharpLimit1,
-                                       Resize(core.std.MakeDiff(sharpLimit1, lossed1, planes=[0]).rgvs.RemoveGrain([12] if isGray else [12, 0]),
+                                       Resize(core.std.MakeDiff(sharpLimit1, lossed1, planes=[0]).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0]),
                                               w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=5, dmode=1),
                                        planes=[0])
 
@@ -1535,7 +1526,7 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
 
     # Enhance effect of source-match stages 2 & 3 by sharpening clip prior to refinement (source-match tends to underestimate so this will leave result sharper)
     if SourceMatch > 1 and MatchEnhance > 0:
-        match1Shp = core.std.Expr([match1, core.rgvs.RemoveGrain(match1, 12)], ['x x y - {MatchEnhance} * +'.format(MatchEnhance=MatchEnhance)])
+        match1Shp = core.std.Expr([match1, core.std.Convolution(match1, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])], ['x x y - {MatchEnhance} * +'.format(MatchEnhance=MatchEnhance)])
     else:
         match1Shp = match1
 
@@ -1667,8 +1658,8 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         unblend1 = core.std.Expr([sourceDuplicate, source], ['x -1 * y 2 * +'])
         unblend2 = core.std.Expr([sourceTrim1, sourceTrim2], ['x 2 * y -1 * +'])
 
-        qmask1 = core.std.MakeDiff(core.rgvs.RemoveGrain(unblend1, [19, 0]), unblend1, planes=[0])
-        qmask2 = core.std.MakeDiff(core.rgvs.RemoveGrain(unblend2, [19, 0]), unblend2, planes=[0])
+        qmask1 = core.std.MakeDiff(core.std.Convolution(unblend1, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1], planes=[0]), unblend1, planes=[0])
+        qmask2 = core.std.MakeDiff(core.std.Convolution(unblend2, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1], planes=[0]), unblend2, planes=[0])
         diffm = core.std.MakeDiff(sourceDuplicate, source, planes=[0]).std.Maximum(planes=[0])
         expr = 'x {neutral} - dup * dup y {neutral} - dup * + / {peak} *'.format(neutral=neutral, peak=peak)
         bmask = core.std.Expr([qmask1, qmask2], [expr, ''])
@@ -1680,11 +1671,11 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         if omode == 'pp0':
             fin = core.std.Expr([sourceDuplicate, source, sourceTrim1, sourceTrim2], ['x -0.5 * y + z + a -0.5 * +'])
         elif omode == 'pp1':
-            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Expr([core.rgvs.RemoveGrain(dmask, [12, 0])], ['', repr(neutral)]))
+            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Expr([core.std.Convolution(dmask, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0])], ['', repr(neutral)]))
         elif omode == 'pp2':
-            fin = core.std.MaskedMerge(unblend1, unblend2, core.rgvs.RemoveGrain(bmask, [12, 0]), first_plane=True)
+            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Convolution(bmask, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0]), first_plane=True)
         elif omode == 'pp3':
-            fin = core.std.MaskedMerge(unblend1, unblend2, core.rgvs.RemoveGrain(pmask, [12, 0]), first_plane=True).rgvs.RemoveGrain([0, 12])
+            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Convolution(pmask, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0]), first_plane=True).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[1,2])
         else:
             raise ValueError('srestore: unexpected value for omode')
 
@@ -2041,7 +2032,7 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
         clp_nr = KNLMeansCL(last, d=d, a=a, s=s, h=h)
     else:
         clp_nr = core.knlm.KNLMeansCL(last, d=d, a=a, s=s, h=h)
-    logoM = mt_expand_multi(core.std.Expr([last, src], ['x y - abs 16 *']), mode='losange', sw=3, sh=3).rgvs.RemoveGrain(19).std.Deflate()
+    logoM = mt_expand_multi(core.std.Expr([last, src], ['x y - abs 16 *']), mode='losange', sw=3, sh=3).std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1]).std.Deflate()
     clp_nr = core.std.MaskedMerge(last, clp_nr, logoM)
 
     if b_crop:
@@ -2464,12 +2455,12 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     else:
         input_y = mvf.GetPlane(input, 0)
         if adapt == 0:
-            Lmask = core.rgvs.RemoveGrain(input_y, 19)
+            Lmask = core.std.Convolution(input_y, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
         elif adapt >= 255:
-            Lmask = core.std.Invert(input_y).rgvs.RemoveGrain(19)
+            Lmask = core.std.Invert(input_y).std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
         else:
             expr = 'x {adapt} - abs {peak} * {adapt} {neutral} - abs {neutral} + /'.format(adapt=scale(adapt, peak), peak=peak, neutral=neutral)
-            Lmask = core.std.Expr([input_y], [expr]).rgvs.RemoveGrain(19)
+            Lmask = core.std.Expr([input_y], [expr]).std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
         return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
 
 
@@ -3594,6 +3585,14 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
         output_high = peak
     if Ecenter is None:
         Ecenter = neutral
+    if RGmode == 11 or RGmode == 12:
+        Filter = functools.partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    elif RGmode == 19:
+        Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+    elif RGmode == 20:
+        Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+    else:
+        Filter = functools.partial(core.rgvs.RemoveGrain, mode=[RGmode])
 
     Dstr = DarkSTR / 100
     Bstr = BrightSTR / 100
@@ -3659,7 +3658,7 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
         scaleC = ((output_high - output_low) / (input_high - input_low) + 100 / chroma - 1) / (100 / chroma)
         level = core.std.Expr([level], ['', 'x {neutral} - {scaleC} * {neutral} +'.format(neutral=neutral, scaleC=scaleC)])
     diff = core.std.Expr([limitI, level], ['x y - {Mfactor} * {neutral} +'.format(Mfactor=Mfactor, neutral=neutral)])
-    process = core.rgvs.RemoveGrain(diff, RGmode)
+    process = Filter(diff)
     if useDB:
         expr = 'x {neutral} - {Mfactor} / {neutral} +'.format(neutral=neutral, Mfactor=Mfactor)
         process = core.std.Expr([process], [expr]).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
@@ -3669,7 +3668,7 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
 
     level2 = core.std.Expr([limitI, diff], ['x y {neutral} - {Mfactor} / -'.format(neutral=neutral, Mfactor=Mfactor)])
     diff2 = core.std.Expr([level2, level], ['x y - {Mfactor} * {neutral} +'.format(Mfactor=Mfactor, neutral=neutral)])
-    process2 = core.rgvs.RemoveGrain(diff2, RGmode)
+    process2 = Filter(diff2)
     if useDB:
         expr = 'x {neutral} - {Mfactor} / {neutral} +'.format(neutral=neutral, Mfactor=Mfactor)
         process2 = core.std.Expr([process2], [expr]).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
@@ -4228,6 +4227,14 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         dest_x = ox
     if dest_y is None:
         dest_y = oy
+    if kernel == 11 or kernel == 12:
+        Filter = functools.partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    elif kernel == 19:
+        Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+    elif kernel == 20:
+        Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+    else:
+        Filter = functools.partial(core.rgvs.RemoveGrain, mode=[kernel])
 
     if soft == -1:
         soft = math.sqrt(((ss_x + ss_y) / 2 - 1) * 100) * 10
@@ -4269,7 +4276,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if not preblur:
         pre = tmp
     else:
-        diff1 = core.std.MakeDiff(tmp, core.rgvs.RemoveGrain(tmp, 11))
+        diff1 = core.std.MakeDiff(tmp, core.std.Convolution(tmp, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
         diff2 = core.std.MakeDiff(tmp, core.std.Median(tmp))
         diff3 = core.std.Expr([diff1, diff2], ['x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=neutral)])
         pre = core.std.MakeDiff(tmp, diff3)
@@ -4278,11 +4285,11 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     bright_limit = core.std.Maximum(pre)
 
     if Smethod <= 1:
-        method = core.rgvs.RemoveGrain(pre, kernel)
+        method = Filter(pre)
     elif Smethod == 2:
         method = core.std.Merge(dark_limit, bright_limit)
     else:
-        method = core.std.Merge(dark_limit, bright_limit).rgvs.RemoveGrain(kernel)
+        method = Filter(core.std.Merge(dark_limit, bright_limit))
 
     if secure:
         method = core.std.Expr([method, pre], ['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))])
@@ -4324,16 +4331,16 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if edgemode <= 0:
         limit2 = limit1
     elif edgemode == 1:
-        limit2 = core.std.MaskedMerge(tmp, limit1, core.std.Inflate(edge).std.Inflate().rgvs.RemoveGrain(11))
+        limit2 = core.std.MaskedMerge(tmp, limit1, core.std.Inflate(edge).std.Inflate().std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
     else:
-        limit2 = core.std.MaskedMerge(limit1, tmp, core.std.Inflate(edge).std.Inflate().rgvs.RemoveGrain(11))
+        limit2 = core.std.MaskedMerge(limit1, tmp, core.std.Inflate(edge).std.Inflate().std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
 
     ### SOFT
     if soft == 0:
         PP1 = limit2
     else:
         sharpdiff = core.std.MakeDiff(tmp, limit2)
-        sharpdiff = core.std.Expr([sharpdiff, core.rgvs.RemoveGrain(sharpdiff, 19)],
+        sharpdiff = core.std.Expr([sharpdiff, core.std.Convolution(sharpdiff, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])],
                                   ['x {neutral} - abs y {neutral} - abs > y {soft} * x {i} * + 100 / x ?'.format(neutral=neutral, soft=soft, i=100 - soft)])
         PP1 = core.std.MakeDiff(tmp, sharpdiff)
 
@@ -4739,17 +4746,14 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
     nrY = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id, info=info)
 
     if clip.format.subsampling_w > 0 or clip.format.subsampling_h > 0:
-        subY = core.resize.Bicubic(mvf.GetPlane(clip, 0), clip.width >> clip.format.subsampling_w, clip.height >> clip.format.subsampling_h,
-                                   src_left=-0.5 * (1 << clip.format.subsampling_w) + 0.5, filter_param_a=0, filter_param_b=0.5)
-        yuv444 = core.std.ShufflePlanes([subY, clip], planes=[0, 1, 2], colorfamily=clip.format.color_family)
-        nrUV = core.knlm.KNLMeansCL(yuv444, d=d, a=a, s=s, h=h, channels='YUV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
+        nrUV = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, channels='UV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
     else:
         nrUV = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, channels='YUV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
 
     return core.std.ShufflePlanes([nrY, nrUV], planes=[0, 1, 2], colorfamily=clip.format.color_family)
 
 
-def Overlay(clipa, clipb, x=0, y=0, mask=None, opacity=1.):
+def Overlay(clipa, clipb, x=0, y=0, mask=None):
     if not (isinstance(clipa, vs.VideoNode) and isinstance(clipb, vs.VideoNode)):
         raise TypeError('Overlay: This is not a clip')
     if clipa.format.subsampling_w > 0 or clipa.format.subsampling_h > 0:
@@ -4767,25 +4771,20 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None, opacity=1.):
         raise TypeError("Overlay: 'mask' must be the same dimension as 'clipb'")
 
     mask = mvf.GetPlane(mask, 0)
-    if opacity < 1:
-        mask = core.std.Expr([mask], ['x {} *'.format(opacity)])
 
     # Calculate padding sizes
     l, r = x, clipa.width - clipb.width - x
     t, b = y, clipa.height - clipb.height - y
-
     # Split into crop and padding values
     cl, pl = min(l, 0) * -1, max(l, 0)
     cr, pr = min(r, 0) * -1, max(r, 0)
     ct, pt = min(t, 0) * -1, max(t, 0)
     cb, pb = min(b, 0) * -1, max(b, 0)
-
     # Crop and padding
     clipb = core.std.Crop(clipb, cl, cr, ct, cb)
     mask = core.std.Crop(mask, cl, cr, ct, cb)
     clipb = core.std.AddBorders(clipb, pl, pr, pt, pb)
     mask = core.std.AddBorders(mask, pl, pr, pt, pb)
-
     # Return padded clip
     last = core.std.MaskedMerge(clipa, clipb, mask)
     if clipa_src is not None:
@@ -4797,7 +4796,7 @@ def Padding(clip, left=0, right=0, top=0, bottom=0):
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('Padding: This is not a clip')
     if left < 0 or right < 0 or top < 0 or bottom < 0:
-        raise ValueError('Padding: border size to pad must not be negative')
+        raise ValueError('Padding: border size to pad must be positive')
 
     return core.resize.Point(clip, clip.width + left + right, clip.height + top + bottom,
                              src_left=-left, src_top=-top, src_width=clip.width + left + right, src_height=clip.height + top + bottom)
@@ -4916,11 +4915,11 @@ def ContraSharpening(denoised, original, radius=1, rep=1):
     s = MinBlur(denoised, 1)                     # Damp down remaining spots of the denoised clip.
 
     if radius <= 1:
-        RG11 = core.rgvs.RemoveGrain(s, 11)
+        RG11 = core.std.Convolution(s, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     elif radius == 2:
-        RG11 = core.rgvs.RemoveGrain(s, 11).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        RG11 = core.std.Convolution(s, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
     else:
-        RG11 = core.rgvs.RemoveGrain(s, 11).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        RG11 = core.std.Convolution(s, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
 
     ssD = core.std.MakeDiff(s, RG11)             # The difference of a simple kernel blur.
     allD = core.std.MakeDiff(original, denoised) # The difference achieved by the denoising.
@@ -4957,37 +4956,30 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
 
     expr = 'x y - x z - * 0 < x x y - abs x z - abs < y z ? ?'
     if 0 in planes:
-        Y11 = 11
         Yexpr = expr
     else:
-        Y11 = 0
         Yexpr = ''
     if 1 in planes:
-        U11 = 11
         Uexpr = expr
     else:
-        U11 = 0
         Uexpr = ''
     if 2 in planes:
-        V11 = 11
         Vexpr = expr
     else:
-        V11 = 0
         Vexpr = ''
-    M11 = [Y11] if isGray else [Y11, U11, V11]
     matrix = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
     if r <= 0:
         RG11 = sbr(clp, planes=planes)
         RG4 = core.std.Median(clp, planes=planes)
     elif r == 1:
-        RG11 = core.rgvs.RemoveGrain(clp, M11)
+        RG11 = core.std.Convolution(clp, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
         RG4 = core.std.Median(clp, planes=planes)
     elif r == 2:
-        RG11 = core.rgvs.RemoveGrain(clp, M11).std.Convolution(matrix=matrix, planes=planes)
+        RG11 = core.std.Convolution(clp, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes)
         RG4 = core.ctmf.CTMF(clp, radius=2, planes=planes)
     else:
-        RG11 = core.rgvs.RemoveGrain(clp, M11).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
+        RG11 = core.std.Convolution(clp, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
         if bits == 16:
             s16 = clp
             RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=3, planes=planes)
@@ -5032,18 +5024,18 @@ def sbr(c, r=1, planes=[0, 1, 2]):
     matrix = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
     if r <= 1:
-        RG11 = core.rgvs.RemoveGrain(c, M11)
+        RG11 = core.std.Convolution(c, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
     elif r == 2:
-        RG11 = core.rgvs.RemoveGrain(c, M11).std.Convolution(matrix=matrix, planes=planes)
+        RG11 = core.std.Convolution(c, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes)
     else:
-        RG11 = core.rgvs.RemoveGrain(c, M11).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
+        RG11 = core.std.Convolution(c, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
     RG11D = core.std.MakeDiff(c, RG11, planes=planes)
     if r <= 1:
-        RG11DS = core.rgvs.RemoveGrain(RG11D, M11)
+        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
     elif r == 2:
-        RG11DS = core.rgvs.RemoveGrain(RG11D, M11).std.Convolution(matrix=matrix, planes=planes)
+        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes)
     else:
-        RG11DS = core.rgvs.RemoveGrain(RG11D, M11).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
+        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
     RG11DD = core.std.Expr([RG11D, RG11DS], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
     return core.std.MakeDiff(c, RG11DD, planes=planes)
 
