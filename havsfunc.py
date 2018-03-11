@@ -4749,7 +4749,7 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
     return core.std.ShufflePlanes([nrY, nrUV], planes=[0, 1, 2], colorfamily=clip.format.color_family)
 
 
-def Overlay(clipa, clipb, x=0, y=0, mask=None):
+def Overlay(clipa, clipb, x=0, y=0, mask=None, opacity=1.):
     if not (isinstance(clipa, vs.VideoNode) and isinstance(clipb, vs.VideoNode)):
         raise TypeError('Overlay: This is not a clip')
     if clipa.format.subsampling_w > 0 or clipa.format.subsampling_h > 0:
@@ -4767,20 +4767,25 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None):
         raise TypeError("Overlay: 'mask' must be the same dimension as 'clipb'")
 
     mask = mvf.GetPlane(mask, 0)
+    if opacity < 1:
+        mask = core.std.Expr([mask], ['x {} *'.format(opacity)])
 
     # Calculate padding sizes
     l, r = x, clipa.width - clipb.width - x
     t, b = y, clipa.height - clipb.height - y
+
     # Split into crop and padding values
     cl, pl = min(l, 0) * -1, max(l, 0)
     cr, pr = min(r, 0) * -1, max(r, 0)
     ct, pt = min(t, 0) * -1, max(t, 0)
     cb, pb = min(b, 0) * -1, max(b, 0)
+
     # Crop and padding
     clipb = core.std.Crop(clipb, cl, cr, ct, cb)
     mask = core.std.Crop(mask, cl, cr, ct, cb)
     clipb = core.std.AddBorders(clipb, pl, pr, pt, pb)
     mask = core.std.AddBorders(mask, pl, pr, pt, pb)
+
     # Return padded clip
     last = core.std.MaskedMerge(clipa, clipb, mask)
     if clipa_src is not None:
@@ -4792,7 +4797,7 @@ def Padding(clip, left=0, right=0, top=0, bottom=0):
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('Padding: This is not a clip')
     if left < 0 or right < 0 or top < 0 or bottom < 0:
-        raise ValueError('Padding: border size to pad must be positive')
+        raise ValueError('Padding: border size to pad must not be negative')
 
     return core.resize.Point(clip, clip.width + left + right, clip.height + top + bottom,
                              src_left=-left, src_top=-top, src_width=clip.width + left + right, src_height=clip.height + top + bottom)
