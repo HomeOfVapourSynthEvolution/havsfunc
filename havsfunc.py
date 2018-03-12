@@ -304,7 +304,7 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     neutral = 1 << (clp.format.bits_per_sample - 1)
     peak = (1 << clp.format.bits_per_sample) - 1
 
-    isGray = clp.format.color_family == vs.GRAY
+    isGray = (clp.format.color_family == vs.GRAY)
     planes = [0, 1, 2] if uv >= 3 and not isGray else [0]
 
     # add borders if clp is not mod 8
@@ -498,7 +498,7 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     neutral = 1 << (input.format.bits_per_sample - 1)
     peak = (1 << input.format.bits_per_sample) - 1
 
-    isGray = input.format.color_family == vs.GRAY
+    isGray = (input.format.color_family == vs.GRAY)
     if isinstance(planes, int):
         planes = [planes]
 
@@ -507,6 +507,9 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
         p = MinBlur(input, nrmode, planes=planes)
 
     # Post-Process: Contra-Sharpening
+    matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
+    matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+
     expr = 'x {neutral} - abs y {neutral} - abs <= x y ?'.format(neutral=neutral)
     if 0 in planes:
         Y = True
@@ -526,18 +529,17 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     else:
         V = False
         Vexpr = ''
-    matrix = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
     if sharp <= 0:
         sclp = p
     else:
         pre = core.std.Median(p, planes=planes)
         if sharp == 1:
-            method = core.std.Convolution(pre, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
+            method = core.std.Convolution(pre, matrix=matrix1, planes=planes)
         elif sharp == 2:
-            method = core.std.Convolution(pre, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes)
+            method = core.std.Convolution(pre, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
         else:
-            method = core.std.Convolution(pre, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
+            method = core.std.Convolution(pre, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
         sharpdiff = core.std.MakeDiff(pre, method, planes=planes)
         allD = core.std.MakeDiff(input, p, planes=planes)
         ssDD = core.rgvs.Repair(sharpdiff, allD, [1] if isGray else [1 if Y else 0, 1 if U else 0, 1 if V else 0])
@@ -1667,15 +1669,17 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         dmask = core.std.Expr([diffm, core.std.Trim(diffm, 2)], [expr, ''])
         pmask = core.std.Expr([dmask, bmask], ['y 0 > y {peak} < and x 0 = x {peak} = or and x y ?'.format(peak=peak), ''])
 
+        matrix = [1, 2, 1, 2, 4, 2, 1, 2, 1]
+
         omode = omode.lower()
         if omode == 'pp0':
             fin = core.std.Expr([sourceDuplicate, source, sourceTrim1, sourceTrim2], ['x -0.5 * y + z + a -0.5 * +'])
         elif omode == 'pp1':
-            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Expr([core.std.Convolution(dmask, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0])], ['', repr(neutral)]))
+            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Expr([core.std.Convolution(dmask, matrix=matrix, planes=[0])], ['', repr(neutral)]))
         elif omode == 'pp2':
-            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Convolution(bmask, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0]), first_plane=True)
+            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Convolution(bmask, matrix=matrix, planes=[0]), first_plane=True)
         elif omode == 'pp3':
-            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Convolution(pmask, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0]), first_plane=True).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[1,2])
+            fin = core.std.MaskedMerge(unblend1, unblend2, core.std.Convolution(pmask, matrix=matrix, planes=[0]), first_plane=True).std.Convolution(matrix=matrix, planes=[1, 2])
         else:
             raise ValueError('srestore: unexpected value for omode')
 
@@ -2389,7 +2393,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     if limitc is not None:
         limitc = scale(limitc, peak)
 
-    isGray = input.format.color_family == vs.GRAY
+    isGray = (input.format.color_family == vs.GRAY)
     if isGray:
         planes = [0]
     if isinstance(planes, int):
@@ -3105,7 +3109,7 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
 
     peak = (1 << clp.format.bits_per_sample) - 1
 
-    isGray = clp.format.color_family == vs.GRAY
+    isGray = (clp.format.color_family == vs.GRAY)
     if isGray:
         planes = [0]
     if isinstance(planes, int):
@@ -3572,7 +3576,7 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
     neutral = 1 << (input.format.bits_per_sample - 1)
     peak = (1 << input.format.bits_per_sample) - 1
 
-    isGray = input.format.color_family == vs.GRAY
+    isGray = (input.format.color_family == vs.GRAY)
     if chroma <= 0 and not isGray:
         input_src = input
         input = mvf.GetPlane(input, 0)
@@ -3585,7 +3589,8 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
         output_high = peak
     if Ecenter is None:
         Ecenter = neutral
-    if RGmode == 11 or RGmode == 12:
+
+    if RGmode in [11, 12]:
         Filter = functools.partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     elif RGmode == 19:
         Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
@@ -4178,7 +4183,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     peak = (1 << input.format.bits_per_sample) - 1
     multiple = peak / 255
 
-    isGray = input.format.color_family == vs.GRAY
+    isGray = (input.format.color_family == vs.GRAY)
 
     ### DEFAULTS
     try:
@@ -4227,7 +4232,8 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         dest_x = ox
     if dest_y is None:
         dest_y = oy
-    if kernel == 11 or kernel == 12:
+
+    if kernel in [11, 12]:
         Filter = functools.partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     elif kernel == 19:
         Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
@@ -4773,22 +4779,23 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None, opacity=1.):
     mask = mvf.GetPlane(mask, 0)
     if opacity < 1:
         mask = core.std.Expr([mask], ['x {} *'.format(opacity)])
+
     # Calculate padding sizes
     l, r = x, clipa.width - clipb.width - x
     t, b = y, clipa.height - clipb.height - y
-    
+
     # Split into crop and padding values
     cl, pl = min(l, 0) * -1, max(l, 0)
     cr, pr = min(r, 0) * -1, max(r, 0)
     ct, pt = min(t, 0) * -1, max(t, 0)
     cb, pb = min(b, 0) * -1, max(b, 0)
-    
+
     # Crop and padding
     clipb = core.std.Crop(clipb, cl, cr, ct, cb)
     mask = core.std.Crop(mask, cl, cr, ct, cb)
     clipb = core.std.AddBorders(clipb, pl, pr, pt, pb)
     mask = core.std.AddBorders(mask, pl, pr, pt, pb)
-    
+
     # Return padded clip
     last = core.std.MaskedMerge(clipa, clipb, mask)
     if clipa_src is not None:
@@ -4958,32 +4965,25 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
     if isinstance(planes, int):
         planes = [planes]
 
+    matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
+    matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+
     expr = 'x y - x z - * 0 < x x y - abs x z - abs < y z ? ?'
-    if 0 in planes:
-        Yexpr = expr
-    else:
-        Yexpr = ''
-    if 1 in planes:
-        Uexpr = expr
-    else:
-        Uexpr = ''
-    if 2 in planes:
-        Vexpr = expr
-    else:
-        Vexpr = ''
-    matrix = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+    Yexpr = expr if 0 in planes else ''
+    Uexpr = expr if 1 in planes else ''
+    Vexpr = expr if 2 in planes else ''
 
     if r <= 0:
         RG11 = sbr(clp, planes=planes)
         RG4 = core.std.Median(clp, planes=planes)
     elif r == 1:
-        RG11 = core.std.Convolution(clp, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
+        RG11 = core.std.Convolution(clp, matrix=matrix1, planes=planes)
         RG4 = core.std.Median(clp, planes=planes)
     elif r == 2:
-        RG11 = core.std.Convolution(clp, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes)
+        RG11 = core.std.Convolution(clp, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
         RG4 = core.ctmf.CTMF(clp, radius=2, planes=planes)
     else:
-        RG11 = core.std.Convolution(clp, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
+        RG11 = core.std.Convolution(clp, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
         if bits == 16:
             s16 = clp
             RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=3, planes=planes)
@@ -4999,47 +4999,33 @@ def sbr(c, r=1, planes=[0, 1, 2]):
     if not isinstance(c, vs.VideoNode):
         raise TypeError('sbr: This is not a clip')
 
-    isGray = c.format.color_family == vs.GRAY
+    isGray = (c.format.color_family == vs.GRAY)
     if isGray:
         planes = [0]
     if isinstance(planes, int):
         planes = [planes]
 
+    matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
+    matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+
     expr = 'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'.format(neutral=1 << (c.format.bits_per_sample - 1))
-    if 0 in planes:
-        Y11 = 11
-        Yexpr = expr
-    else:
-        Y11 = 0
-        Yexpr = ''
-    if 1 in planes:
-        U11 = 11
-        Uexpr = expr
-    else:
-        U11 = 0
-        Uexpr = ''
-    if 2 in planes:
-        V11 = 11
-        Vexpr = expr
-    else:
-        V11 = 0
-        Vexpr = ''
-    M11 = [Y11] if isGray else [Y11, U11, V11]
-    matrix = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+    Yexpr = expr if 0 in planes else ''
+    Uexpr = expr if 1 in planes else ''
+    Vexpr = expr if 2 in planes else ''
 
     if r <= 1:
-        RG11 = core.std.Convolution(c, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
+        RG11 = core.std.Convolution(c, matrix=matrix1, planes=planes)
     elif r == 2:
-        RG11 = core.std.Convolution(c, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes)
+        RG11 = core.std.Convolution(c, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
     else:
-        RG11 = core.std.Convolution(c, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
+        RG11 = core.std.Convolution(c, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
     RG11D = core.std.MakeDiff(c, RG11, planes=planes)
     if r <= 1:
-        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
+        RG11DS = core.std.Convolution(RG11D, matrix=matrix1, planes=planes)
     elif r == 2:
-        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes)
+        RG11DS = core.std.Convolution(RG11D, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
     else:
-        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes).std.Convolution(matrix=matrix, planes=planes).std.Convolution(matrix=matrix, planes=planes)
+        RG11DS = core.std.Convolution(RG11D, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
     RG11DD = core.std.Expr([RG11D, RG11DS], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
     return core.std.MakeDiff(c, RG11DD, planes=planes)
 
@@ -5048,11 +5034,14 @@ def sbrV(c, r=1, planes=[0, 1, 2]):
     if not isinstance(c, vs.VideoNode):
         raise TypeError('sbrV: This is not a clip')
 
-    isGray = c.format.color_family == vs.GRAY
+    isGray = (c.format.color_family == vs.GRAY)
     if isGray:
         planes = [0]
     if isinstance(planes, int):
         planes = [planes]
+
+    matrix1 = [1, 2, 1]
+    matrix2 = [1, 4, 6, 4, 1]
 
     expr = 'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'.format(neutral=1 << (c.format.bits_per_sample - 1))
     Yexpr = expr if 0 in planes else ''
@@ -5060,20 +5049,18 @@ def sbrV(c, r=1, planes=[0, 1, 2]):
     Vexpr = expr if 2 in planes else ''
 
     if r <= 1:
-        RG11 = core.std.Convolution(c, matrix=[1, 2, 1], planes=planes, mode='v')
+        RG11 = core.std.Convolution(c, matrix=matrix1, planes=planes, mode='v')
     elif r == 2:
-        RG11 = core.std.Convolution(c, matrix=[1, 2, 1], planes=planes, mode='v').std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
+        RG11 = core.std.Convolution(c, matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
     else:
-        RG11 = core.std.Convolution(c, matrix=[1, 2, 1], planes=planes, mode='v')
-        RG11 = core.std.Convolution(RG11, matrix=[1, 4, 6, 4, 1], planes=planes, mode='v').std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
+        RG11 = core.std.Convolution(c, matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
     RG11D = core.std.MakeDiff(c, RG11, planes=planes)
     if r <= 1:
-        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1], planes=planes, mode='v')
+        RG11DS = core.std.Convolution(RG11D, matrix=matrix1, planes=planes, mode='v')
     elif r == 2:
-        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1], planes=planes, mode='v').std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
+        RG11DS = core.std.Convolution(RG11D, matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
     else:
-        RG11DS = core.std.Convolution(RG11D, matrix=[1, 2, 1], planes=planes, mode='v')
-        RG11DS = core.std.Convolution(RG11DS, matrix=[1, 4, 6, 4, 1], planes=planes, mode='v').std.Convolution(matrix=[1, 4, 6, 4, 1], planes=planes, mode='v')
+        RG11DS = core.std.Convolution(RG11D, matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
     RG11DD = core.std.Expr([RG11D, RG11DS], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
     return core.std.MakeDiff(c, RG11DD, planes=planes)
 
@@ -5089,7 +5076,7 @@ def DitherLumaRebuild(src, s0=2., c=0.0625, chroma=True):
 
     shift = src.format.bits_per_sample - 8
 
-    isGray = src.format.color_family == vs.GRAY
+    isGray = (src.format.color_family == vs.GRAY)
 
     k = (s0 - 1) * c
     t = 'x {} - {} / 0 max 1 min'.format(16 << shift, 219 << shift)
