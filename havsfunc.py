@@ -1589,10 +1589,10 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         raise TypeError('srestore: This is not a clip')
     if source.format.color_family == vs.GRAY:
         raise TypeError('srestore: Gray color family is not supported')
-    if dclip is not None and not isinstance(dclip, vs.VideoNode):
-        raise TypeError('srestore: dclip is not a clip')
-    else:
+    if dclip is None:
         dclip = source
+    elif not isinstance(dclip, vs.VideoNode):
+        raise TypeError('srestore: dclip is not a clip')
 
     neutral = 1 << (source.format.bits_per_sample - 1)
     peak = (1 << source.format.bits_per_sample) - 1
