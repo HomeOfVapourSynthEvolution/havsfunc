@@ -2532,18 +2532,17 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ###                                                           2 July 2010                                                        ###
 ###                                                                                                                              ###
 ####################################################################################################################################
-### 
-### 
-### 
-### /!\ Needed filters: MVTools,
-### ------------------- FFT3DFilter,
-###                     RGVS,
-###                     Deblock, DCTFilter.
 ###
-### 
-### 
-### USAGE: MCTemporalDenoise(i, radius, sigma, twopass, limit, limit2, post, chroma,
+###
+###
+### /!\ Needed filters: MVTools, FFT3DFilter, TTempSmooth, RGVS, Deblock, DCTFilter.
+### -------------------
+###
+###
+###
+### USAGE: MCTemporalDenoise(i, radius, sigma, twopass, useTTmpSm, limit, limit2, post, chroma,
 ###                          deblock, useQED, quant1, quant2, 
+###                          stabilize, maxr, TTstr,  
 ###                          bwbh, owoh, blksize, overlap,
 ###                          bt, ncpu,
 ###                          thSAD, thSAD2, thSCD1, thSCD2,
@@ -2561,6 +2560,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | radius     : Temporal radius [1...6]                                                                    |
 ### | sigma      : FFT3D sigma for the pre-filtering clip [0=no pre-filtering,1...]                           |
 ### | twopass    : Do the denoising job in 2 stages (stronger but very slow)                                  |
+### | useTTmpSm  : Use MDegrain (faster) or MCompensate+TTempsmooth (stronger)                                |
 ### | limit      : Limit the effect of the first denoising [-1=auto,0=off,1...255]                            |
 ### | limit2     : Limit the effect of the second denoising (if twopass=true) [-1=auto,0=off,1...255]         |
 ### | post       : Sigma value for post-denoising with FFT3D [0=off,...]                                      |
@@ -2576,6 +2576,15 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | quant1  : Deblock_QED "quant1" parameter (Deblock "quant" parameter is "(quant1+quant2)/2") |
 ### | quant2  : Deblock_QED "quant2" parameter (Deblock "quant" parameter is "(quant1+quant2)/2") |
 ### +---------------------------------------------------------------------------------------------+
+###
+###
+### +-----------+
+### | STABILIZE |
+### +-----------+------------------------------------------------------------------------------------------------+
+### | stabilize : Enable TTempSmooth post processing to stabilize flat areas (background will be less "nervous") |
+### | maxr      : Temporal radius (the higher, the more stable image)                                            |
+### | TTstr     : Strength (see TTempSmooth docs)                                                                |
+### +------------------------------------------------------------------------------------------------------------+
 ###
 ###
 ### +---------------------+
@@ -2642,6 +2651,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | radius      |      1                      |      2                      |      3                      |      2                      |      3                      |
 ### | sigma       |      2                      |      4                      |      8                      |      12                     |      16                     |
 ### | twopass     |      false                  |      false                  |      false                  |      true                   |      true                   |
+### | useTTmpSm   |      false                  |      false                  |      false                  |      false                  |      false                  |
 ### | limit       |      -1                     |      -1                     |      -1                     |      -1                     |      0                      |
 ### | limit2      |      -1                     |      -1                     |      -1                     |      0                      |      0                      |
 ### | post        |      0                      |      0                      |      0                      |      0                      |      0                      |
@@ -2651,6 +2661,10 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | useQED      |      true                   |      true                   |      true                   |      false                  |      false                  |
 ### | quant1      |      10                     |      20                     |      30                     |      30                     |      40                     |
 ### | quant2      |      20                     |      40                     |      60                     |      60                     |      80                     |
+### |-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------|
+### | stabilize   |      false                  |      false                  |      false                  |      true                   |      true                   |
+### | maxr        |      1                      |      1                      |      2                      |      2                      |      2                      |
+### | TTstr       |      1                      |      1                      |      1                      |      2                      |      2                      |
 ### |-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------|
 ### | bwbh        |      HD?16:8                |      HD?16:8                |      HD?16:8                |      HD?16:8                |      HD?16:8                |
 ### | owoh        |      HD? 8:4                |      HD? 8:4                |      HD? 8:4                |      HD? 8:4                |      HD? 8:4                |
@@ -2676,8 +2690,8 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### +-------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-----------------------------+
 ###
 ####################################################################################################################################
-def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, limit=None, limit2=None, post=0, chroma=None, deblock=False, useQED=None, quant1=None, quant2=None,
-                      bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None, thSAD2=None, thSCD1=None, thSCD2=None,
+def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, deblock=False, useQED=None, quant1=None, quant2=None,
+                      stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None, thSAD2=None, thSCD1=None, thSCD2=None,
                       truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=2, searchparam=2, MVsharp=None, DCT=0, p=None, settings='low'):
     if not isinstance(i, vs.VideoNode):
         raise TypeError('MCTemporalDenoise: This is not a clip')
@@ -2715,6 +2729,12 @@ def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, limit=None, limi
         quant1 = [10, 20, 30, 30, 40][settings_num]
     if quant2 is None:
         quant2 = [20, 40, 60, 60, 80][settings_num]
+    if stabilize is None:
+        stabilize = [False, False, False, True, True][settings_num]
+    if maxr is None:
+        maxr = [1, 1, 2, 2, 2][settings_num]
+    if TTstr is None:
+        TTstr = [1, 1, 1, 2, 2][settings_num]
     if bwbh is None:
         bwbh = 16 if HD else 8
     if owoh is None:
@@ -2768,16 +2788,18 @@ def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, limit=None, limi
         p = core.fft3dfilter.FFT3DFilter(i, sigma=sigma * 0.8, sigma2=sigma * 0.6, sigma3=sigma * 0.4, sigma4=sigma * 0.2, **fft3d_args)
 
     ### DEBLOCKING
+    crop_args = dict(left=xf / 2, right=xf / 2, top=yf / 2, bottom=yf / 2)
     if not deblock:
         d = i
     elif useQED:
-        d = Deblock_QED(core.std.Crop(i, xf / 2, xf / 2, yf / 2, yf / 2), quant1=quant1, quant2=quant2, uv=3 if chroma else 2).resize.Point(**pointresize_args)
+        d = Deblock_QED(core.std.Crop(i, **crop_args), quant1=quant1, quant2=quant2, uv=3 if chroma else 2).resize.Point(**pointresize_args)
     else:
-        d = core.std.Crop(i, xf / 2, xf / 2, yf / 2, yf / 2).deblock.Deblock(quant=quant1 * 0.5 + quant2 * 0.5).resize.Point(**pointresize_args)
+        d = core.std.Crop(i, **crop_args).deblock.Deblock(quant=(quant1 + quant2) / 2, planes=planes).resize.Point(**pointresize_args)
 
     ### PREPARING
     super_args = dict(hpad=0, vpad=0, pel=pel, chroma=chroma, sharp=MVsharp)
     pMVS = DitherLumaRebuild(p, s0=1, chroma=chroma).mv.Super(**super_args)
+    dMVS = core.mv.Super(d, levels=1, **super_args)
 
     analyse_args = dict(blksize=blksize, search=search, searchparam=searchparam, pelsearch=pelsearch, chroma=chroma, truemotion=truemotion, _global=MVglobal, overlap=overlap, dct=DCT)
     f1v = core.mv.Analyse(pMVS, isb=False, delta=1, **analyse_args)
@@ -2797,6 +2819,16 @@ def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, limit=None, limi
     if radius > 5:
         f6v = core.mv.Analyse(pMVS, isb=False, delta=6, **analyse_args)
         b6v = core.mv.Analyse(pMVS, isb=True, delta=6, **analyse_args)
+
+    if useTTmpSm:
+        compensate_args = dict(thsad=thSAD, thscd1=thSCD1, thscd2=thSCD2)
+        f1c = core.mv.Compensate(d, dMVS, f1v, **compensate_args)
+        b1c = core.mv.Compensate(d, dMVS, b1v, **compensate_args)
+
+    # if useTTmpSm or stabilize:
+        # mask_args = dict(ml=thSAD, gamma=0.999, kind=1, ysc=255)
+        # SAD_f1m = core.mv.Mask(d, f1v, **mask_args)
+        # SAD_b1m = core.mv.Mask(d, b1v, **mask_args)
 
     def MCTD_MVD(i, iMVS, thSAD):
         degrain_args = dict(thsad=thSAD, plane=4 if chroma else 0, thscd1=thSCD1, thscd2=thSCD2)
@@ -2826,10 +2858,59 @@ def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, limit=None, limi
 
         return sm
 
-    ### DENOISING: FIRST PASS
-    dMVS = core.mv.Super(d, levels=1, **super_args)
-    sm = MCTD_MVD(d, dMVS, thSAD)
+    def MCTD_TTSM(i, iMVS, thSAD):
+        if radius > 1:
+            f2c = core.mv.Compensate(i, iMVS, f2v, **compensate_args)
+            b2c = core.mv.Compensate(i, iMVS, b2v, **compensate_args)
+            # SAD_f2m = core.mv.Mask(i, f2v, **mask_args)
+            # SAD_b2m = core.mv.Mask(i, b2v, **mask_args)
+        if radius > 2:
+            f3c = core.mv.Compensate(i, iMVS, f3v, **compensate_args)
+            b3c = core.mv.Compensate(i, iMVS, b3v, **compensate_args)
+            # SAD_f3m = core.mv.Mask(i, f3v, **mask_args)
+            # SAD_b3m = core.mv.Mask(i, b3v, **mask_args)
+        if radius > 3:
+            f4c = core.mv.Compensate(i, iMVS, f4v, **compensate_args)
+            b4c = core.mv.Compensate(i, iMVS, b4v, **compensate_args)
+            # SAD_f4m = core.mv.Mask(i, f4v, **mask_args)
+            # SAD_b4m = core.mv.Mask(i, b4v, **mask_args)
+        if radius > 4:
+            f5c = core.mv.Compensate(i, iMVS, f5v, **compensate_args)
+            b5c = core.mv.Compensate(i, iMVS, b5v, **compensate_args)
+            # SAD_f5m = core.mv.Mask(i, f5v, **mask_args)
+            # SAD_b5m = core.mv.Mask(i, b5v, **mask_args)
+        if radius > 5:
+            f6c = core.mv.Compensate(i, iMVS, f6v, **compensate_args)
+            b6c = core.mv.Compensate(i, iMVS, b6v, **compensate_args)
+            # SAD_f6m = core.mv.Mask(i, f6v, **mask_args)
+            # SAD_b6m = core.mv.Mask(i, b6v, **mask_args)
 
+        # b = core.std.BlankClip(i, color=[0] if isGray else [0, neutral, neutral])
+        if radius <= 1:
+            c = core.std.Interleave([f1c, i, b1c])
+            # SAD_m = core.std.Interleave([SAD_f1m, b, SAD_b1m])
+        elif radius == 2:
+            c = core.std.Interleave([f2c, f1c, i, b1c, b2c])
+            # SAD_m = core.std.Interleave([SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m])
+        elif radius == 3:
+            c = core.std.Interleave([f3c, f2c, f1c, i, b1c, b2c, b3c])
+            # SAD_m = core.std.Interleave([SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m])
+        elif radius == 4:
+            c = core.std.Interleave([f4c, f3c, f2c, f1c, i, b1c, b2c, b3c, b4c])
+            # SAD_m = core.std.Interleave([SAD_f4m, SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m, SAD_b4m])
+        elif radius == 5:
+            c = core.std.Interleave([f5c, f4c, f3c, f2c, f1c, i, b1c, b2c, b3c, b4c, b5c])
+            # SAD_m = core.std.Interleave([SAD_f5m, SAD_f4m, SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m, SAD_b4m, SAD_b5m])
+        else:
+            c = core.std.Interleave([f6c, f5c, f4c, f3c, f2c, f1c, i, b1c, b2c, b3c, b4c, b5c, b6c])
+            # SAD_m = core.std.Interleave([SAD_f6m, SAD_f5m, SAD_f4m, SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m, SAD_b4m, SAD_b5m, SAD_b6m])
+
+        # sm = core.ttmpsm.TTempSmooth(c, maxr=radius, thresh=255, mdiff=1, strength=radius + 1, scthresh=99.9, fp=False, pfclip=SAD_m, planes=planes)
+        sm = core.ttmpsm.TTempSmooth(c, maxr=radius, thresh=255, mdiff=1, strength=radius + 1, scthresh=99.9, fp=False, planes=planes)
+        return core.std.SelectEvery(sm, radius * 2 + 1, [radius])
+
+    ### DENOISING: FIRST PASS
+    sm = MCTD_TTSM(d, dMVS, thSAD) if useTTmpSm else MCTD_MVD(d, dMVS, thSAD)
     pD = core.std.MakeDiff(i, p, planes=planes)
 
     if limit <= -1:
@@ -2846,7 +2927,7 @@ def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, limit=None, limi
     ### DENOISING: SECOND PASS
     if twopass:
         smLMVS = core.mv.Super(smL, levels=1, **super_args)
-        sm = MCTD_MVD(smL, smLMVS, thSAD2)
+        sm = MCTD_TTSM(smL, smLMVS, thSAD2) if useTTmpSm else MCTD_MVD(smL, smLMVS, thSAD2)
 
         if limit2 <= -1:
             smD = core.std.MakeDiff(i, sm, planes=planes)
@@ -2865,8 +2946,17 @@ def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, limit=None, limi
     else:
         smP = core.fft3dfilter.FFT3DFilter(smL, sigma=post * 0.8, sigma2=post * 0.6, sigma3=post * 0.4, sigma4=post * 0.2, **fft3d_args)
 
+    ### STABILIZING
+    if stabilize:
+        # mM = core.std.Merge(SAD_f1m, SAD_b1m, weight=[0.5] if isGray else [0.5, 0]).std.Lut(planes=[0], function=lambda x: min(math.floor(x ** 1.6 + 0.5), peak))
+        mE = core.std.Prewitt(smP, planes=[0]).std.Lut(planes=[0], function=lambda x: min(math.floor(x ** 1.8 + 0.5), peak)).std.Median(planes=[0]).std.Inflate(planes=[0])
+        # mF = core.std.Expr([mM, mE], ['x y max'] if isGray else ['x y max', '']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1], planes=[0])
+        mF = core.std.Convolution(mE, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1], planes=[0])
+        TTc = core.ttmpsm.TTempSmooth(smP, maxr=maxr, mdiff=255, strength=TTstr, planes=planes)
+        smP = core.std.MaskedMerge(TTc, smP, mF, planes=planes, first_plane=True)
+
     ### OUTPUT
-    return core.std.Crop(smP, xf / 2, xf / 2, yf / 2, yf / 2)
+    return core.std.Crop(smP, **crop_args)
 
 
 ################################################################################################
