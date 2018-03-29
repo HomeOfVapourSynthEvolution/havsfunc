@@ -14,6 +14,7 @@ Main functions:
     FixChromaBleedingMod
     Deblock_QED
     DeHalo_alpha
+    EdgeCleaner
     YAHR
     HQDering mod
     QTGMC
@@ -420,6 +421,60 @@ def DeHalo_alpha(clp, rx=2., ry=2., darkstr=1., brightstr=1., lowsens=50, highse
         return core.std.ShufflePlanes([them, clp_src], planes=[0, 1, 2], colorfamily=clp_src.format.color_family)
     else:
         return them
+
+
+# EdgeCleaner() v1.04 (03/04/2012)
+# - a simple edge cleaning and weak dehaloing function
+#
+# Requirements:
+# AWarpSharp2, RGVS (optional)
+#
+# Parameters:
+# strength (float)      - specifies edge denoising strength (10)
+# rep (boolean)         - actives Repair for the aWarpSharped clip (true)
+# rmode (integer)       - specifies the Repair mode;
+#                         1 is very mild and good for halos,
+#                         16 and 18 are good for edge structure preserval on strong settings but keep more halos and edge noise,
+#                         17 is similar to 16 but keeps much less haloing, other modes are not recommended (17)
+# smode (integer)       - specifies what method will be used for finding small particles, ie stars;
+#                         0 is disabled, 1 uses RemoveGrain (0)
+# hot (boolean)         - specifies whether removal of hot pixels should take place (false)
+def EdgeCleaner(c, strength=10, rep=True, rmode=17, smode=0, hot=False):
+    if not isinstance(c, vs.VideoNode):
+        raise TypeError('EdgeCleaner: This is not a clip')
+
+    peak = (1 << c.format.bits_per_sample) - 1
+
+    if c.format.color_family != vs.GRAY:
+        c_src = c
+        c = mvf.GetPlane(c, 0)
+    else:
+        c_src = None
+
+    if smode >= 1:
+        strength += 4
+
+    main = Padding(c, 6, 6, 6, 6).warp.AWarpSharp2(blur=1, depth=math.floor(strength / 2 + 0.5)).std.Crop(6, 6, 6, 6)
+    if rep:
+        main = core.rgvs.Repair(main, c, rmode)
+
+    expr = 'x {i} < 0 x {j} > {peak} x ? ?'.format(i=scale(4, peak), j=scale(32, peak), peak=peak)
+    mask = core.std.Prewitt(c).std.Expr([expr]).std.Invert().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+
+    final = core.std.MaskedMerge(c, main, mask)
+    if hot:
+        final = core.rgvs.Repair(final, c, 2)
+    if smode >= 1:
+        clean = core.rgvs.RemoveGrain(c, 17)
+        diff = core.std.MakeDiff(c, clean)
+        expr = 'x {i} < 0 x {j} > {peak} x ? ?'.format(i=scale(4, peak), j=scale(16, peak), peak=peak)
+        mask = core.std.Levels(diff, min_in=scale(40, peak), max_in=scale(168, peak), gamma=0.35).rgvs.RemoveGrain(7).std.Prewitt().std.Expr([expr])
+        final = core.std.MaskedMerge(final, c, mask)
+
+    if c_src is not None:
+        return core.std.ShufflePlanes([final, c_src], planes=[0, 1, 2], colorfamily=c_src.format.color_family)
+    else:
+        return final
 
 
 # Y'et A'nother H'alo R'educing script
