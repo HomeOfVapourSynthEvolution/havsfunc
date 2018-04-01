@@ -2685,7 +2685,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | MVglobal    |      true            |      true            |      true            |      true            |      true            |
 ### | pel         |      1               |      2               |      2               |      2               |      2               |
 ### | pelsearch   |      1               |      2               |      2               |      2               |      2               |
-### | search      |      2               |      2               |      2               |      2               |      2               |
+### | search      |      4               |      4               |      4               |      4               |      4               |
 ### | searchparam |      2               |      2               |      2               |      2               |      2               |
 ### | MVsharp     |      2               |      2               |      2               |      1               |      0               |
 ### | DCT         |      0               |      0               |      0               |      0               |      0               |
@@ -2694,7 +2694,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ####################################################################################################################################
 def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, deblock=False, useQED=None, quant1=None, quant2=None,
                       stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None, thSAD2=None, thSCD1=None, thSCD2=None,
-                      truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=2, searchparam=2, MVsharp=None, DCT=0, p=None, settings='low'):
+                      truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=4, searchparam=2, MVsharp=None, DCT=0, p=None, settings='low'):
     if not isinstance(i, vs.VideoNode):
         raise TypeError('MCTemporalDenoise: This is not a clip')
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != i.format.id):
