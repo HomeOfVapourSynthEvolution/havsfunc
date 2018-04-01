@@ -2540,7 +2540,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ###
 ###
 ###
-### USAGE: MCTemporalDenoise(i, radius, pfMode, sigma, twopass, useTTmpSm, limit, limit2, post, chroma,
+### USAGE: MCTemporalDenoise(i, radius, pfMode, sigma, twopass, useTTmpSm, limit, limit2, post, chroma, refine,
 ###                          deblock, useQED, quant1, quant2,
 ###                          stabilize, maxr, TTstr,
 ###                          bwbh, owoh, blksize, overlap,
@@ -2566,6 +2566,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | limit2    : Limit the effect of the second denoising (if twopass=true) [-1=auto,0=off,1...255] |
 ### | post      : Sigma value for post-denoising with FFT3D [0=off,...]                              |
 ### | chroma    : Process or not the chroma plane                                                    |
+### | refine    : Refine and recalculate motion data of previously estimated motion vectors          |
 ### +------------------------------------------------------------------------------------------------+
 ###
 ###
@@ -2692,9 +2693,9 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### +-------------+----------------------+----------------------+----------------------+----------------------+----------------------+
 ###
 ####################################################################################################################################
-def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, deblock=False, useQED=None, quant1=None, quant2=None,
-                      stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None, thSAD2=None, thSCD1=None, thSCD2=None,
-                      truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=4, searchparam=2, MVsharp=None, DCT=0, p=None, settings='low'):
+def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, refine=False, deblock=False, useQED=None,
+                      quant1=None, quant2=None, stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None, thSAD2=None,
+                      thSCD1=None, thSCD2=None, truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=4, searchparam=2, MVsharp=None, DCT=0, p=None, settings='low'):
     if not isinstance(i, vs.VideoNode):
         raise TypeError('MCTemporalDenoise: This is not a clip')
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != i.format.id):
@@ -2793,6 +2794,9 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
     else:
         p = MinBlur(i, pfMode, planes=planes)
 
+    pD = core.std.MakeDiff(i, p, planes=planes)
+    p = DitherLumaRebuild(p, s0=1, chroma=chroma)
+
     ### DEBLOCKING
     crop_args = dict(left=xf / 2, right=xf / 2, top=yf / 2, bottom=yf / 2)
     if not deblock:
@@ -2804,27 +2808,48 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
 
     ### PREPARING
     super_args = dict(hpad=0, vpad=0, pel=pel, chroma=chroma, sharp=MVsharp)
-    pMVS = DitherLumaRebuild(p, s0=1, chroma=chroma).mv.Super(**super_args)
+    pMVS = core.mv.Super(p, rfilter=4 if refine else 2, **super_args)
+    if refine:
+        rMVS = core.mv.Super(p, levels=1, **super_args)
     dMVS = core.mv.Super(d, levels=1, **super_args)
 
     analyse_args = dict(blksize=blksize, search=search, searchparam=searchparam, pelsearch=pelsearch, chroma=chroma, truemotion=truemotion, _global=MVglobal, overlap=overlap, dct=DCT)
+    recalculate_args = dict(thsad=thSAD / 2, blksize=max(blksize / 2, 4), search=search, chroma=chroma, truemotion=truemotion, overlap=max(overlap / 2, 2), dct=DCT)
     f1v = core.mv.Analyse(pMVS, isb=False, delta=1, **analyse_args)
     b1v = core.mv.Analyse(pMVS, isb=True, delta=1, **analyse_args)
+    if refine:
+        f1v = core.mv.Recalculate(rMVS, f1v, **recalculate_args)
+        b1v = core.mv.Recalculate(rMVS, b1v, **recalculate_args)
     if radius > 1:
         f2v = core.mv.Analyse(pMVS, isb=False, delta=2, **analyse_args)
         b2v = core.mv.Analyse(pMVS, isb=True, delta=2, **analyse_args)
+        if refine:
+            f2v = core.mv.Recalculate(rMVS, f2v, **recalculate_args)
+            b2v = core.mv.Recalculate(rMVS, b2v, **recalculate_args)
     if radius > 2:
         f3v = core.mv.Analyse(pMVS, isb=False, delta=3, **analyse_args)
         b3v = core.mv.Analyse(pMVS, isb=True, delta=3, **analyse_args)
+        if refine:
+            f3v = core.mv.Recalculate(rMVS, f3v, **recalculate_args)
+            b3v = core.mv.Recalculate(rMVS, b3v, **recalculate_args)
     if radius > 3:
         f4v = core.mv.Analyse(pMVS, isb=False, delta=4, **analyse_args)
         b4v = core.mv.Analyse(pMVS, isb=True, delta=4, **analyse_args)
+        if refine:
+            f4v = core.mv.Recalculate(rMVS, f4v, **recalculate_args)
+            b4v = core.mv.Recalculate(rMVS, b4v, **recalculate_args)
     if radius > 4:
         f5v = core.mv.Analyse(pMVS, isb=False, delta=5, **analyse_args)
         b5v = core.mv.Analyse(pMVS, isb=True, delta=5, **analyse_args)
+        if refine:
+            f5v = core.mv.Recalculate(rMVS, f5v, **recalculate_args)
+            b5v = core.mv.Recalculate(rMVS, b5v, **recalculate_args)
     if radius > 5:
         f6v = core.mv.Analyse(pMVS, isb=False, delta=6, **analyse_args)
         b6v = core.mv.Analyse(pMVS, isb=True, delta=6, **analyse_args)
+        if refine:
+            f6v = core.mv.Recalculate(rMVS, f6v, **recalculate_args)
+            b6v = core.mv.Recalculate(rMVS, b6v, **recalculate_args)
 
     if useTTmpSm:
         compensate_args = dict(thsad=thSAD, thscd1=thSCD1, thscd2=thSCD2)
@@ -2913,7 +2938,6 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
 
     ### DENOISING: FIRST PASS
     sm = MCTD_TTSM(d, dMVS, thSAD) if useTTmpSm else MCTD_MVD(d, dMVS, thSAD)
-    pD = core.std.MakeDiff(i, p, planes=planes)
 
     if limit <= -1:
         smD = core.std.MakeDiff(i, sm, planes=planes)
