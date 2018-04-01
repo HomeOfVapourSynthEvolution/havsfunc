@@ -5027,8 +5027,8 @@ def Weave(clip, tff):
 #
 # Parameters:
 #  radius (int) - Spatial radius of RemoveGrain for kernel blur(1-3). Default is 1
-#  rep (int)    - Mode of repair to limit the difference. Default is 1
-def ContraSharpening(denoised, original, radius=1, rep=1):
+#  rep (int)    - Mode of repair to limit the difference. Default is 13
+def ContraSharpening(denoised, original, radius=1, rep=13):
     if not (isinstance(denoised, vs.VideoNode) and isinstance(original, vs.VideoNode)):
         raise TypeError('ContraSharpening: This is not a clip')
     if denoised.format.id != original.format.id:
