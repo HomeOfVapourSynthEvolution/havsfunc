@@ -2535,12 +2535,12 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ###
 ###
 ###
-### /!\ Needed filters: MVTools, FFT3DFilter, TTempSmooth, RGVS, Deblock, DCTFilter
+### /!\ Needed filters: MVTools, DFTTest, FFT3DFilter, TTempSmooth, RGVS, Deblock, DCTFilter
 ### -------------------
 ###
 ###
 ###
-### USAGE: MCTemporalDenoise(i, radius, sigma, twopass, useTTmpSm, limit, limit2, post, chroma,
+### USAGE: MCTemporalDenoise(i, radius, pfMode, sigma, twopass, useTTmpSm, limit, limit2, post, chroma,
 ###                          deblock, useQED, quant1, quant2,
 ###                          stabilize, maxr, TTstr,
 ###                          bwbh, owoh, blksize, overlap,
@@ -2558,7 +2558,8 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | DENOISE |
 ### +---------+--------------------------------------------------------------------------------------+
 ### | radius    : Temporal radius [1...6]                                                            |
-### | sigma     : FFT3D sigma for the pre-filtering clip [0=no pre-filtering,1...]                   |
+### | pfMode    : Pre-filter mode [-1=off,0=FFT3DFilter,1=MinBlur(1),2=MinBlur(2),3=DFTTest]         |
+### | sigma     : FFT3D sigma for the pre-filtering clip (if pfMode=0)                               |
 ### | twopass   : Do the denoising job in 2 stages (stronger but very slow)                          |
 ### | useTTmpSm : Use MDegrain (faster) or MCompensate+TTempSmooth (stronger)                        |
 ### | limit     : Limit the effect of the first denoising [-1=auto,0=off,1...255]                    |
@@ -2649,6 +2650,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | SETTINGS    |      VERY LOW        |      LOW             |      MEDIUM          |      HIGH            |      VERY HIGH       |
 ### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
 ### | radius      |      1               |      2               |      3               |      2               |      3               |
+### | pfMode      |      3               |      3               |      3               |      3               |      3               |
 ### | sigma       |      2               |      4               |      8               |      12              |      16              |
 ### | twopass     |      false           |      false           |      false           |      true            |      true            |
 ### | useTTmpSm   |      false           |      false           |      false           |      false           |      false           |
@@ -2690,7 +2692,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### +-------------+----------------------+----------------------+----------------------+----------------------+----------------------+
 ###
 ####################################################################################################################################
-def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, deblock=False, useQED=None, quant1=None, quant2=None,
+def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, deblock=False, useQED=None, quant1=None, quant2=None,
                       stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None, thSAD2=None, thSCD1=None, thSCD2=None,
                       truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=2, searchparam=2, MVsharp=None, DCT=0, p=None, settings='low'):
     if not isinstance(i, vs.VideoNode):
@@ -2782,10 +2784,14 @@ def MCTemporalDenoise(i, radius=None, sigma=None, twopass=None, useTTmpSm=False,
     fft3d_args = dict(planes=planes, bw=bwbh, bh=bwbh, bt=bt, ow=owoh, oh=owoh, ncpu=ncpu)
     if p is not None:
         p = core.resize.Point(p, **pointresize_args)
-    elif sigma <= 0:
+    elif pfMode <= -1:
         p = i
-    else:
+    elif pfMode == 0:
         p = core.fft3dfilter.FFT3DFilter(i, sigma=sigma * 0.8, sigma2=sigma * 0.6, sigma3=sigma * 0.4, sigma4=sigma * 0.2, **fft3d_args)
+    elif pfMode >= 3:
+        p = core.dfttest.DFTTest(i, tbsize=1, sstring='0.0:4.0 0.2:9.0 1.0:15.0', planes=planes)
+    else:
+        p = MinBlur(i, pfMode, planes=planes)
 
     ### DEBLOCKING
     crop_args = dict(left=xf / 2, right=xf / 2, top=yf / 2, bottom=yf / 2)
