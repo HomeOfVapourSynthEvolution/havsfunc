@@ -2545,7 +2545,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ###                          stabilize, maxr, TTstr,
 ###                          bwbh, owoh, blksize, overlap,
 ###                          bt, ncpu,
-###                          thSAD, thSAD2, thSCD1, thSCD2,
+###                          thSAD, thSADC, thSAD2, thSADC2, thSCD1, thSCD2,
 ###                          truemotion, MVglobal, pel, pelsearch, search, searchparam, MVsharp, DCT,
 ###                          p, settings)
 ###
@@ -2613,12 +2613,14 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ###
 ### +---------+
 ### | MVTOOLS |
-### +---------+----------------------------------------------------+
-### | thSAD  : MVTools thSAD for the first pass                    |
-### | thSAD2 : MVTools thSAD for the second pass (if twopass=true) |
-### | thSCD1 : MVTools thSCD1                                      |
-### | thSCD2 : MVTools thSCD2                                      |
-### +-----------------------------------+--------------------------+
+### +---------+------------------------------------------------------+
+### | thSAD   : MVTools thSAD for the first pass                     |
+### | thSADC  : MVTools thSADC for the first pass                    |
+### | thSAD2  : MVTools thSAD for the second pass (if twopass=true)  |
+### | thSADC2 : MVTools thSADC for the second pass (if twopass=true) |
+### | thSCD1  : MVTools thSCD1                                       |
+### | thSCD2  : MVTools thSCD2                                       |
+### +-----------------------------------+----------------------------+
 ### | truemotion  : MVTools truemotion  |
 ### | MVglobal    : MVTools global      |
 ### | pel         : MVTools pel         |
@@ -2678,7 +2680,9 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | ncpu        |      1               |      1               |      1               |      1               |      1               |
 ### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
 ### | thSAD       |      200             |      300             |      400             |      500             |      600             |
+### | thSADC      |      thSAD/2         |      thSAD/2         |      thSAD/2         |      thSAD/2         |      thSAD/2         |
 ### | thSAD2      |      200             |      300             |      400             |      500             |      600             |
+### | thSADC2     |      thSAD2/2        |      thSAD2/2        |      thSAD2/2        |      thSAD2/2        |      thSAD2/2        |
 ### | thSCD1      |      200             |      300             |      400             |      500             |      600             |
 ### | thSCD2      |      90              |      100             |      100             |      130             |      130             |
 ### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
@@ -2693,8 +2697,8 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### +-------------+----------------------+----------------------+----------------------+----------------------+----------------------+
 ###
 ####################################################################################################################################
-def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, refine=False, deblock=False, useQED=None,
-                      quant1=None, quant2=None, stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None, thSAD2=None,
+def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, refine=False, deblock=False, useQED=None, quant1=None,
+                      quant2=None, stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None, thSADC=None, thSAD2=None, thSADC2=None,
                       thSCD1=None, thSCD2=None, truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=4, searchparam=2, MVsharp=None, DCT=0, p=None, settings='low'):
     if not isinstance(i, vs.VideoNode):
         raise TypeError('MCTemporalDenoise: This is not a clip')
@@ -2750,8 +2754,12 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
         bt = [1, 3, 3, 3, 4][settings_num]
     if thSAD is None:
         thSAD = [200, 300, 400, 500, 600][settings_num]
+    if thSADC is None:
+        thSADC = thSAD / 2
     if thSAD2 is None:
         thSAD2 = [200, 300, 400, 500, 600][settings_num]
+    if thSADC2 is None:
+        thSADC2 = thSAD2 / 2
     if thSCD1 is None:
         thSCD1 = [200, 300, 400, 500, 600][settings_num]
     if thSCD2 is None:
@@ -2811,7 +2819,6 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
     pMVS = core.mv.Super(p, rfilter=4 if refine else 2, **super_args)
     if refine:
         rMVS = core.mv.Super(p, levels=1, **super_args)
-    dMVS = core.mv.Super(d, levels=1, **super_args)
 
     analyse_args = dict(blksize=blksize, search=search, searchparam=searchparam, pelsearch=pelsearch, chroma=chroma, truemotion=truemotion, _global=MVglobal, overlap=overlap, dct=DCT)
     recalculate_args = dict(thsad=thSAD / 2, blksize=max(blksize / 2, 4), search=search, chroma=chroma, truemotion=truemotion, overlap=max(overlap / 2, 2), dct=DCT)
@@ -2851,18 +2858,13 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
             f6v = core.mv.Recalculate(rMVS, f6v, **recalculate_args)
             b6v = core.mv.Recalculate(rMVS, b6v, **recalculate_args)
 
-    if useTTmpSm:
-        compensate_args = dict(thsad=thSAD, thscd1=thSCD1, thscd2=thSCD2)
-        f1c = core.mv.Compensate(d, dMVS, f1v, **compensate_args)
-        b1c = core.mv.Compensate(d, dMVS, b1v, **compensate_args)
-
     # if useTTmpSm or stabilize:
         # mask_args = dict(ml=thSAD, gamma=0.999, kind=1, ysc=255)
         # SAD_f1m = core.mv.Mask(d, f1v, **mask_args)
         # SAD_b1m = core.mv.Mask(d, b1v, **mask_args)
 
-    def MCTD_MVD(i, iMVS, thSAD):
-        degrain_args = dict(thsad=thSAD, plane=4 if chroma else 0, thscd1=thSCD1, thscd2=thSCD2)
+    def MCTD_MVD(i, iMVS, thSAD, thSADC):
+        degrain_args = dict(thsad=thSAD, thsadc=thSADC, plane=4 if chroma else 0, thscd1=thSCD1, thscd2=thSCD2)
 
         if radius <= 1:
             sm = core.mv.Degrain1(i, iMVS, b1v, f1v, **degrain_args)
@@ -2886,6 +2888,10 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
         return sm
 
     def MCTD_TTSM(i, iMVS, thSAD):
+        compensate_args = dict(thsad=thSAD, thscd1=thSCD1, thscd2=thSCD2)
+
+        f1c = core.mv.Compensate(i, iMVS, f1v, **compensate_args)
+        b1c = core.mv.Compensate(i, iMVS, b1v, **compensate_args)
         if radius > 1:
             f2c = core.mv.Compensate(i, iMVS, f2v, **compensate_args)
             b2c = core.mv.Compensate(i, iMVS, b2v, **compensate_args)
@@ -2937,7 +2943,8 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
         return core.std.SelectEvery(sm, radius * 2 + 1, [radius])
 
     ### DENOISING: FIRST PASS
-    sm = MCTD_TTSM(d, dMVS, thSAD) if useTTmpSm else MCTD_MVD(d, dMVS, thSAD)
+    dMVS = core.mv.Super(d, levels=1, **super_args)
+    sm = MCTD_TTSM(d, dMVS, thSAD) if useTTmpSm else MCTD_MVD(d, dMVS, thSAD, thSADC)
 
     if limit <= -1:
         smD = core.std.MakeDiff(i, sm, planes=planes)
@@ -2953,7 +2960,7 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
     ### DENOISING: SECOND PASS
     if twopass:
         smLMVS = core.mv.Super(smL, levels=1, **super_args)
-        sm = MCTD_TTSM(smL, smLMVS, thSAD2) if useTTmpSm else MCTD_MVD(smL, smLMVS, thSAD2)
+        sm = MCTD_TTSM(smL, smLMVS, thSAD2) if useTTmpSm else MCTD_MVD(smL, smLMVS, thSAD2, thSADC2)
 
         if limit2 <= -1:
             smD = core.std.MakeDiff(i, sm, planes=planes)
