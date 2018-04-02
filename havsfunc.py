@@ -1642,12 +1642,14 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
 def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=None):
     if not isinstance(source, vs.VideoNode):
         raise TypeError('srestore: This is not a clip')
-    if source.format.color_family == vs.GRAY:
-        raise TypeError('srestore: Gray color family is not supported')
+    if source.format.color_family != vs.YUV:
+        raise TypeError('srestore: Only YUV color family supported')
     if dclip is None:
         dclip = source
     elif not isinstance(dclip, vs.VideoNode):
-        raise TypeError('srestore: dclip is not a clip')
+        raise TypeError("srestore: 'dclip' is not a clip")
+    elif dclip.format.color_family != vs.YUV:
+        raise TypeError('srestore: Only YUV color family supported')
 
     neutral = 1 << (source.format.bits_per_sample - 1)
     peak = (1 << source.format.bits_per_sample) - 1
@@ -1686,7 +1688,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         mec = core.std.Merge(core.std.Merge(source, core.std.Trim(source, 1), weight=[0, 0.5]), core.std.Trim(source, 1), weight=[0.5, 0])
 
     if dclip.format.id != vs.YUV420P8:
-        dclip = core.resize.Bicubic(dclip, format=vs.YUV420P8, matrix_s='709')
+        dclip = core.resize.Bicubic(dclip, format=vs.YUV420P8)
     dclip = core.resize.Point(dclip,
                               dclip.width if srad == 4 else int(dclip.width / 2 / srad + 4) * 4,
                               dclip.height if srad == 4 else int(dclip.height / 2 / srad + 4) * 4).std.Trim(2)
@@ -1704,7 +1706,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         bclp = core.std.Expr([diff, core.std.Trim(diff, 1)], [expr1]).resize.Bilinear(bsize, bsize)
     else:
         bclp = core.std.Expr([core.std.Trim(diff, 1), core.std.MergeDiff(diff, core.std.Trim(diff, 2))], [expr2]).resize.Bilinear(bsize, bsize)
-    dclp = core.std.Expr([core.std.Trim(diff, 1)], ['x 128 - abs 1.1 pow 1 -']).resize.Bilinear(bsize, bsize)
+    dclp = core.std.Trim(diff, 1).std.Lut(function=lambda x: max(math.floor(abs(x - 128) ** 1.1 - 1 + 0.5), 0)).resize.Bilinear(bsize, bsize)
 
     ###### postprocessing ######
     if bom:
