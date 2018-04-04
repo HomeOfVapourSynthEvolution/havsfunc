@@ -2225,7 +2225,7 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
 ###################
 def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=True, mask=False):
     if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
-        raise TypeError('LUTDeCrawl: This is not an 8-10 bits YUV or YCoCg clip')
+        raise TypeError('LUTDeCrawl: This is not an 8-10 bit YUV or YCoCg clip')
 
     shift = input.format.bits_per_sample - 8
     peak = (1 << input.format.bits_per_sample) - 1
@@ -2277,9 +2277,7 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
         else:
             return clips[1]
 
-    input = core.std.DuplicateFrames(input, [0, input.num_frames - 1])
     input = SCDetect(input, scnchg / 255)
-    input = core.std.DeleteFrames(input, [0, input.num_frames - 1])
     output = core.std.FrameEval(output, eval=functools.partial(YDifferenceFromPrevious, clips=[input, output]), prop_src=input)
     output = core.std.FrameEval(output, eval=functools.partial(YDifferenceToNext, clips=[input, output]), prop_src=input)
 
@@ -2349,7 +2347,7 @@ def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=
 ###################
 def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False):
     if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
-        raise TypeError('LUTDeRainbow: This is not an 8-10 bits YUV or YCoCg clip')
+        raise TypeError('LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip')
 
     shift = input.format.bits_per_sample - 8
     peak = (1 << input.format.bits_per_sample) - 1
