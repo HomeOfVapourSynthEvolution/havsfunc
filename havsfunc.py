@@ -565,26 +565,6 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
     matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
-    expr = 'x {neutral} - abs y {neutral} - abs <= x y ?'.format(neutral=neutral)
-    if 0 in planes:
-        Y = True
-        Yexpr = expr
-    else:
-        Y = False
-        Yexpr = ''
-    if 1 in planes:
-        U = True
-        Uexpr = expr
-    else:
-        U = False
-        Uexpr = ''
-    if 2 in planes:
-        V = True
-        Vexpr = expr
-    else:
-        V = False
-        Vexpr = ''
-
     if sharp <= 0:
         sclp = p
     else:
@@ -597,15 +577,16 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
             method = core.std.Convolution(pre, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
         sharpdiff = core.std.MakeDiff(pre, method, planes=planes)
         allD = core.std.MakeDiff(input, p, planes=planes)
-        ssDD = core.rgvs.Repair(sharpdiff, allD, [1] if isGray else [1 if Y else 0, 1 if U else 0, 1 if V else 0])
-        ssDD = core.std.Expr([ssDD, sharpdiff], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
+        ssDD = core.rgvs.Repair(sharpdiff, allD, [1 if i in planes else 0 for i in range(input.format.num_planes)])
+        expr = 'x {neutral} - abs y {neutral} - abs <= x y ?'.format(neutral=neutral)
+        ssDD = core.std.Expr([ssDD, sharpdiff], [expr if i in planes else '' for i in range(input.format.num_planes)])
         sclp = core.std.MergeDiff(p, ssDD, planes=planes)
 
     # Post-Process: Repairing
     if drrep <= 0:
         repclp = sclp
     else:
-        repclp = core.rgvs.Repair(input, sclp, [drrep] if isGray else [drrep if Y else 0, drrep if U else 0, drrep if V else 0])
+        repclp = core.rgvs.Repair(input, sclp, [drrep if i in planes else 0 for i in range(input.format.num_planes)])
 
     # Post-Process: Limiting
     if (thr <= 0 and darkthr <= 0) or (thr >= 128 and darkthr >= 128):
@@ -2448,8 +2429,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     if limitc is not None:
         limitc = scale(limitc, peak)
 
-    isGray = (input.format.color_family == vs.GRAY)
-    if isGray:
+    if input.format.color_family == vs.GRAY:
         planes = [0]
     if isinstance(planes, int):
         planes = [planes]
@@ -2505,7 +2485,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     # Post-Process: Luma-Adaptive Mask Merging & Repairing
     stable = core.std.MergeDiff(pre_nr, dif_sb, planes=planes)
     if rep > 0:
-        stable = core.rgvs.Repair(stable, input, [rep] if isGray else [rep if Y else 0, rep if U else 0, rep if V else 0])
+        stable = core.rgvs.Repair(stable, input, [rep if i in planes else 0 for i in range(input.format.num_planes)])
 
     if Lmask is not None:
         return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
@@ -3269,15 +3249,10 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
 
     peak = (1 << clp.format.bits_per_sample) - 1
 
-    isGray = (clp.format.color_family == vs.GRAY)
-    if isGray:
+    if clp.format.color_family == vs.GRAY:
         planes = [0]
     if isinstance(planes, int):
         planes = [planes]
-
-    Y = 0 in planes
-    U = 1 in planes
-    V = 2 in planes
 
     limit = scale(limit, peak)
     tthr = scale(tthr, peak)
@@ -3301,16 +3276,16 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
     elif RGmode == 20:
         bzz = core.std.Convolution(clp, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1], planes=planes)
     else:
-        bzz = core.rgvs.RemoveGrain(clp, [RGmode] if isGray else [RGmode if Y else 0, RGmode if U else 0, RGmode if V else 0])
-    last = core.std.Expr([clp, bzz], [expr] if isGray else [expr if Y else '', expr if U else '', expr if V else ''])
+        bzz = core.rgvs.RemoveGrain(clp, [RGmode if i in planes else 0 for i in range(clp.format.num_planes)])
+    last = core.std.Expr([clp, bzz], [expr if i in planes else '' for i in range(clp.format.num_planes)])
     if tthr > 0:
         last = core.std.Expr([last,
                               core.std.MakeDiff(last, core.std.MakeDiff(bzz, core.flux.SmoothT(bzz, temporal_threshold=tthr, planes=planes), planes=planes),
                                                 planes=planes)],
-                             [texpr] if isGray else [texpr if Y else '', texpr if U else '', texpr if V else ''])
+                             [texpr if i in planes else '' for i in range(clp.format.num_planes)])
     if back > 0:
         expr = 'x {BK} + y < x {BK} + x {BK} - y > x {BK} - y ? ?'.format(BK=back)
-        return core.std.Expr([last, clp], [expr] if isGray else [expr if Y else '', expr if U else '', expr if V else ''])
+        return core.std.Expr([last, clp], [expr if i in planes else '' for i in range(clp.format.num_planes)])
     else:
         return last
 
@@ -3323,9 +3298,8 @@ def SigmoidInverse(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
     x0 = 1 / (1 + math.exp(cont * thr))
     x1m0 = 1 / (1 + math.exp(cont * (thr - 1))) - x0
     expr = '{thr} 1 x 65536 / {x1m0} * {x0} + 0.000001 max / 1 - 0.000001 max log {cont} / - 65536 *'.format(thr=thr, x1m0=x1m0, x0=x0, cont=cont)
-    if src.format.color_family != vs.GRAY:
-        expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
-    return core.std.Expr([src], expr)
+
+    return core.std.Expr([src], [expr if i in planes else '' for i in range(src.format.num_planes)])
 
 # Convert back a clip to linear luminance
 def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
@@ -3335,9 +3309,8 @@ def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
     x0 = 1 / (1 + math.exp(cont * thr))
     x1m0 = 1 / (1 + math.exp(cont * (thr - 1))) - x0
     expr = '1 1 {cont} {thr} x 65536 / - * exp + / {x0} - {x1m0} / 65536 *'.format(cont=cont, thr=thr, x0=x0, x1m0=x1m0)
-    if src.format.color_family != vs.GRAY:
-        expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
-    return core.std.Expr([src], expr)
+
+    return core.std.Expr([src], [expr if i in planes else '' for i in range(src.format.num_planes)])
 
 
 # Parameters:
@@ -4888,14 +4861,12 @@ def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 
     if not (isinstance(clip, vs.VideoNode) and isinstance(bright_limit, vs.VideoNode) and isinstance(dark_limit, vs.VideoNode)):
         raise TypeError('Clamp: This is not a clip')
     if bright_limit.format.id != clip.format.id or dark_limit.format.id != clip.format.id:
-        raise TypeError('Clamp: clips must have the same format')
+        raise TypeError('Clamp: All clips must have the same format')
     if isinstance(planes, int):
         planes = [planes]
 
     expr = 'x y {overshoot} + > y {overshoot} + x ? z {undershoot} - < z {undershoot} - x y {overshoot} + > y {overshoot} + x ? ?'.format(overshoot=overshoot, undershoot=undershoot)
-    if clip.format.color_family != vs.GRAY:
-        expr = [expr if 0 in planes else '', expr if 1 in planes else '', expr if 2 in planes else '']
-    return core.std.Expr([clip, bright_limit, dark_limit], expr)
+    return core.std.Expr([clip, bright_limit, dark_limit], [expr if i in planes else '' for i in range(clip.format.num_planes)])
 
 
 def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, device_type=None, device_id=None, info=None):
@@ -5107,21 +5078,13 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('MinBlur: This is not a clip')
 
-    bits = clp.format.bits_per_sample
-
-    isGray = (clp.format.color_family == vs.GRAY)
-    if isGray:
+    if clp.format.color_family == vs.GRAY:
         planes = [0]
     if isinstance(planes, int):
         planes = [planes]
 
     matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
     matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
-
-    expr = 'x y - x z - * 0 < x x y - abs x z - abs < y z ? ?'
-    Yexpr = expr if 0 in planes else ''
-    Uexpr = expr if 1 in planes else ''
-    Vexpr = expr if 2 in planes else ''
 
     if r <= 0:
         RG11 = sbr(clp, planes=planes)
@@ -5134,14 +5097,15 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
         RG4 = core.ctmf.CTMF(clp, radius=2, planes=planes)
     else:
         RG11 = core.std.Convolution(clp, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
-        if bits == 16:
+        if clp.format.bits_per_sample == 16:
             s16 = clp
             RG4 = core.fmtc.bitdepth(clp, bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=3, planes=planes).fmtc.bitdepth(bits=16, planes=planes)
             RG4 = mvf.LimitFilter(s16, RG4, thr=0.0625, elast=2, planes=planes)
         else:
             RG4 = core.ctmf.CTMF(clp, radius=3, planes=planes)
 
-    return core.std.Expr([clp, RG11, RG4], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
+    expr = 'x y - x z - * 0 < x x y - abs x z - abs < y z ? ?'
+    return core.std.Expr([clp, RG11, RG4], [expr if i in planes else '' for i in range(clp.format.num_planes)])
 
 
 # make a highpass on a blur's difference (well, kind of that)
@@ -5149,19 +5113,13 @@ def sbr(c, r=1, planes=[0, 1, 2]):
     if not isinstance(c, vs.VideoNode):
         raise TypeError('sbr: This is not a clip')
 
-    isGray = (c.format.color_family == vs.GRAY)
-    if isGray:
+    if c.format.color_family == vs.GRAY:
         planes = [0]
     if isinstance(planes, int):
         planes = [planes]
 
     matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
     matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
-
-    expr = 'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'.format(neutral=1 << (c.format.bits_per_sample - 1))
-    Yexpr = expr if 0 in planes else ''
-    Uexpr = expr if 1 in planes else ''
-    Vexpr = expr if 2 in planes else ''
 
     if r <= 1:
         RG11 = core.std.Convolution(c, matrix=matrix1, planes=planes)
@@ -5179,7 +5137,8 @@ def sbr(c, r=1, planes=[0, 1, 2]):
     else:
         RG11DS = core.std.Convolution(RG11D, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
 
-    RG11DD = core.std.Expr([RG11D, RG11DS], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
+    expr = 'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'.format(neutral=1 << (c.format.bits_per_sample - 1))
+    RG11DD = core.std.Expr([RG11D, RG11DS], [expr if i in planes else '' for i in range(c.format.num_planes)])
 
     return core.std.MakeDiff(c, RG11DD, planes=planes)
 
@@ -5188,19 +5147,13 @@ def sbrV(c, r=1, planes=[0, 1, 2]):
     if not isinstance(c, vs.VideoNode):
         raise TypeError('sbrV: This is not a clip')
 
-    isGray = (c.format.color_family == vs.GRAY)
-    if isGray:
+    if c.format.color_family == vs.GRAY:
         planes = [0]
     if isinstance(planes, int):
         planes = [planes]
 
     matrix1 = [1, 2, 1]
     matrix2 = [1, 4, 6, 4, 1]
-
-    expr = 'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'.format(neutral=1 << (c.format.bits_per_sample - 1))
-    Yexpr = expr if 0 in planes else ''
-    Uexpr = expr if 1 in planes else ''
-    Vexpr = expr if 2 in planes else ''
 
     if r <= 1:
         RG11 = core.std.Convolution(c, matrix=matrix1, planes=planes, mode='v')
@@ -5218,7 +5171,8 @@ def sbrV(c, r=1, planes=[0, 1, 2]):
     else:
         RG11DS = core.std.Convolution(RG11D, matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
 
-    RG11DD = core.std.Expr([RG11D, RG11DS], [Yexpr] if isGray else [Yexpr, Uexpr, Vexpr])
+    expr = 'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'.format(neutral=1 << (c.format.bits_per_sample - 1))
+    RG11DD = core.std.Expr([RG11D, RG11DS], [expr if i in planes else '' for i in range(c.format.num_planes)])
 
     return core.std.MakeDiff(c, RG11DD, planes=planes)
 
