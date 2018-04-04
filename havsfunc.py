@@ -3237,11 +3237,11 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
         if if0:
             if interlaced:
                 if ifC:
-                    return Weave(ContraSharpening(output, CClip), tff)
+                    return Weave(ContraSharpening(output, CClip, planes=planes), tff)
                 else:
                     return Weave(LSFmod(output, strength=contrasharp, source=CClip, Lmode=0, soothe=False, defaults='slow'), tff)
             elif ifC:
-                return ContraSharpening(output, CClip)
+                return ContraSharpening(output, CClip, planes=planes)
             else:
                 return LSFmod(output, strength=contrasharp, source=CClip, Lmode=0, soothe=False, defaults='slow')
         elif interlaced:
@@ -5063,44 +5063,42 @@ def Weave(clip, tff):
 # script function from Didée, at the VERY GRAINY thread (http://forum.doom9.org/showthread.php?p=1076491#post1076491)
 #
 # Parameters:
-#  radius (int) - Spatial radius for contra-sharpening(1-3). Default is 2 for HD / 1 for SD
-#  rep (int)    - Mode of repair to limit the difference. Default is 13
-def ContraSharpening(denoised, original, radius=None, rep=13):
+#  radius (int)   - Spatial radius for contra-sharpening(1-3). Default is 2 for HD / 1 for SD
+#  rep (int)      - Mode of repair to limit the difference. Default is 13
+#  planes (int[]) - Whether to process the corresponding plane. The other planes will be passed through unchanged. Default is [0, 1, 2]
+def ContraSharpening(denoised, original, radius=None, rep=13, planes=[0, 1, 2]):
     if not (isinstance(denoised, vs.VideoNode) and isinstance(original, vs.VideoNode)):
         raise TypeError('ContraSharpening: This is not a clip')
     if denoised.format.id != original.format.id:
         raise TypeError('ContraSharpening: Both clips must have the same format')
 
-    if denoised.format.color_family != vs.GRAY:
-        denoised_src = denoised
-        denoised = mvf.GetPlane(denoised, 0)
-        original = mvf.GetPlane(original, 0)
-    else:
-        denoised_src = None
-
     if radius is None:
         radius = 2 if denoised.width > 1024 or denoised.height > 576 else 1
 
-    s = MinBlur(denoised, radius)                # damp down remaining spots of the denoised clip
+    if denoised.format.color_family == vs.GRAY:
+        planes = [0]
+    if isinstance(planes, int):
+        planes = [planes]
+
+    matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
+    matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+
+    s = MinBlur(denoised, radius, planes=planes)                                                                # damp down remaining spots of the denoised clip
 
     if radius <= 1:
-        RG11 = core.std.Convolution(s, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+        RG11 = core.std.Convolution(s, matrix=matrix1, planes=planes)
     elif radius == 2:
-        RG11 = core.std.Convolution(s, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        RG11 = core.std.Convolution(s, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
     else:
-        RG11 = core.std.Convolution(s, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        RG11 = core.std.Convolution(s, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
 
-    ssD = core.std.MakeDiff(s, RG11)             # the difference of a simple kernel blur
-    allD = core.std.MakeDiff(original, denoised) # the difference achieved by the denoising
-    ssDD = core.rgvs.Repair(ssD, allD, rep)      # limit the difference to the max of what the denoising removed locally
+    ssD = core.std.MakeDiff(s, RG11, planes=planes)                                                             # the difference of a simple kernel blur
+    allD = core.std.MakeDiff(original, denoised, planes=planes)                                                 # the difference achieved by the denoising
+    ssDD = core.rgvs.Repair(ssD, allD, [rep if i in planes else 0 for i in range(denoised.format.num_planes)])  # limit the difference to the max of what the denoising removed locally
     expr = 'x {neutral} - abs y {neutral} - abs < x y ?'.format(neutral=1 << (denoised.format.bits_per_sample - 1))
-    ssDD = core.std.Expr([ssDD, ssD], [expr])    # abs(diff) after limiting may not be bigger than before
-    last = core.std.MergeDiff(denoised, ssDD)    # apply the limited difference (sharpening is just inverse blurring)
+    ssDD = core.std.Expr([ssDD, ssD], [expr if i in planes else '' for i in range(denoised.format.num_planes)]) # abs(diff) after limiting may not be bigger than before
 
-    if denoised_src is not None:
-        return core.std.ShufflePlanes([last, denoised_src], planes=[0, 1, 2], colorfamily=denoised_src.format.color_family)
-    else:
-        return last
+    return core.std.MergeDiff(denoised, ssDD, planes=planes)                                                    # apply the limited difference (sharpening is just inverse blurring)
 
 
 # MinBlur   by Didée (http://avisynth.nl/index.php/MinBlur)
