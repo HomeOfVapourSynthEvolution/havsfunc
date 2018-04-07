@@ -80,7 +80,7 @@ def daa(c, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, 
         myNNEDI3 = core.nnedi3cl.NNEDI3CL
         nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn)
     else:
-        myNNEDI3 = core.znedi3.nnedi3
+        myNNEDI3 = core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3
         nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
 
     nn = myNNEDI3(c, field=3, **nnedi3_args)
@@ -125,8 +125,8 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, p
             myEEDI3 = core.eedi3m.EEDI3CL
             nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn)
         else:
-            myNNEDI3 = core.znedi3.nnedi3
-            myEEDI3 = core.eedi3m.EEDI3
+            myNNEDI3 = core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3
+            myEEDI3 = core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3
             nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
 
         strength = max(strength, 0)
@@ -1380,8 +1380,8 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
         myEEDI3 = core.eedi3m.EEDI3CL
         nnedi3_args = dict(nsize=NNSize, nns=NNeurons, qual=EdiQual, pscrn=pscrn)
     else:
-        myNNEDI3 = core.znedi3.nnedi3
-        myEEDI3 = core.eedi3m.EEDI3
+        myNNEDI3 = core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3
+        myEEDI3 = core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3
         nnedi3_args = dict(nsize=NNSize, nns=NNeurons, qual=EdiQual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
     eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck)
 
