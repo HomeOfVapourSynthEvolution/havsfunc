@@ -16,8 +16,9 @@ Main functions:
     DeHalo_alpha
     EdgeCleaner
     YAHR
-    HQDering mod
+    HQDeringmod
     QTGMC
+    smartfademod
     srestore
     ivtc_txt60mc
     logoNR
@@ -34,7 +35,7 @@ Main functions:
     GrainFactory3
     InterFrame
     SmoothLevels
-    FastLineDarken 1.4x MT MOD
+    FastLineDarkenMOD
     Toon
     LSFmod
     TemporalDegrain
@@ -1620,6 +1621,36 @@ def QTGMC_ApplySourceMatch(Deinterlace, InputType, Source, bVec1, fVec1, bVec2, 
 
     # Apply difference calculated in source-match refinement
     return core.std.MergeDiff(match1Shp, match3)
+
+
+# based on smartfade v0.2 by martino - Aimed at removing interlaced fades in anime. Uses luma difference between two fields as activation threshold.
+# mod by thetoof : removed degrainmedian post-processing
+#                  changed how the fields are blended together (average of 2 nnedi interpolations + contra-sharpening to retain more detail)
+#
+# Parameters:
+#  threshold (float) - Threshold for fade detection. Default is 0.4
+#  show (bool)       - Display luma difference between fields without processing anything. Default is false
+def smartfademod(clip, threshold=0.4, show=False, tff=None):
+    if not isinstance(clip, vs.VideoNode):
+        raise TypeError('smartfademod: This is not a clip')
+    if not isinstance(tff, bool):
+        raise TypeError("smartfademod: 'tff' must be set. Setting tff to true means top field first and false means bottom field first")
+
+    def frame_eval(n, f, clip):
+        diff = abs(f[0].props['PlaneStatsAverage'] - f[1].props['PlaneStatsAverage']) * 255
+
+        if show:
+            return core.text.Text(clip, diff)
+        else:
+            if diff > threshold:
+                return daa(clip)
+            else:
+                return clip
+
+    sep = core.std.SeparateFields(clip, tff)
+    even = core.std.PlaneStats(sep[::2])
+    odd = core.std.PlaneStats(sep[1::2])
+    return core.std.FrameEval(clip, eval=functools.partial(frame_eval, clip=clip), prop_src=[even, odd])
 
 
 ###### srestore v2.7e ######
@@ -3905,8 +3936,7 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
     else:
         tmp = scale(127, peak)
         diff = core.std.Expr([c, exin], ['y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {i} +'.format(lum=lum, thr=thr, i=tmp)])
-        expr = 'x {i} - {thn} * {peak} +'.format(i=tmp, thn=thn, peak=peak)
-        linemask = core.std.Expr([core.std.Minimum(diff)], [expr]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        linemask = core.std.Expr([core.std.Minimum(diff)], ['x {i} - {thn} * {peak} +'.format(i=tmp, thn=thn, peak=peak)]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
         thin = core.std.Expr([core.std.Maximum(c), diff], ['x y {i} - {Str} 1 + * +'.format(i=tmp, Str=Str)])
         last = core.std.MaskedMerge(thin, thick, linemask)
 
