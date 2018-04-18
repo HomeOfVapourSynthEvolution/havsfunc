@@ -15,6 +15,7 @@ Main functions:
     Deblock_QED
     DeHalo_alpha
     EdgeCleaner
+    FineDehalo
     YAHR
     HQDeringmod
     QTGMC
@@ -478,6 +479,166 @@ def EdgeCleaner(c, strength=10, rep=True, rmode=17, smode=0, hot=False):
         return core.std.ShufflePlanes([final, c_src], planes=[0, 1, 2], colorfamily=c_src.format.color_family)
     else:
         return final
+
+
+# This program is free software. It comes without any warranty, to
+# the extent permitted by applicable law. You can redistribute it
+# and/or modify it under the terms of the Do What The Fuck You Want
+# To Public License, Version 2, as published by Sam Hocevar. See
+# http://sam.zoy.org/wtfpl/COPYING for more details.
+def FineDehalo(src, rx=2, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, darkstr=1., brightstr=1., showmask=0, contra=0., excl=True, edgeproc=0.):
+    if not isinstance(src, vs.VideoNode):
+        raise TypeError('FineDehalo: This is not a clip')
+
+    neutral = 1 << (src.format.bits_per_sample - 1)
+    peak = (1 << src.format.bits_per_sample) - 1
+
+    if src.format.color_family != vs.GRAY:
+        src_src = src
+        src = mvf.GetPlane(src, 0)
+    else:
+        src_src = None
+
+    if ry is None:
+        ry = rx
+
+    rx_i = math.floor(rx + 0.5)
+    ry_i = math.floor(ry + 0.5)
+
+    ### Dehaloing ###
+
+    dehaloed = DeHalo_alpha(src, rx=rx, ry=ry, darkstr=darkstr, brightstr=brightstr)
+
+    # Contrasharpening
+    if contra > 0:
+        bb = core.std.Convolution(dehaloed, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+        bb2 = core.rgvs.Repair(bb, core.rgvs.Repair(bb, core.ctmf.CTMF(bb, radius=2), 1), 1)
+        xd = core.std.MakeDiff(bb, bb2)
+        xd = core.std.Expr([xd], ['x {neutral} - 2.49 * {contra} * {neutral} +'.format(neutral=neutral, contra=contra)])
+        xdd = core.std.Expr([xd, core.std.MakeDiff(src, dehaloed)], ['x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=neutral)])
+        dehaloed = core.std.MergeDiff(dehaloed, xdd)
+
+    ### Main edges ###
+
+    # Basic edge detection, thresholding will be applied later
+    edges = core.std.Prewitt(src)
+
+    # Keeps only the sharpest edges (line edges)
+    strong = core.std.Expr([edges], ['x {thmi} - {i} / 255 *'.format(thmi=scale(thmi, peak), i=thma - thmi)])
+
+    # Extends them to include the potential halos
+    large = mt_expand_multi(strong, sw=rx_i, sh=ry_i)
+
+    ### Exclusion zones ###
+
+    # When two edges are close from each other (both edges of a single line or multiple parallel color bands), the halo removal oversmoothes them or makes seriously bleed the bands,
+    # producing annoying artifacts. Therefore we have to produce a mask to exclude these zones from the halo removal
+
+    # Includes more edges than previously, but ignores simple details
+    light = core.std.Expr([edges], ['x {thlimi} - {i} / 255 *'.format(thlimi=scale(thlimi, peak), i=thlima - thlimi)])
+
+    # To build the exclusion zone, we make grow the edge mask, then shrink it to its original shape. During the growing stage, close adjacent edge masks will join and merge,
+    # forming a solid area, which will remain solid even after the shrinking stage
+
+    # Mask growing
+    shrink = mt_expand_multi(light, mode='ellipse', sw=rx_i, sh=ry_i)
+
+    # At this point, because the mask was made of a shades of grey, we may end up with large areas of dark grey after shrinking
+    # To avoid this, we amplify and saturate the mask here (actually we could even binarize it)
+    shrink = core.std.Expr([shrink], ['x 4 *'])
+
+    # Mask shrinking
+    shrink = mt_inpand_multi(shrink, mode='ellipse', sw=rx_i, sh=ry_i)
+
+    # This mask is almost binary, which will produce distinct discontinuities once applied. Then we have to smooth it
+    shrink = core.std.Convolution(shrink, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+
+    ### Final mask building ###
+
+    # Previous mask may be a bit weak on the pure edge side, so we ensure that the main edges are really excluded. We do not want them to be smoothed by the halo removal
+    if excl:
+        shr_med = core.std.Expr([strong, shrink], ['x y max'])
+    else:
+        shr_med = strong
+
+    # Substracts masks and amplifies the difference to be sure we get 255 on the areas to be processed
+    outside = core.std.Expr([large, shr_med], ['x y - 2 *'])
+
+    # If edge processing is required, adds the edgemask
+    if edgeproc > 0:
+        outside = core.std.Expr([outside, strong], ['x y {edgeproc} * +'.format(edgeproc=edgeproc * 0.66)])
+
+    # Smooth again and amplify to grow the mask a bit, otherwise the halo parts sticking to the edges could be missed
+    outside = core.std.Convolution(outside, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Expr(['x 2 *'])
+
+    ### Masking ###
+
+    if showmask <= 0:
+        last = core.std.MaskedMerge(src, dehaloed, outside)
+
+    if src_src is not None:
+        if showmask <= 0:
+            return core.std.ShufflePlanes([last, src_src], planes=[0, 1, 2], colorfamily=src_src.format.color_family)
+        elif showmask == 1:
+            return core.resize.Bicubic(outside, format=src_src.format.id)
+        elif showmask == 2:
+            return core.resize.Bicubic(shrink, format=src_src.format.id)
+        elif showmask == 3:
+            return core.resize.Bicubic(edges, format=src_src.format.id)
+        else:
+            return core.resize.Bicubic(strong, format=src_src.format.id)
+    else:
+        if showmask <= 0:
+            return last
+        elif showmask == 1:
+            return outside
+        elif showmask == 2:
+            return shrink
+        elif showmask == 3:
+            return edges
+        else:
+            return strong
+
+# Try to remove 2nd order halos
+def FineDehalo2(src, hconv=[-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv=[-2, -1, 0, 0, 40, 0, 0, -1, -2], showmask=0):
+    if not isinstance(src, vs.VideoNode):
+        raise TypeError('FineDehalo2: This is not a clip')
+
+    if src.format.color_family != vs.GRAY:
+        src_src = src
+        src = mvf.GetPlane(src, 0)
+    else:
+        src_src = None
+
+    def FineDehalo2_grow_mask(mask, coordinates):
+        mask = core.std.Maximum(mask, coordinates=coordinates).std.Minimum(coordinates=coordinates)
+        mask_1 = core.std.Maximum(mask, coordinates=coordinates)
+        mask_2 = core.std.Maximum(mask_1, coordinates=coordinates).std.Maximum(coordinates=coordinates)
+        mask = core.std.Expr([mask_2, mask_1], ['x y -'])
+        return core.std.Convolution(mask, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]).std.Expr(['x 1.8 *'])
+
+    fix_h = core.std.Convolution(src, matrix=vconv, mode='v')
+    fix_v = core.std.Convolution(src, matrix=hconv, mode='h')
+    mask_h = core.std.Convolution(src, matrix=[1, 2, 1, 0, 0, 0, -1, -2, -1], divisor=4, saturate=False)
+    mask_v = core.std.Convolution(src, matrix=[1, 0, -1, 2, 0, -2, 1, 0, -1], divisor=4, saturate=False)
+    temp_h = core.std.Expr([mask_h, mask_v], ['x 3 * y -'])
+    temp_v = core.std.Expr([mask_v, mask_h], ['x 3 * y -'])
+    mask_h = FineDehalo2_grow_mask(temp_h, [0, 1, 0, 0, 0, 0, 1, 0])
+    mask_v = FineDehalo2_grow_mask(temp_v, [0, 0, 0, 1, 1, 0, 0, 0])
+
+    if showmask <= 0:
+        last = core.std.MaskedMerge(src, fix_h, mask_h)
+        last = core.std.MaskedMerge(last, fix_v, mask_v)
+    else:
+        last = core.std.Expr([mask_h, mask_v], ['x y max'])
+
+    if src_src is not None:
+        if showmask <= 0:
+            return core.std.ShufflePlanes([last, src_src], planes=[0, 1, 2], colorfamily=src_src.format.color_family)
+        else:
+            return core.resize.Bicubic(last, format=src_src.format.id)
+    else:
+        return last
 
 
 # Y'et A'nother H'alo R'educing script
@@ -2097,7 +2258,7 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
     else:
         dlg_src = None
 
-    b_crop = l != 0 or t != 0 or r != 0 or b != 0
+    b_crop = (l != 0) or (t != 0) or (r != 0) or (b != 0)
     if b_crop:
         src = core.std.Crop(src, l, r, t, b)
         last = core.std.Crop(dlg, l, r, t, b)
