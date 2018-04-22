@@ -1797,21 +1797,18 @@ def smartfademod(clip, threshold=0.4, show=False, tff=None):
     if not isinstance(tff, bool):
         raise TypeError("smartfademod: 'tff' must be set. Setting tff to true means top field first and false means bottom field first")
 
-    def frame_eval(n, f, clip):
+    def frame_eval(n, f, orig, defade):
         diff = abs(f[0].props['PlaneStatsAverage'] - f[1].props['PlaneStatsAverage']) * 255
 
         if show:
-            return core.text.Text(clip, diff)
+            return core.text.Text(orig, diff)
         else:
-            if diff > threshold:
-                return daa(clip)
-            else:
-                return clip
+            return defade if diff > threshold else orig
 
     sep = core.std.SeparateFields(clip, tff)
     even = core.std.PlaneStats(sep[::2])
     odd = core.std.PlaneStats(sep[1::2])
-    return core.std.FrameEval(clip, eval=functools.partial(frame_eval, clip=clip), prop_src=[even, odd])
+    return core.std.FrameEval(clip, eval=functools.partial(frame_eval, orig=clip, defade=daa(clip)), prop_src=[even, odd])
 
 
 ###### srestore v2.7e ######
