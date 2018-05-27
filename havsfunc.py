@@ -2396,7 +2396,7 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
 # 10/3/08: Is this thing on?
 #
 ###################
-def LUTDeCrawl(input, ythresh=10, cthresh=15, maxdiff=50, scnchg=25, usemaxdiff=True, mask=False):
+def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=True, mask=False):
     if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
         raise TypeError('LUTDeCrawl: This is not an 8-10 bit YUV or YCoCg clip')
 
