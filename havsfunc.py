@@ -2571,14 +2571,14 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
 # Original script by g-force converted into a stand alone script by McCauley #
 # latest version from December 10, 2008                                      #
 ##############################################################################
-def Stab(clp, range=1, dxmax=4, dymax=4, mirror=0):
+def Stab(clp, dxmax=4, dymax=4, mirror=0):
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('Stab: This is not a clip')
 
     temp = AverageFrames(clp, weights=[1] * 15, scenechange=25 / 255)
     inter = core.std.Interleave([core.rgvs.Repair(temp, AverageFrames(clp, weights=[1] * 3, scenechange=25 / 255), 1), clp])
-    mdata = core.depan.DePanEstimate(inter, range=range, trust=0, dxmax=dxmax, dymax=dymax)
-    last = core.depan.DePan(inter, data=mdata, offset=-1, mirror=mirror)
+    mdata = core.mv.DepanEstimate(inter, trust=0, dxmax=dxmax, dymax=dymax)
+    last = core.mv.DepanCompensate(inter, data=mdata, offset=-1, mirror=mirror)
     return last[::2]
 
 
