@@ -4601,10 +4601,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if not preblur:
         pre = tmp
     else:
-        diff1 = core.std.MakeDiff(tmp, core.std.Convolution(tmp, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
-        diff2 = core.std.MakeDiff(tmp, core.std.Median(tmp))
-        diff3 = core.std.Expr([diff1, diff2], ['x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=neutral)])
-        pre = core.std.MakeDiff(tmp, diff3)
+        pre = MinBlur(tmp, 1)
 
     dark_limit = core.std.Minimum(pre)
     bright_limit = core.std.Maximum(pre)
