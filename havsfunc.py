@@ -1098,7 +1098,6 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
 
     w = Input.width
     h = Input.height
-    epsilon = 0.0001
 
     # Reverse "field" dominance for progressive repair mode 3 (only difference from mode 2)
     if InputType >= 3:
@@ -1106,16 +1105,13 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
 
     # Pad vertically during processing (to prevent artefacts at top & bottom edges)
     if Border:
-        clip = core.resize.Point(Input, w, h + 8, src_top=-4, src_height=h + 8 + epsilon)
         h += 8
+        clip = core.resize.Point(Input, w, h, src_top=-4, src_height=h)
     else:
         clip = Input
-
-    # Calculate padding needed for MVTools super clips to avoid crashes [fixed in latest MVTools, but keeping this code for a while]
-    hpad = w - ((w - Overlap) // (BlockSize - Overlap) * (BlockSize - Overlap) + Overlap)
-    vpad = h - ((h - Overlap) // (BlockSize - Overlap) * (BlockSize - Overlap) + Overlap)
-    hpad = max(hpad, 8) # But match default padding if possible
-    vpad = max(vpad, 8)
+        
+    hpad = BlockSize
+    vpad = BlockSize
 
     #---------------------------------------
     # Motion Analysis
@@ -1156,7 +1152,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if SrchClipPP == 1:
         spatialBlur = core.resize.Bilinear(repair0, w // 2, h // 2).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=CMplanes).resize.Bilinear(w, h)
     elif SrchClipPP >= 2:
-        spatialBlur = Resize(core.std.Convolution(repair0, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=CMplanes), w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=2, dmode=1)
+        spatialBlur = Resize(core.std.Convolution(repair0, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=CMplanes), w, h, sw=w, sh=h, kernel='gauss', a1=2, dmode=1)
     if SrchClipPP > 1:
         spatialBlur = core.std.Merge(spatialBlur, repair0, weight=[0.1] if ChromaMotion or isGray else [0.1, 0])
     if SrchClipPP <= 0:
@@ -1271,7 +1267,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
 
     # Create interpolated image as starting point for output
     if EdiExt is not None:
-        edi1 = core.resize.Point(EdiExt, w, h, src_top=(EdiExt.height - h) / 2, src_height=h + epsilon)
+        edi1 = core.resize.Point(EdiExt, w, h, src_top=(EdiExt.height - h) / 2, src_height=h)
     else:
         edi1 = QTGMC_Interpolate(ediInput, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, pscrn, int16_prescreener, int16_predictor, exp, alpha, beta, gamma, nrad, vcheck,
                                  bobbed, ChromaEdi, TFF, opencl, device)
@@ -1377,8 +1373,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         backBlend1 = core.std.MakeDiff(thin,
                                        Resize(core.std.MakeDiff(thin, lossed1, planes=[0]).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0]),
-                                              w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=5, dmode=1),
-                                       planes=[0])
+                                              w, h, sw=w, sh=h, kernel='gauss', a1=5, dmode=1), planes=[0])
 
     # Limit over-sharpening by clamping to neighboring (spatial or temporal) min/max values in original
     # Occurs here (before final temporal smooth) if SLMode == 1,2. This location will restrict sharpness more, but any artefacts introduced will be smoothed
@@ -1398,8 +1393,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         backBlend2 = core.std.MakeDiff(sharpLimit1,
                                        Resize(core.std.MakeDiff(sharpLimit1, lossed1, planes=[0]).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0]),
-                                              w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=5, dmode=1),
-                                       planes=[0])
+                                              w, h, sw=w, sh=h, kernel='gauss', a1=5, dmode=1), planes=[0])
 
     # Add back any extracted noise, prior to final temporal smooth - this will restore detail that was removed as "noise" without restoring the noise itself
     # Average luma of FFT3DFilter extracted noise is 128.5, so deal with that too
@@ -3190,7 +3184,7 @@ bv6 = bv4 = bv3 = bv2 = bv1 = fv1 = fv2 = fv3 = fv4 = fv6 = None
 
 def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasharp=None, CClip=None, interlaced=False, tff=None, plane=4, Globals=0,
               pel=None, subpixel=2, prefilter=-1, mfilter=None, blksize=None, overlap=None, search=4, truemotion=None, MVglobal=None, dct=0,
-              limit=255, limitc=None, thSCD1=None, thSCD2=130, chroma=True, hpad=None, vpad=None, Str=1., Amp=0.0625):
+              limit=255, limitc=None, thSCD1=400, thSCD2=130, chroma=True, hpad=None, vpad=None, Str=1., Amp=0.0625):
     if not isinstance(input, vs.VideoNode):
         raise TypeError('SMDegrain: This is not a clip')
 
@@ -3235,8 +3229,6 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
         truemotion = not if4
     if MVglobal is None:
         MVglobal = truemotion
-    if thSCD1 is None:
-        thSCD1 = int((blksize * 2.5) ** 2)
 
     planes = [0, 1, 2] if chroma else [0]
     plane0 = (plane != 0)
@@ -3465,6 +3457,10 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
 
     if RGmode == 4:
         bzz = core.std.Median(clp, planes=planes)
+    elif RGmode in [11, 12]:
+        bzz = core.std.Convolution(clp, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
+    elif RGmode == 19:
+        bzz = core.std.Convolution(clp, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1], planes=planes)
     elif RGmode == 20:
         bzz = core.std.Convolution(clp, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1], planes=planes)
     else:
@@ -3914,8 +3910,10 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
         output_high = peak
     if Ecenter is None:
         Ecenter = neutral
-
-    if RGmode in [11, 12]:
+        
+    if RGmode == 4:
+        Filter = functools.partial(core.std.Median)
+    elif RGmode in [11, 12]:
         Filter = functools.partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     elif RGmode == 19:
         Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
@@ -4551,8 +4549,10 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         dest_x = ox
     if dest_y is None:
         dest_y = oy
-
-    if kernel in [11, 12]:
+        
+    if kernel == 4:
+        Filter = functools.partial(core.std.Median)
+    elif kernel in [11, 12]:
         Filter = functools.partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     elif kernel == 19:
         Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
@@ -4631,9 +4631,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     zero = Clamp(normsharp, bright_limit, dark_limit, 0, 0)
 
     if edgemaskHQ:
-        edge = core.std.Expr([core.std.Convolution(tmp, matrix=[8, 16, 8, 0, 0, 0, -8, -16, -8], divisor=4, saturate=False),
-                              core.std.Convolution(tmp, matrix=[8, 0, -8, 16, 0, -16, 8, 0, -8], divisor=4, saturate=False)],
-                             ['x y max']).std.Lut(function=get_lut2)
+        edge = core.std.Sobel(tmp, scale=2).std.Lut(function=get_lut2)
     else:
         edge = core.std.Expr([core.std.Maximum(tmp), core.std.Minimum(tmp)], ['x y -']).std.Lut(function=get_lut3)
 
