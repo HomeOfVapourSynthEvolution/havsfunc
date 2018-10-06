@@ -1098,6 +1098,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
 
     w = Input.width
     h = Input.height
+    eps = 1e-6
 
     # Reverse "field" dominance for progressive repair mode 3 (only difference from mode 2)
     if InputType >= 3:
@@ -1152,7 +1153,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if SrchClipPP == 1:
         spatialBlur = core.resize.Bilinear(repair0, w // 2, h // 2).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=CMplanes).resize.Bilinear(w, h)
     elif SrchClipPP >= 2:
-        spatialBlur = Resize(core.std.Convolution(repair0, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=CMplanes), w, h, sw=w, sh=h, kernel='gauss', a1=2, dmode=1)
+        spatialBlur = Resize(core.std.Convolution(repair0, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=CMplanes), w, h, sw=w + eps, sh=h + eps, kernel='gauss', a1=2, dmode=1)
     if SrchClipPP > 1:
         spatialBlur = core.std.Merge(spatialBlur, repair0, weight=[0.1] if ChromaMotion or isGray else [0.1, 0])
     if SrchClipPP <= 0:
@@ -1373,7 +1374,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         backBlend1 = core.std.MakeDiff(thin,
                                        Resize(core.std.MakeDiff(thin, lossed1, planes=[0]).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0]),
-                                              w, h, sw=w, sh=h, kernel='gauss', a1=5, dmode=1), planes=[0])
+                                              w, h, sw=w + eps, sh=h + eps, kernel='gauss', a1=5, dmode=1), planes=[0])
 
     # Limit over-sharpening by clamping to neighboring (spatial or temporal) min/max values in original
     # Occurs here (before final temporal smooth) if SLMode == 1,2. This location will restrict sharpness more, but any artefacts introduced will be smoothed
@@ -1393,7 +1394,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         backBlend2 = core.std.MakeDiff(sharpLimit1,
                                        Resize(core.std.MakeDiff(sharpLimit1, lossed1, planes=[0]).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=[0]),
-                                              w, h, sw=w, sh=h, kernel='gauss', a1=5, dmode=1), planes=[0])
+                                              w, h, sw=w + eps, sh=h + eps, kernel='gauss', a1=5, dmode=1), planes=[0])
 
     # Add back any extracted noise, prior to final temporal smooth - this will restore detail that was removed as "noise" without restoring the noise itself
     # Average luma of FFT3DFilter extracted noise is 128.5, so deal with that too
@@ -5055,20 +5056,17 @@ def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=[0, 
     return core.std.Expr([clip, bright_limit, dark_limit], [expr if i in planes else '' for i in range(clip.format.num_planes)])
 
 
-def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, device_type=None, device_id=None, info=None):
+def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, device_type=None, device_id=None):
     if not isinstance(clip, vs.VideoNode):
         raise TypeError('KNLMeansCL: This is not a clip')
     if clip.format.color_family not in [vs.YUV, vs.YCOCG]:
         raise TypeError('KNLMeansCL: This wrapper is intended to be used for color family of YUV and YCoCg only')
 
-    nrY = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id, info=info)
-
     if clip.format.subsampling_w > 0 or clip.format.subsampling_h > 0:
-        nrUV = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, channels='UV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
+        return core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id).knlm.KNLMeansCL(
+                                    clip, d=d, a=a, s=s, h=h, channels='UV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
     else:
-        nrUV = core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, channels='YUV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
-
-    return core.std.ShufflePlanes([nrY, nrUV], planes=[0, 1, 2], colorfamily=clip.format.color_family)
+        return core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, channels='YUV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
 
 
 def Overlay(clipa, clipb, x=0, y=0, mask=None, opacity=1.):
@@ -5139,16 +5137,11 @@ def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None
     sr_up = max(sr_h, sr_v)
     sr_dw = 1 / min(sr_h, sr_v)
     sr = max(sr_up, sr_dw)
-    assert(sr >= 1)
 
     # Depending on the scale ratio, we may blend or totally disable the ringing cancellation
     thr = 2.5
-    nrb = sr > thr
+    nrb = thr < sr < thr + 1
     nrf = sr < thr + 1 and noring
-    if nrb:
-        nrr = min(sr - thr, 1)
-        nrv = math.floor((1 - nrr) * 255 + 0.5)
-        nrv = [nrv * 256 + nrv] * src.format.num_planes
 
     main = core.fmtc.resample(src, w, h, sx, sy, sw, sh, kernel=kernel, taps=taps, a1=a1, a2=a2, invks=invks, invkstaps=invkstaps, css=css, planes=planes, center=center,
                               cplace=cplace, cplaces=cplaces, cplaced=cplaced, interlaced=interlaced, interlacedd=interlacedd, tff=tff, tffd=tffd, flt=flt)
@@ -5157,11 +5150,10 @@ def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None
         nrng = core.fmtc.resample(src, w, h, sx, sy, sw, sh, kernel='gauss', taps=taps, a1=100, invks=invks, invkstaps=invkstaps, css=css, planes=planes, center=center,
                                   cplace=cplace, cplaces=cplaces, cplaced=cplaced, interlaced=interlaced, interlacedd=interlacedd, tff=tff, tffd=tffd, flt=flt)
 
-        # To do: use a simple frame blending instead of Merge
         last = core.rgvs.Repair(main, nrng, 1)
         if nrb:
-            nrm = core.std.BlankClip(main, color=nrv)
-            last = core.std.MaskedMerge(main, last, nrm)
+            nr = sr - thr
+            last = core.std.Merge(last, main, [nr])
     else:
         last = main
 
