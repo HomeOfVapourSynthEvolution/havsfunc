@@ -1672,7 +1672,7 @@ def QTGMC_MakeLossless(Input, Source, InputType, TFF):
     vertMedian = core.rgvs.VerticalCleaner(processed, 1)
     vertMedDiff = core.std.MakeDiff(processed, vertMedian)
     vmNewDiff1 = core.std.SeparateFields(vertMedDiff, TFF).std.SelectEvery(4, [1, 2])
-    expr = 'x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=1 << (Input.format.bits_per_sample - 1))
+    expr = 'x {neutral} < y {neutral} < xor {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=1 << (Input.format.bits_per_sample - 1))
     vmNewDiff2 = core.std.Expr([core.rgvs.VerticalCleaner(vmNewDiff1, 1), vmNewDiff1], [expr])
     vmNewDiff3 = core.rgvs.Repair(vmNewDiff2, core.rgvs.RemoveGrain(vmNewDiff2, 2), 1)
 
@@ -2294,7 +2294,7 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
     vblurD = core.std.MakeDiff(clp, vblur)
     vshrp = core.std.Expr([vblur, core.std.Convolution(vblur, matrix=[1, 4, 6, 4, 1], mode='v')], ['x x y - {STR} * +'.format(STR=sstr)])
     vshrpD = core.std.MakeDiff(vshrp, vblur)
-    expr = 'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - 0.25 * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=neutral)
+    expr = 'x {neutral} < y {neutral} < xor x {neutral} - abs y {neutral} - abs < x y ? {neutral} - 0.25 * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=neutral)
     vlimD = core.std.Expr([vshrpD, vblurD], [expr])
     last = core.std.MergeDiff(vblur, vlimD)
     if amnt <= 0:
@@ -2325,7 +2325,7 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
     vblurD = core.std.MakeDiff(clp, vblur)
     vshrp = core.std.Expr([vblur, core.std.Convolution(vblur, matrix=[1, 2, 1], mode='v')], ['x x y - {STR} * +'.format(STR=sstr)])
     vshrpD = core.std.MakeDiff(vshrp, vblur)
-    expr = 'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - 0.25 * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=neutral)
+    expr = 'x {neutral} < y {neutral} < xor x {neutral} - abs y {neutral} - abs < x y ? {neutral} - 0.25 * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'.format(neutral=neutral)
     vlimD = core.std.Expr([vshrpD, vblurD], [expr])
     last = core.std.MergeDiff(vblur, vlimD)
     if amnt <= 0:
@@ -4669,7 +4669,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if soothe:
         diff = core.std.MakeDiff(tmp, PP1)
         diff = core.std.Expr([diff, AverageFrames(diff, weights=[1] * 3, scenechange=32 / 255)],
-                             ['x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {i} * + 100 / x ? ?'.format(neutral=neutral, keep=keep, i=100 - keep)])
+                             ['x {neutral} < y {neutral} < xor x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {i} * + 100 / x ? ?'.format(neutral=neutral, keep=keep, i=100 - keep)])
         PP2 = core.std.MakeDiff(tmp, diff)
     else:
         PP2 = PP1
@@ -5064,7 +5064,7 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
 
     if clip.format.subsampling_w > 0 or clip.format.subsampling_h > 0:
         return core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id).knlm.KNLMeansCL(
-                                    clip, d=d, a=a, s=s, h=h, channels='UV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
+                           channels='UV', d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
     else:
         return core.knlm.KNLMeansCL(clip, d=d, a=a, s=s, h=h, channels='YUV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
 
@@ -5282,7 +5282,7 @@ def MinBlur(clp, r=1, planes=[0, 1, 2]):
         else:
             RG4 = core.ctmf.CTMF(clp, radius=3, planes=planes)
 
-    expr = 'x y - x z - * 0 < x x y - abs x z - abs < y z ? ?'
+    expr = 'x y < x z < xor x x y - abs x z - abs < y z ? ?'
     return core.std.Expr([clp, RG11, RG4], [expr if i in planes else '' for i in range(clp.format.num_planes)])
 
 
@@ -5315,7 +5315,7 @@ def sbr(c, r=1, planes=[0, 1, 2]):
     else:
         RG11DS = core.std.Convolution(RG11D, matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
 
-    expr = 'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'.format(neutral=1 << (c.format.bits_per_sample - 1))
+    expr = 'x y < x {neutral} < xor {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'.format(neutral=1 << (c.format.bits_per_sample - 1))
     RG11DD = core.std.Expr([RG11D, RG11DS], [expr if i in planes else '' for i in range(c.format.num_planes)])
 
     return core.std.MakeDiff(c, RG11DD, planes=planes)
@@ -5349,7 +5349,7 @@ def sbrV(c, r=1, planes=[0, 1, 2]):
     else:
         RG11DS = core.std.Convolution(RG11D, matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
 
-    expr = 'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'.format(neutral=1 << (c.format.bits_per_sample - 1))
+    expr = 'x y < x {neutral} < xor {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'.format(neutral=1 << (c.format.bits_per_sample - 1))
     RG11DD = core.std.Expr([RG11D, RG11DS], [expr if i in planes else '' for i in range(c.format.num_planes)])
 
     return core.std.MakeDiff(c, RG11DD, planes=planes)
