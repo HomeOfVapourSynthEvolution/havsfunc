@@ -1,9 +1,10 @@
+from functools import partial
+import math
+
 from vapoursynth import core
 import vapoursynth as vs
 import mvsfunc as mvf
 import adjust
-import functools
-import math
 
 """
 Holy's ported AviSynth functions for VapourSynth.
@@ -79,13 +80,12 @@ def daa(c, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, 
         raise TypeError('daa: This is not a clip')
 
     if opencl:
-        myNNEDI3 = core.nnedi3cl.NNEDI3CL
-        nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, device=device)
+        nnedi3 = partial(core.nnedi3cl.NNEDI3CL, nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, device=device)
     else:
-        myNNEDI3 = core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3
-        nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
+        nnedi3 = partial(core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3,
+                         nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
 
-    nn = myNNEDI3(c, field=3, **nnedi3_args)
+    nn = nnedi3(c, field=3)
     dbl = core.std.Merge(nn[::2], nn[1::2])
     dblD = core.std.MakeDiff(c, dbl)
     if c.width > 1100:
@@ -123,15 +123,13 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, p
 
     def santiag_stronger(c, strength, type):
         if opencl:
-            myNNEDI3 = core.nnedi3cl.NNEDI3CL
-            myEEDI3 = core.eedi3m.EEDI3CL
-            nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, device=device)
-            eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck, device=device)
+            nnedi3 = partial(core.nnedi3cl.NNEDI3CL, nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, device=device)
+            eedi3 = partial(core.eedi3m.EEDI3CL, alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck, device=device)
         else:
-            myNNEDI3 = core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3
-            myEEDI3 = core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3
-            nnedi3_args = dict(nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
-            eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck)
+            nnedi3 = partial(core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3,
+                             nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
+            eedi3 = partial(core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3,
+                            alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck)
 
         strength = max(strength, 0)
         field = strength % 2
@@ -144,7 +142,7 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, p
         h = c.height
 
         if type == 'nnedi3':
-            return myNNEDI3(c, field=field, dh=dh, **nnedi3_args)
+            return nnedi3(c, field=field, dh=dh)
         elif type == 'eedi2':
             if not dh:
                 cshift = 1 - field
@@ -153,8 +151,8 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, p
                 c = Resize(c, w, h // 2, sy=cshift, kernel='point', dmode=1)
             return core.eedi2.EEDI2(c, field=field)
         elif type == 'eedi3':
-            sclip = myNNEDI3(c, field=field, dh=dh, **nnedi3_args)
-            return myEEDI3(c, field=field, dh=dh, sclip=sclip, **eedi3_args)
+            sclip = nnedi3(c, field=field, dh=dh)
+            return eedi3(c, field=field, dh=dh, sclip=sclip)
         elif type == 'sangnom':
             if dh:
                 cshift = -0.25
@@ -1535,15 +1533,13 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
 def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiMaxD, pscrn, int16_prescreener, int16_predictor, exp, alpha, beta, gamma, nrad, vcheck,
                       Fallback=None, ChromaEdi='', TFF=None, opencl=False, device=None):
     if opencl:
-        myNNEDI3 = core.nnedi3cl.NNEDI3CL
-        myEEDI3 = core.eedi3m.EEDI3CL
-        nnedi3_args = dict(nsize=NNSize, nns=NNeurons, qual=EdiQual, pscrn=pscrn, device=device)
-        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device)
+        nnedi3 = partial(core.nnedi3cl.NNEDI3CL, nsize=NNSize, nns=NNeurons, qual=EdiQual, pscrn=pscrn, device=device)
+        eedi3 = partial(core.eedi3m.EEDI3CL, alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device)
     else:
-        myNNEDI3 = core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3
-        myEEDI3 = core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3
-        nnedi3_args = dict(nsize=NNSize, nns=NNeurons, qual=EdiQual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
-        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck)
+        nnedi3 = partial(core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3,
+                         nsize=NNSize, nns=NNeurons, qual=EdiQual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
+        eedi3 = partial(core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3,
+                        alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck)
 
     isGray = (Input.format.color_family == vs.GRAY)
     if isGray:
@@ -1555,11 +1551,11 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
     if InputType == 1:
         return Input
     elif EdiMode == 'nnedi3':
-        interp = myNNEDI3(Input, field=field, planes=planes, **nnedi3_args)
+        interp = nnedi3(Input, field=field, planes=planes)
     elif EdiMode == 'eedi3+nnedi3':
-        interp = myEEDI3(Input, field=field, planes=planes, **eedi3_args, sclip=myNNEDI3(Input, field=field, planes=planes, **nnedi3_args))
+        interp = eedi3(Input, field=field, planes=planes, sclip=nnedi3(Input, field=field, planes=planes))
     elif EdiMode == 'eedi3':
-        interp = myEEDI3(Input, field=field, planes=planes, **eedi3_args)
+        interp = eedi3(Input, field=field, planes=planes)
     else:
         if isinstance(Fallback, vs.VideoNode):
             interp = Fallback
@@ -1567,7 +1563,7 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
             interp = Bob(Input, 0, 0.5, TFF)
 
     if ChromaEdi == 'nnedi3':
-        interpuv = myNNEDI3(Input, field=field, planes=[1, 2], nsize=4, nns=0, qual=1)
+        interpuv = nnedi3(Input, field=field, planes=[1, 2], nsize=4, nns=0, qual=1)
     elif ChromaEdi == 'bob':
         interpuv = Bob(Input, 0, 0.5, TFF)
     else:
@@ -1803,7 +1799,7 @@ def smartfademod(clip, threshold=0.4, show=False, tff=None):
     sep = core.std.SeparateFields(clip, tff)
     even = core.std.PlaneStats(sep[::2])
     odd = core.std.PlaneStats(sep[1::2])
-    return core.std.FrameEval(clip, eval=functools.partial(frame_eval, orig=clip, defade=daa(clip)), prop_src=[even, odd])
+    return core.std.FrameEval(clip, eval=partial(frame_eval, orig=clip, defade=daa(clip)), prop_src=[even, odd])
 
 
 ###### srestore v2.7e ######
@@ -2446,8 +2442,8 @@ def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=
             return clips[1]
 
     input = SCDetect(input, scnchg / 255)
-    output = core.std.FrameEval(output, eval=functools.partial(YDifferenceFromPrevious, clips=[input, output]), prop_src=input)
-    output = core.std.FrameEval(output, eval=functools.partial(YDifferenceToNext, clips=[input, output]), prop_src=input)
+    output = core.std.FrameEval(output, eval=partial(YDifferenceFromPrevious, clips=[input, output]), prop_src=input)
+    output = core.std.FrameEval(output, eval=partial(YDifferenceToNext, clips=[input, output]), prop_src=input)
 
     if mask:
         return themask
@@ -3913,15 +3909,15 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
         Ecenter = neutral
         
     if RGmode == 4:
-        Filter = functools.partial(core.std.Median)
+        Filter = partial(core.std.Median)
     elif RGmode in [11, 12]:
-        Filter = functools.partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+        Filter = partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     elif RGmode == 19:
-        Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+        Filter = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
     elif RGmode == 20:
-        Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        Filter = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
     else:
-        Filter = functools.partial(core.rgvs.RemoveGrain, mode=[RGmode])
+        Filter = partial(core.rgvs.RemoveGrain, mode=[RGmode])
 
     Dstr = DarkSTR / 100
     Bstr = BrightSTR / 100
@@ -4552,15 +4548,15 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         dest_y = oy
         
     if kernel == 4:
-        Filter = functools.partial(core.std.Median)
+        Filter = partial(core.std.Median)
     elif kernel in [11, 12]:
-        Filter = functools.partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+        Filter = partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     elif kernel == 19:
-        Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+        Filter = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
     elif kernel == 20:
-        Filter = functools.partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        Filter = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
     else:
-        Filter = functools.partial(core.rgvs.RemoveGrain, mode=[kernel])
+        Filter = partial(core.rgvs.RemoveGrain, mode=[kernel])
 
     if soft == -1:
         soft = math.sqrt(((ss_x + ss_y) / 2 - 1) * 100) * 10
