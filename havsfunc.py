@@ -225,9 +225,9 @@ def FixChromaBleedingMod(input, cx=4, cy=4, thr=4., strength=0.8, blur=False):
         def get_lut1(x):
             p = ((x - tvLow) * scaleUp - input_low) / divisor if coring else (x - input_low) / divisor
             p = min(max(p, 0), 1) ** gamma * (output_high - output_low) + output_low
-            return min(max(math.floor(p * scaleDown + tvLow + 0.5), tvLow), tvHigh[0]) if coring else min(max(math.floor(p + 0.5), 0), peak)
+            return min(max(cround(p * scaleDown + tvLow), tvLow), tvHigh[0]) if coring else min(max(cround(p), 0), peak)
         def get_lut2(x):
-            q = math.floor((x - neutral) * (output_high - output_low) / divisor + neutral + 0.5)
+            q = cround((x - neutral) * (output_high - output_low) / divisor + neutral)
             return min(max(q, tvLow), tvHigh[1]) if coring else min(max(q, 0), peak)
 
         last = core.std.Lut(clip, planes=[0], function=get_lut1)
@@ -456,7 +456,7 @@ def EdgeCleaner(c, strength=10, rep=True, rmode=17, smode=0, hot=False):
     if smode >= 1:
         strength += 4
 
-    main = Padding(c, 6, 6, 6, 6).warp.AWarpSharp2(blur=1, depth=math.floor(strength / 2 + 0.5)).std.Crop(6, 6, 6, 6)
+    main = Padding(c, 6, 6, 6, 6).warp.AWarpSharp2(blur=1, depth=cround(strength / 2)).std.Crop(6, 6, 6, 6)
     if rep:
         main = core.rgvs.Repair(main, c, rmode)
 
@@ -500,8 +500,8 @@ def FineDehalo(src, rx=2, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, dar
     if ry is None:
         ry = rx
 
-    rx_i = math.floor(rx + 0.5)
-    ry_i = math.floor(ry + 0.5)
+    rx_i = cround(rx)
+    ry_i = cround(ry)
 
     ### Dehaloing ###
 
@@ -826,9 +826,9 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
 #   eedi3m - if selected directly or via a source-match preset
 #   FFT3DFilter - if selected for noise processing
 #   DFTTest - if selected for noise processing
-#   KNLMeansCL - if selected for noise processing
 #       For FFT3DFilter & DFTTest you also need the FFTW3 library (FFTW.org). On Windows the file needed for both is libfftw3f-3.dll.
 #       Put the file in your System32 or SysWow64 folder
+#   KNLMeansCL - if selected for noise processing
 #   AddGrain - if NoiseDeint="Generate" selected for noise bypass
 #
 # --- GETTING STARTED ---
@@ -1832,20 +1832,20 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
             frfac = 1
         else:
             frfac = abs(frate) / irate
-    elif math.floor(irate * 10010 + 0.5) % 30000 == 0:
+    elif cround(irate * 10010) % 30000 == 0:
         frfac = 1001 / 2400
     else:
         frfac = 480 / 1001
 
-    if abs(frfac * 1001 - math.floor(frfac * 1001 + 0.5)) < 0.01:
-        numr = math.floor(frfac * 1001 + 0.5)
-    elif abs(1001 / frfac - math.floor(1001 / frfac + 0.5)) < 0.01:
+    if abs(frfac * 1001 - cround(frfac * 1001)) < 0.01:
+        numr = cround(frfac * 1001)
+    elif abs(1001 / frfac - cround(1001 / frfac)) < 0.01:
         numr = 1001
     else:
-        numr = math.floor(frfac * 9000 + 0.5)
-    if frate is not None and abs(irate * numr / math.floor(numr / frfac + 0.5) - frate) > abs(irate * math.floor(frate * 100 + 0.5) / math.floor(irate * 100 + 0.5) - frate):
-        numr = math.floor(frate * 100 + 0.5)
-    denm = math.floor(numr / frfac + 0.5)
+        numr = cround(frfac * 9000)
+    if frate is not None and abs(irate * numr / cround(numr / frfac) - frate) > abs(irate * cround(frate * 100) / cround(irate * 100) - frate):
+        numr = cround(frate * 100)
+    denm = cround(numr / frfac)
 
     ###### source preparation & lut ######
     if abs(mode) >= 2 and not bom:
@@ -1870,7 +1870,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         bclp = core.std.Expr([diff, core.std.Trim(diff, 1)], [expr1]).resize.Bilinear(bsize, bsize)
     else:
         bclp = core.std.Expr([core.std.Trim(diff, 1), core.std.MergeDiff(diff, core.std.Trim(diff, 2))], [expr2]).resize.Bilinear(bsize, bsize)
-    dclp = core.std.Trim(diff, 1).std.Lut(function=lambda x: max(math.floor(abs(x - 128) ** 1.1 - 1 + 0.5), 0)).resize.Bilinear(bsize, bsize)
+    dclp = core.std.Trim(diff, 1).std.Lut(function=lambda x: max(cround(abs(x - 128) ** 1.1 - 1), 0)).resize.Bilinear(bsize, bsize)
 
     ###### postprocessing ######
     if bom:
@@ -1923,7 +1923,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         bfo = cfo > -numr and cfo <= numr
         lfr = n
         offs = offs + 2 * denm if bfo and offs <= -4 * numr else offs - 2 * denm if bfo and offs >= 4 * numr else offs
-        pos = 0 if frfac == 1 else -math.floor((cfo + offs) / (2 * numr) + 0.5) if bfo else lpos
+        pos = 0 if frfac == 1 else -cround((cfo + offs) / (2 * numr)) if bfo else lpos
         cof = cfo + offs + 2 * numr * pos
         ldet = -1 if n + pos == ldet else n + pos
 
@@ -2027,7 +2027,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
             odm = 2 * denm - numr
         else:
             odm = cof
-        odm += math.floor((cof - odm) / (2 * denm) + 0.5) * 2 * denm
+        odm += cround((cof - odm) / (2 * denm)) * 2 * denm
 
         if blend:
             odr = denm - numr
@@ -2057,7 +2057,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
 
         offs = 0 if frfac == 1 else cof - cfo - 2 * numr * pos
         lpos = pos
-        opos = 0 if frfac == 1 else -math.floor((cfo + offs + (denm if bfo and offs <= -4 * numr else 0)) / (2 * numr) + 0.5)
+        opos = 0 if frfac == 1 else -cround((cfo + offs + (denm if bfo and offs <= -4 * numr else 0)) / (2 * numr))
         pos = min(max(opos, -2), 2)
 
         ### frame output calculation - resync - dup ###
@@ -3144,8 +3144,8 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
 
     ### STABILIZING
     if stabilize:
-        # mM = core.std.Merge(mvf.GetPlane(SAD_f1m, 0), mvf.GetPlane(SAD_b1m, 0), weight=[0.5]).std.Lut(function=lambda x: min(math.floor(x ** 1.6 + 0.5), peak))
-        mE = core.std.Prewitt(mvf.GetPlane(smP, 0)).std.Lut(function=lambda x: min(math.floor(x ** 1.8 + 0.5), peak)).std.Median().std.Inflate()
+        # mM = core.std.Merge(mvf.GetPlane(SAD_f1m, 0), mvf.GetPlane(SAD_b1m, 0), weight=[0.5]).std.Lut(function=lambda x: min(cround(x ** 1.6), peak))
+        mE = core.std.Prewitt(mvf.GetPlane(smP, 0)).std.Lut(function=lambda x: min(cround(x ** 1.8), peak)).std.Median().std.Inflate()
         # mF = core.std.Expr([mM, mE], ['x y max']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
         mF = core.std.Convolution(mE, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
         TTc = core.ttmpsm.TTempSmooth(smP, maxr=maxr, mdiff=255, strength=TTstr, planes=planes)
@@ -3440,8 +3440,8 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
     tlimit = scale(tlimit, peak)
     back = scale(back, peak)
 
-    LIM1 = math.floor(limit * 100 / bias - 1 + 0.5) if limit > 0 else math.floor(scale(100 / bias, peak) + 0.5)
-    TLIM1 = math.floor(tlimit * 100 / tbias - 1 + 0.5) if tlimit > 0 else math.floor(scale(100 / tbias, peak) + 0.5)
+    LIM1 = cround(limit * 100 / bias - 1) if limit > 0 else cround(scale(100 / bias, peak))
+    TLIM1 = cround(tlimit * 100 / tbias - 1) if tlimit > 0 else cround(scale(100 / tbias, peak))
 
     if limit < 0:
         expr = 'x y - abs {LIM1} < x x 1 x y - x y - abs / * - ?'.format(LIM1=LIM1)
@@ -3970,7 +3970,7 @@ def SmoothLevels(input, input_low=0, gamma=1., input_high=None, output_low=0, ou
             else:
                 exprP = abs((x - protect) / tmp)
 
-        return min(max(math.floor(exprL * exprP * (exprY - x) + x + 0.5), 0), peak)
+        return min(max(cround(exprL * exprP * (exprY - x) + x), 0), peak)
 
     ### PROCESS
     if limiter == 1 or limiter >= 3:
@@ -4564,8 +4564,8 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         soft = int((1 + (2 / (ss_x + ss_y))) * math.sqrt(strength))
     soft = min(soft, 100)
 
-    xxs = math.floor(ox * ss_x / 8 + 0.5) * 8
-    yys = math.floor(oy * ss_y / 8 + 0.5) * 8
+    xxs = cround(ox * ss_x / 8) * 8
+    yys = cround(oy * ss_y / 8) * 8
 
     Str = strength / 100
 
@@ -4577,13 +4577,13 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
             tmp1 = (x - neutral) / multiple
             tmp2 = tmp1 ** 2
             tmp3 = Szrp ** 2
-            return min(max(math.floor(x + (abs(tmp1) / Szrp) ** (1 / Spwr) * Szrp * (Str * multiple) * (1 if x > neutral else -1) * (tmp2 * (tmp3 + SdmpLo) / ((tmp2 + SdmpLo) * tmp3)) * ((1 + (0 if SdmpHi == 0 else (Szrp / SdmpHi) ** 4)) / (1 + (0 if SdmpHi == 0 else (abs(tmp1) / SdmpHi) ** 4))) + 0.5), 0), peak)
+            return min(max(cround(x + (abs(tmp1) / Szrp) ** (1 / Spwr) * Szrp * (Str * multiple) * (1 if x > neutral else -1) * (tmp2 * (tmp3 + SdmpLo) / ((tmp2 + SdmpLo) * tmp3)) * ((1 + (0 if SdmpHi == 0 else (Szrp / SdmpHi) ** 4)) / (1 + (0 if SdmpHi == 0 else (abs(tmp1) / SdmpHi) ** 4)))), 0), peak)
     # x 128 / 0.86 ^ 255 *
     def get_lut2(x):
-        return min(math.floor((x / multiple / 128) ** 0.86 * 255 * multiple + 0.5), peak)
+        return min(cround((x / multiple / 128) ** 0.86 * 255 * multiple), peak)
     # x 32 / 0.86 ^ 255 *
     def get_lut3(x):
-        return min(math.floor((x / multiple / 32) ** 0.86 * 255 * multiple + 0.5), peak)
+        return min(cround((x / multiple / 32) ** 0.86 * 255 * multiple), peak)
 
     ### SHARP
     if ss_x > 1 or ss_y > 1:
@@ -5452,8 +5452,12 @@ def mt_deflate_multi(src, planes=None, radius=1):
 ####################
 
 
+def cround(x):
+    return math.floor(x + 0.5) if x > 0 else math.ceil(x - 0.5)
+
+
 def m4(x):
-    return 16 if x < 16 else math.floor(x / 4 + 0.5) * 4
+    return 16 if x < 16 else cround(x / 4) * 4
 
 
 def scale(value, peak):
