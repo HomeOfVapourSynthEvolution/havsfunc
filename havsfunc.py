@@ -39,6 +39,7 @@ Main functions:
     GrainFactory3
     InterFrame
     FixColumnBrightness, FixRowBrightness
+    FixColumnBrightnessProtect, FixRowBrightnessProtect
     SmoothLevels
     FastLineDarkenMOD
     Toon
@@ -3825,6 +3826,64 @@ def FixRowBrightness(c, row, input_low, input_high, output_low, output_high):
     output_high = scale(output_high, peak)
 
     last = SmoothLevels(c, input_low, 1, input_high, output_low, output_high, Smode=0)
+    last = core.std.CropAbs(last, width=c.width, height=1, top=row)
+    last = Overlay(c, last, y=row)
+    if c_orig is not None:
+        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
+    return last
+
+
+# protect_value determines which pixels wouldn't be affected by the filter. Increasing the value, you protect the pixels with lower luma.
+def FixColumnBrightnessProtect(c, column, input_low, input_high, output_low, output_high, protect_value=20):
+    if not isinstance(c, vs.VideoNode):
+        raise TypeError('FixColumnBrightnessProtect: This is not a clip')
+    if c.format.color_family == vs.RGB:
+        raise TypeError('FixColumnBrightnessProtect: RGB color family is not supported')
+
+    peak = (1 << c.format.bits_per_sample) - 1
+
+    if c.format.color_family != vs.GRAY:
+        c_orig = c
+        c = mvf.GetPlane(c, 0)
+    else:
+        c_orig = None
+
+    input_low = scale(255 - input_low, peak)
+    input_high = scale(255 - input_high, peak)
+    output_low = scale(255 - output_low, peak)
+    output_high = scale(255 - output_high, peak)
+    protect_value = scale(protect_value, peak)
+
+    last = SmoothLevels(core.std.Invert(c), input_low, 1, input_high, output_low, output_high, protect=protect_value, Smode=0).std.Invert()
+    last = core.std.CropAbs(last, width=1, height=c.height, left=column)
+    last = Overlay(c, last, x=column)
+    if c_orig is not None:
+        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
+    return last
+
+
+def FixRowBrightnessProtect(c, row, input_low, input_high, output_low, output_high, protect_value=20):
+    if not isinstance(c, vs.VideoNode):
+        raise TypeError('FixRowBrightnessProtect: This is not a clip')
+    if c.format.color_family == vs.RGB:
+        raise TypeError('FixRowBrightnessProtect: RGB color family is not supported')
+
+    shift = c.format.bits_per_sample - 8
+    peak = (1 << c.format.bits_per_sample) - 1
+
+    if c.format.color_family != vs.GRAY:
+        c_orig = c
+        c = mvf.GetPlane(c, 0)
+    else:
+        c_orig = None
+
+    input_low = scale(255 - input_low, peak)
+    input_high = scale(255 - input_high, peak)
+    output_low = scale(255 - output_low, peak)
+    output_high = scale(255 - output_high, peak)
+    protect_value = scale(protect_value, peak)
+
+    last = SmoothLevels(core.std.Invert(c), input_low, 1, input_high, output_low, output_high, protect=protect_value, Smode=0).std.Invert()
     last = core.std.CropAbs(last, width=c.width, height=1, top=row)
     last = Overlay(c, last, y=row)
     if c_orig is not None:
