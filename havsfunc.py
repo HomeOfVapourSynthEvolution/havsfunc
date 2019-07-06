@@ -38,6 +38,7 @@ Main functions:
     SigmoidInverse, SigmoidDirect
     GrainFactory3
     InterFrame
+    FixColumnBrightness, FixRowBrightness
     SmoothLevels
     FastLineDarkenMOD
     Toon
@@ -3773,6 +3774,62 @@ def InterFrame(Input, Preset='Medium', Tuning='Film', NewNum=None, NewDen=1, GPU
         return core.std.StackVertical([core.resize.Spline36(FirstEye, Input.width, Input.height // 2), core.resize.Spline36(SecondEye, Input.width, Input.height // 2)])
     else:
         return InterFrameProcess(Input)
+
+
+# column is the column you want to work on.
+def FixColumnBrightness(c, column, input_low, input_high, output_low, output_high):
+    if not isinstance(c, vs.VideoNode):
+        raise TypeError('FixColumnBrightness: This is not a clip')
+    if c.format.color_family == vs.RGB:
+        raise TypeError('FixColumnBrightness: RGB color family is not supported')
+
+    peak = (1 << c.format.bits_per_sample) - 1
+
+    if c.format.color_family != vs.GRAY:
+        c_orig = c
+        c = mvf.GetPlane(c, 0)
+    else:
+        c_orig = None
+
+    input_low = scale(input_low, peak)
+    input_high = scale(input_high, peak)
+    output_low = scale(output_low, peak)
+    output_high = scale(output_high, peak)
+
+    last = SmoothLevels(c, input_low, 1, input_high, output_low, output_high, Smode=0)
+    last = core.std.CropAbs(last, width=1, height=c.height, left=column)
+    last = Overlay(c, last, x=column)
+    if c_orig is not None:
+        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
+    return last
+
+
+# row is the row you want to work on.
+def FixRowBrightness(c, row, input_low, input_high, output_low, output_high):
+    if not isinstance(c, vs.VideoNode):
+        raise TypeError('FixRowBrightness: This is not a clip')
+    if c.format.color_family == vs.RGB:
+        raise TypeError('FixRowBrightness: RGB color family is not supported')
+
+    peak = (1 << c.format.bits_per_sample) - 1
+
+    if c.format.color_family != vs.GRAY:
+        c_orig = c
+        c = mvf.GetPlane(c, 0)
+    else:
+        c_orig = None
+
+    input_low = scale(input_low, peak)
+    input_high = scale(input_high, peak)
+    output_low = scale(output_low, peak)
+    output_high = scale(output_high, peak)
+
+    last = SmoothLevels(c, input_low, 1, input_high, output_low, output_high, Smode=0)
+    last = core.std.CropAbs(last, width=c.width, height=1, top=row)
+    last = Overlay(c, last, y=row)
+    if c_orig is not None:
+        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
+    return last
 
 
 #########################################################################################
