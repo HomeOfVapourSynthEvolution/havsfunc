@@ -206,8 +206,8 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, p
 def FixChromaBleedingMod(input, cx=4, cy=4, thr=4.0, strength=0.8, blur=False):
     if not isinstance(input, vs.VideoNode):
         raise TypeError('FixChromaBleedingMod: This is not a clip')
-    if input.format.color_family == vs.GRAY:
-        raise TypeError('FixChromaBleedingMod: Gray color family is not supported')
+    if input.format.color_family in [vs.GRAY, vs.RGB]:
+        raise TypeError('FixChromaBleedingMod: Gray and RGB color families are not supported')
 
     neutral = 1 << (input.format.bits_per_sample - 1)
     peak = (1 << input.format.bits_per_sample) - 1
@@ -366,6 +366,8 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
 def DeHalo_alpha(clp, rx=2.0, ry=2.0, darkstr=1.0, brightstr=1.0, lowsens=50, highsens=50, ss=1.5):
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('DeHalo_alpha: This is not a clip')
+    if clp.format.color_family == vs.RGB:
+        raise TypeError('DeHalo_alpha: RGB color family is not supported')
 
     peak = (1 << clp.format.bits_per_sample) - 1
 
@@ -416,6 +418,8 @@ def DeHalo_alpha(clp, rx=2.0, ry=2.0, darkstr=1.0, brightstr=1.0, lowsens=50, hi
 def EdgeCleaner(c, strength=10, rep=True, rmode=17, smode=0, hot=False):
     if not isinstance(c, vs.VideoNode):
         raise TypeError('EdgeCleaner: This is not a clip')
+    if c.format.color_family == vs.RGB:
+        raise TypeError('EdgeCleaner: RGB color family is not supported')
 
     peak = (1 << c.format.bits_per_sample) - 1
 
@@ -457,6 +461,8 @@ def EdgeCleaner(c, strength=10, rep=True, rmode=17, smode=0, hot=False):
 def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, darkstr=1.0, brightstr=1.0, showmask=0, contra=0.0, excl=True, edgeproc=0.0):
     if not isinstance(src, vs.VideoNode):
         raise TypeError('FineDehalo: This is not a clip')
+    if src.format.color_family == vs.RGB:
+        raise TypeError('FineDehalo: RGB color family is not supported')
 
     neutral = 1 << (src.format.bits_per_sample - 1)
     peak = (1 << src.format.bits_per_sample) - 1
@@ -578,6 +584,8 @@ def FineDehalo2(src, hconv=[-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv=[-2, -1, 0, 0
 
     if not isinstance(src, vs.VideoNode):
         raise TypeError('FineDehalo2: This is not a clip')
+    if src.format.color_family == vs.RGB:
+        raise TypeError('FineDehalo2: RGB color family is not supported')
 
     if src.format.color_family != vs.GRAY:
         src_orig = src
@@ -616,6 +624,8 @@ def FineDehalo2(src, hconv=[-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv=[-2, -1, 0, 0
 def YAHR(clp, blur=2, depth=32):
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('YAHR: This is not a clip')
+    if clp.format.color_family == vs.RGB:
+        raise TypeError('YAHR: RGB color family is not supported')
 
     if clp.format.color_family != vs.GRAY:
         clp_orig = clp
@@ -669,6 +679,8 @@ def YAHR(clp, blur=2, depth=32):
 def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, mthr=60, minp=1, nrmode=None, sharp=1, drrep=24, thr=12.0, elast=2.0, darkthr=None, planes=[0], show=False):
     if not isinstance(input, vs.VideoNode):
         raise TypeError('HQDeringmod: This is not a clip')
+    if input.format.color_family == vs.RGB:
+        raise TypeError('HQDeringmod: RGB color family is not supported')
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
         raise TypeError("HQDeringmod: 'p' must be the same format as input")
     if ringmask is not None and not isinstance(ringmask, vs.VideoNode):
@@ -3558,6 +3570,8 @@ def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
 def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3shrp=80, g1size=1.5, g2size=1.2, g3size=0.9, temp_avg=0, ontop_grain=0.0, th1=24, th2=56, th3=128, th4=160):
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('GrainFactory3: This is not a clip')
+    if clp.format.color_family == vs.RGB:
+        raise TypeError('GrainFactory3: RGB color family is not supported')
 
     neutral = 1 << (clp.format.bits_per_sample - 1)
     peak = (1 << clp.format.bits_per_sample) - 1
@@ -4037,6 +4051,8 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
 def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, thinning=0):
     if not isinstance(c, vs.VideoNode):
         raise TypeError('FastLineDarkenMOD: This is not a clip')
+    if c.format.color_family == vs.RGB:
+        raise TypeError('FastLineDarkenMOD: RGB color family is not supported')
 
     peak = (1 << c.format.bits_per_sample) - 1
 
@@ -4088,6 +4104,8 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
 def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
     if not isinstance(input, vs.VideoNode):
         raise TypeError('Toon: This is not a clip')
+    if input.format.color_family == vs.RGB:
+        raise TypeError('Toon: RGB color family is not supported')
 
     neutral = 1 << (input.format.bits_per_sample - 1)
     peak = (1 << input.format.bits_per_sample) - 1
@@ -4404,6 +4422,8 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
            overshoot2=None, undershoot2=None, soft=None, soothe=None, keep=None, edgemode=0, edgemaskHQ=None, ss_x=None, ss_y=None, dest_x=None, dest_y=None, defaults='fast'):
     if not isinstance(input, vs.VideoNode):
         raise TypeError('LSFmod: This is not a clip')
+    if input.format.color_family == vs.RGB:
+        raise TypeError('LSFmod: RGB color family is not supported')
     if source is not None and (not isinstance(source, vs.VideoNode) or source.format.id != input.format.id):
         raise TypeError("LSFmod: 'source' must be the same format as input")
 
@@ -5270,6 +5290,8 @@ def sbrV(c, r=1, planes=[0, 1, 2]):
 def DitherLumaRebuild(src, s0=2.0, c=0.0625, chroma=True):
     if not isinstance(src, vs.VideoNode):
         raise TypeError('DitherLumaRebuild: This is not a clip')
+    if src.format.color_family == vs.RGB:
+        raise TypeError('DitherLumaRebuild: RGB color family is not supported')
 
     shift = src.format.bits_per_sample - 8
     neutral = 128 << shift
