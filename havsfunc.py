@@ -22,6 +22,7 @@ Main functions:
     QTGMC
     smartfademod
     srestore
+    dec_txt60mc
     ivtc_txt60mc
     logoNR
     Vinverse
@@ -2090,7 +2091,46 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     return ChangeFPS(core.std.Cache(last, make_linear=True), source.fps_num * numr, source.fps_den * denm)
 
 
+# frame_ref = start of AABCD pattern
+def dec_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=False, device=None):
+    if not isinstance(src, vs.VideoNode):
+        raise TypeError('dec_txt60mc: This is not a clip')
+    if not (srcbob or isinstance(tff, bool)):
+        raise TypeError("dec_txt60mc: 'tff' must be set when srcbob=False. Setting tff to true means top field first and false means bottom field first")
+
+    field_ref = frame_ref if srcbob else frame_ref * 2
+    field_ref %= 5
+    invpos = (5 - field_ref) % 5
+    pel = 1 if draft else 2
+    blksize = 16 if src.width > 1024 or src.height > 576 else 8
+    overlap = blksize // 2
+
+    if srcbob:
+        last = src
+    elif draft:
+        last = Bob(src, tff=tff)
+    else:
+        last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff, opencl=opencl, device=device)
+
+    clean = core.std.SelectEvery(last, 5, [4 - invpos])
+    if invpos > 2:
+        jitter = core.std.AssumeFPS(core.std.Trim(last, 0, 0) * 2 + core.std.SelectEvery(last, 5, [6 - invpos, 7 - invpos]), fpsnum=24000, fpsden=1001)
+    elif invpos > 1:
+        jitter = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 5, [2 - invpos, 6 - invpos]), fpsnum=24000, fpsden=1001)
+    else:
+        jitter = core.std.SelectEvery(last, 5, [1 - invpos, 2 - invpos])
+    jsup_pre = DitherLumaRebuild(jitter, s0=1).mv.Super(pel=pel)
+    jsup = core.mv.Super(jitter, pel=pel, levels=1)
+    vect_f = core.mv.Analyse(jsup_pre, blksize=blksize, isb=False, delta=1, overlap=overlap)
+    vect_b = core.mv.Analyse(jsup_pre, blksize=blksize, isb=True, delta=1, overlap=overlap)
+    comp = core.mv.FlowInter(jitter, jsup, vect_b, vect_f)
+    fixed = comp[::2]
+    last = core.std.Interleave([fixed, clean])
+    return core.std.Trim(last, invpos // 3)
+
+
 # Version 1.1
+# frame_ref = start of clean-combed-combed-clean-clean pattern
 def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=False, device=None):
     if not isinstance(src, vs.VideoNode):
         raise TypeError('ivtc_txt60mc: This is not a clip')
@@ -2112,13 +2152,13 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=Fal
         last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff, opencl=opencl, device=device)
 
     if invpos > 1:
-        clean = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 5, [6 - invpos]), fpsnum=6000, fpsden=1001)
+        clean = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 5, [6 - invpos]), fpsnum=12000, fpsden=1001)
     else:
-        clean = core.std.SelectEvery(last, 5, [1 - invpos]).std.AssumeFPS(fpsnum=6000, fpsden=1001)
+        clean = core.std.SelectEvery(last, 5, [1 - invpos])
     if invpos > 3:
-        jitter = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 5, [4 - invpos, 8 - invpos]), fpsnum=12000, fpsden=1001)
+        jitter = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 5, [4 - invpos, 8 - invpos]), fpsnum=24000, fpsden=1001)
     else:
-        jitter = core.std.SelectEvery(last, 5, [3 - invpos, 4 - invpos]).std.AssumeFPS(fpsnum=12000, fpsden=1001)
+        jitter = core.std.SelectEvery(last, 5, [3 - invpos, 4 - invpos])
     jsup_pre = DitherLumaRebuild(jitter, s0=1).mv.Super(pel=pel)
     jsup = core.mv.Super(jitter, pel=pel, levels=1)
     vect_f = core.mv.Analyse(jsup_pre, blksize=blksize, isb=False, delta=1, overlap=overlap)
@@ -2126,7 +2166,7 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=Fal
     comp = core.mv.FlowInter(jitter, jsup, vect_b, vect_f)
     fixed = comp[::2]
     last = core.std.Interleave([clean, fixed])
-    return core.std.Trim(last, invpos // 2).std.AssumeFPS(fpsnum=24000, fpsden=1001)
+    return core.std.Trim(last, invpos // 2)
 
 
 #################################################
