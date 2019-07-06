@@ -2626,6 +2626,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ###
 ### USAGE: MCTemporalDenoise(i, radius, pfMode, sigma, twopass, useTTmpSm, limit, limit2, post, chroma, refine,
 ###                          deblock, useQED, quant1, quant2,
+###                          edgeclean, ECrad, ECthr,
 ###                          stabilize, maxr, TTstr,
 ###                          bwbh, owoh, blksize, overlap,
 ###                          bt, ncpu,
@@ -2662,6 +2663,15 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | quant1  : Deblock_QED "quant1" parameter (Deblock "quant" parameter is "(quant1+quant2)/2") |
 ### | quant2  : Deblock_QED "quant2" parameter (Deblock "quant" parameter is "(quant1+quant2)/2") |
 ### +---------------------------------------------------------------------------------------------+
+###
+###
+### +------------------------------+
+### | EDGECLEAN: DERING, DEHALO... |
+### +------------------------------+-----------------------------------------------------------------------------------------------------+
+### | edgeclean : Enable safe edgeclean process after the denoising (only on edges which are in non-detailed areas, so less detail loss) |
+### | ECrad     : Radius for mask (the higher, the greater distance from the edge is filtered)                                           |
+### | ECthr     : Threshold for mask (the higher, the less "small edges" are process) [0...255]                                          |
+### +------------------------------------------------------------------------------------------------------------------------------------+
 ###
 ###
 ### +-----------+
@@ -2751,6 +2761,10 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ### | quant1      |      10              |      20              |      30              |      30              |      40              |
 ### | quant2      |      20              |      40              |      60              |      60              |      80              |
 ### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
+### | edgeclean   |      false           |      false           |      false           |      false           |      false           |
+### | ECrad       |      1               |      2               |      3               |      4               |      5               |
+### | ECthr       |      64              |      32              |      32              |      16              |      16              |
+### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
 ### | stabilize   |      false           |      false           |      false           |      true            |      true            |
 ### | maxr        |      1               |      1               |      2               |      2               |      2               |
 ### | TTstr       |      1               |      1               |      1               |      2               |      2               |
@@ -2782,8 +2796,9 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
 ###
 ####################################################################################################################################
 def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, refine=False, deblock=False, useQED=None, quant1=None,
-                      quant2=None, stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None, thSADC=None, thSAD2=None, thSADC2=None,
-                      thSCD1=None, thSCD2=None, truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=4, searchparam=2, MVsharp=None, DCT=0, p=None, settings='low'):
+                      quant2=None, edgeclean=False, ECrad=None, ECthr=None, stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None,
+                      thSADC=None, thSAD2=None, thSADC2=None, thSCD1=None, thSCD2=None, truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=4, searchparam=2, MVsharp=None, DCT=0, p=None,
+                      settings='low'):
     if not isinstance(i, vs.VideoNode):
         raise TypeError('MCTemporalDenoise: This is not a clip')
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != i.format.id):
@@ -2819,6 +2834,10 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
         quant1 = [10, 20, 30, 30, 40][settings_num]
     if quant2 is None:
         quant2 = [20, 40, 60, 60, 80][settings_num]
+    if ECrad is None:
+        ECrad = [1, 2, 3, 4, 5][settings_num]
+    if ECthr is None:
+        ECthr = [64, 32, 32, 16, 16][settings_num]
     if stabilize is None:
         stabilize = [False, False, False, True, True][settings_num]
     if maxr is None:
@@ -2858,6 +2877,7 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
     limit = scale(limit, peak)
     limit2 = scale(limit2, peak)
     post *= peak / 255
+    ECthr = scale(ECthr, peak)
     planes = [0, 1, 2] if chroma and not isGray else [0]
 
     ### INPUT
@@ -3059,6 +3079,13 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
         smP = smL
     else:
         smP = core.fft3dfilter.FFT3DFilter(smL, sigma=post * 0.8, sigma2=post * 0.6, sigma3=post * 0.4, sigma4=post * 0.2, **fft3d_args)
+
+    ### EDGECLEANING
+    if edgeclean:
+        mP = core.std.Sobel(mvf.GetPlane(smP, 0))
+        mS = mt_expand_multi(mP, sw=ECrad, sh=ECrad).std.Inflate()
+        mD = core.std.Expr([mS, core.std.Inflate(mP)], expr=[f'x y - {ECthr} <= 0 x y - ?']).std.Inflate().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        smP = core.std.MaskedMerge(smP, DeHalo_alpha(core.dfttest.DFTTest(smP, tbsize=1, planes=planes), darkstr=0), mD, planes=planes)
 
     ### STABILIZING
     if stabilize:
