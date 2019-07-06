@@ -23,6 +23,7 @@ Main functions:
     smartfademod
     srestore
     dec_txt60mc
+    ivtc_txt30mc
     ivtc_txt60mc
     logoNR
     Vinverse
@@ -2127,6 +2128,71 @@ def dec_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=Fals
     fixed = comp[::2]
     last = core.std.Interleave([fixed, clean])
     return core.std.Trim(last, invpos // 3)
+
+
+# 30pテロ部を24pに変換して返す
+def ivtc_txt30mc(src, frame_ref, draft=False, tff=None, opencl=False, device=None):
+    if not isinstance(src, vs.VideoNode):
+        raise TypeError('ivtc_txt30mc: This is not a clip')
+    if not isinstance(tff, bool):
+        raise TypeError("ivtc_txt30mc: 'tff' must be set. Setting tff to true means top field first and false means bottom field first")
+
+    frame_ref %= 5
+    offset = [0, 0, -1, 1, 1][frame_ref]
+    pattern = [0, 1, 0, 0, 1][frame_ref]
+    direction = [-1, -1, 1, 1, 1][frame_ref]
+    pel = 1 if draft else 2
+    blksize = 16 if src.width > 1024 or src.height > 576 else 8
+    overlap = blksize // 2
+
+    if draft:
+        last = Bob(src, tff=tff)
+    else:
+        last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff, opencl=opencl, device=device)
+
+    if pattern == 0:
+        if offset == -1:
+            c1 = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 10, [2 + offset, 7 + offset, 5 + offset, 10 + offset]), fpsnum=24000, fpsden=1001)
+        else:
+            c1 = core.std.SelectEvery(last, 10, [offset, 2 + offset, 7 + offset, 5 + offset])
+        if offset == 1:
+            part1 = core.std.SelectEvery(last, 10, [4])
+            part2 = core.std.SelectEvery(last, 10, [5])
+            part3 = core.std.Trim(last, 10).std.SelectEvery(10, [0])
+            part4 = core.std.SelectEvery(last, 10, [9])
+            c2 = core.std.Interleave([part1, part2, part3, part4])
+        else:
+            c2 = core.std.SelectEvery(last, 10, [3 + offset, 4 + offset, 9 + offset, 8 + offset])
+    else:
+        if offset == 1:
+            part1 = core.std.SelectEvery(last, 10, [3])
+            part2 = core.std.SelectEvery(last, 10, [5])
+            part3 = core.std.Trim(last, 10).std.SelectEvery(10, [0])
+            part4 = core.std.SelectEvery(last, 10, [8])
+            c1 = core.std.Interleave([part1, part2, part3, part4])
+        else:
+            c1 = core.std.SelectEvery(last, 10, [2 + offset, 4 + offset, 9 + offset, 7 + offset])
+        if offset == -1:
+            c2 = core.std.AssumeFPS(core.std.Trim(last, 0, 0) + core.std.SelectEvery(last, 10, [1 + offset, 6 + offset, 5 + offset, 10 + offset]), fpsnum=24000, fpsden=1001)
+        else:
+            c2 = core.std.SelectEvery(last, 10, [offset, 1 + offset, 6 + offset, 5 + offset])
+
+    super1_pre = DitherLumaRebuild(c1, s0=1).mv.Super(pel=pel)
+    super1 = core.mv.Super(c1, pel=pel, levels=1)
+    vect_f1 = core.mv.Analyse(super1_pre, blksize=blksize, isb=False, delta=1, overlap=overlap)
+    vect_b1 = core.mv.Analyse(super1_pre, blksize=blksize, isb=True, delta=1, overlap=overlap)
+    fix1 = core.mv.FlowInter(c1, super1, vect_b1, vect_f1, time=50 + direction * 25).std.SelectEvery(4, [0, 2])
+
+    super2_pre = DitherLumaRebuild(c2, s0=1).mv.Super(pel=pel)
+    super2 = core.mv.Super(c2, pel=pel, levels=1)
+    vect_f2 = core.mv.Analyse(super2_pre, blksize=blksize, isb=False, delta=1, overlap=overlap)
+    vect_b2 = core.mv.Analyse(super2_pre, blksize=blksize, isb=True, delta=1, overlap=overlap)
+    fix2 = core.mv.FlowInter(c2, super2, vect_b2, vect_f2).std.SelectEvery(4, [0, 2])
+
+    if pattern == 0:
+        return core.std.Interleave([fix1, fix2])
+    else:
+        return core.std.Interleave([fix2, fix1])
 
 
 # Version 1.1
