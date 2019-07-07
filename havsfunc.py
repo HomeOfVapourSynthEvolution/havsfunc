@@ -35,6 +35,7 @@ Main functions:
     MCTemporalDenoise
     SMDegrain
     STPresso
+    bbmod
     SigmoidInverse, SigmoidDirect
     GrainFactory3
     InterFrame
@@ -3531,6 +3532,65 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
         return core.std.Expr([last, clp], expr=[expr if i in planes else '' for i in range(clp.format.num_planes)])
     else:
         return last
+
+
+# a.k.a. BalanceBordersMod
+def bbmod(c, cTop, cBottom, cLeft, cRight, thresh=128, blur=999):
+    if not isinstance(c, vs.VideoNode):
+        raise TypeError('bbmod: This is not a clip')
+    if c.format.color_family in [vs.GRAY, vs.RGB]:
+        raise TypeError('bbmod: Gray and RGB color families are not supported')
+    if thresh <= 0:
+        raise ValueError('bbmod: thresh must be greater than 0')
+    if blur <= 0:
+        raise ValueError('bbmod: blur must be greater than 0')
+
+    neutral = 1 << (c.format.bits_per_sample - 1)
+    peak = (1 << c.format.bits_per_sample) - 1
+
+    BicubicResize = partial(core.resize.Bicubic, filter_param_a=1, filter_param_b=0)
+
+    def btb(c, cTop):
+        cWidth = c.width
+        cHeight = c.height
+        cTop = min(cTop, cHeight - 1)
+        blurWidth = max(8, math.floor(cWidth / blur))
+
+        c2 = core.resize.Point(c, cWidth * 2, cHeight * 2)
+
+        last = core.std.CropAbs(c2, width=cWidth * 2, height=2, top=cTop * 2)
+        last = core.resize.Point(last, cWidth * 2, cTop * 2)
+        referenceBlurChroma = BicubicResize(BicubicResize(core.std.Expr([last], expr=[f'x {neutral} - abs 2 *', '']), blurWidth * 2, cTop * 2), cWidth * 2, cTop * 2)
+        referenceBlur = BicubicResize(BicubicResize(last, blurWidth * 2, cTop * 2), cWidth * 2, cTop * 2)
+
+        original = core.std.CropAbs(c2, width=cWidth * 2, height=cTop * 2)
+
+        last = BicubicResize(original, blurWidth * 2, cTop * 2)
+        originalBlurChroma = BicubicResize(BicubicResize(core.std.Expr([last], expr=[f'x {neutral} - abs 2 *', '']), blurWidth * 2, cTop * 2), cWidth * 2, cTop * 2)
+        originalBlur = BicubicResize(BicubicResize(last, blurWidth * 2, cTop * 2), cWidth * 2, cTop * 2)
+
+        balancedChroma = core.std.Expr([original, originalBlurChroma, referenceBlurChroma], expr=['', f'z y / 8 min 0.4 max x {neutral} - * {neutral} +'])
+        expr = f'z {scale(16, peak)} - y {scale(16, peak)} - / 8 min 0.4 max x {scale(16, peak)} - * {scale(16, peak)} +'
+        balancedLuma = core.std.Expr([balancedChroma, originalBlur, referenceBlur], expr=[expr, 'z y - x +'])
+
+        difference = core.std.MakeDiff(balancedLuma, original)
+        difference = core.std.Expr([difference], expr=[f'x {scale(128 + thresh, peak)} min {scale(128 - thresh, peak)} max'])
+
+        last = core.std.MergeDiff(original, difference)
+        return core.std.StackVertical([last, core.std.CropAbs(c2, width=cWidth * 2, height=(cHeight - cTop) * 2, top=cTop * 2)]).resize.Point(cWidth, cHeight)
+
+    if cTop > 0:
+        c = btb(c, cTop)
+    c = core.std.Transpose(c).std.FlipHorizontal()
+    if cLeft > 0:
+        c = btb(c, cLeft)
+    c = core.std.Transpose(c).std.FlipHorizontal()
+    if cBottom > 0:
+        c = btb(c, cBottom)
+    c = core.std.Transpose(c).std.FlipHorizontal()
+    if cRight > 0:
+        c = btb(c, cRight)
+    return core.std.Transpose(c).std.FlipHorizontal()
 
 
 # Apply the inverse sigmoid curve to a clip in linear luminance
