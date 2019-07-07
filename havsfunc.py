@@ -40,6 +40,7 @@ Main functions:
     InterFrame
     FixColumnBrightness, FixRowBrightness
     FixColumnBrightnessProtect, FixRowBrightnessProtect
+    FixColumnBrightnessProtect2, FixRowBrightnessProtect2
     SmoothLevels
     FastLineDarkenMOD
     Toon
@@ -3884,6 +3885,63 @@ def FixRowBrightnessProtect(c, row, input_low, input_high, output_low, output_hi
     protect_value = scale(protect_value, peak)
 
     last = SmoothLevels(core.std.Invert(c), input_low, 1, input_high, output_low, output_high, protect=protect_value, Smode=0).std.Invert()
+    last = core.std.CropAbs(last, width=c.width, height=1, top=row)
+    last = Overlay(c, last, y=row)
+    if c_orig is not None:
+        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
+    return last
+
+
+# adj_val should be a number x where -100 < x < 100. This parameter decides
+# how much the brightness should be affected. Numbers below 0 will make it darker
+# and number above 0 will make it brighter.
+#
+# prot_val is the protect value. This is what makes it behave differently than the
+# normal FixBrightness. Any luma above (255-prot_val) will not be affected which is
+# the basic idea of the protect script.
+def FixColumnBrightnessProtect2(c, column, adj_val, prot_val=16):
+    if not isinstance(c, vs.VideoNode):
+        raise TypeError('FixColumnBrightnessProtect2: This is not a clip')
+    if c.format.color_family == vs.RGB:
+        raise TypeError('FixColumnBrightnessProtect2: RGB color family is not supported')
+    if not (-100 < adj_val < 100):
+        raise ValueError('FixColumnBrightnessProtect2: adj_val must be greater than -100 and less than 100')
+
+    peak = (1 << c.format.bits_per_sample) - 1
+
+    if c.format.color_family != vs.GRAY:
+        c_orig = c
+        c = mvf.GetPlane(c, 0)
+    else:
+        c_orig = None
+
+    expr = f'x {scale(16, peak)} - {100 - adj_val} / 100 * {scale(16, peak)} + x {scale(255 - prot_val, peak)} - -10 / 0 max 1 min * x x {scale(245 - prot_val, peak)} - 10 / 0 max 1 min * +'
+    last = core.std.Expr([c], expr=[expr])
+    last = core.std.CropAbs(last, width=1, height=c.height, left=column)
+    last = Overlay(c, last, x=column)
+    if c_orig is not None:
+        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
+    return last
+
+
+def FixRowBrightnessProtect2(c, row, adj_val, prot_val=16):
+    if not isinstance(c, vs.VideoNode):
+        raise TypeError('FixRowBrightnessProtect2: This is not a clip')
+    if c.format.color_family == vs.RGB:
+        raise TypeError('FixRowBrightnessProtect2: RGB color family is not supported')
+    if not (-100 < adj_val < 100):
+        raise ValueError('FixRowBrightnessProtect2: adj_val must be greater than -100 and less than 100')
+
+    peak = (1 << c.format.bits_per_sample) - 1
+
+    if c.format.color_family != vs.GRAY:
+        c_orig = c
+        c = mvf.GetPlane(c, 0)
+    else:
+        c_orig = None
+
+    expr = f'x {scale(16, peak)} - {100 - adj_val} / 100 * {scale(16, peak)} + x {scale(255 - prot_val, peak)} - -10 / 0 max 1 min * x x {scale(245 - prot_val, peak)} - 10 / 0 max 1 min * +'
+    last = core.std.Expr([c], expr=[expr])
     last = core.std.CropAbs(last, width=c.width, height=1, top=row)
     last = Overlay(c, last, y=row)
     if c_orig is not None:
