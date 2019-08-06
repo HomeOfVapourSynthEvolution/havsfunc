@@ -3023,7 +3023,7 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
     elif pfMode == 0:
         p = core.fft3dfilter.FFT3DFilter(i, sigma=sigma * 0.8, sigma2=sigma * 0.6, sigma3=sigma * 0.4, sigma4=sigma * 0.2, **fft3d_args)
     elif pfMode >= 3:
-        p = core.dfttest.DFTTest(i, tbsize=1, sstring='0.0:4.0 0.2:9.0 1.0:15.0', planes=planes)
+        p = core.dfttest.DFTTest(i, tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0], planes=planes)
     else:
         p = MinBlur(i, pfMode, planes=planes)
 
@@ -3350,7 +3350,10 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
             pref = MinBlur(inputP, 0, planes=planes)
         elif prefilter == 3:
             expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale(16, peak), j=scale(75, peak), peak=peak)
-            pref = core.std.MaskedMerge(core.dfttest.DFTTest(inputP, tbsize=1, sstring='0.0:4.0 0.2:9.0 1.0:15.0', planes=planes), inputP, mvf.GetPlane(inputP, 0).std.Expr(expr=[expr]), planes=planes)
+            pref = core.std.MaskedMerge(core.dfttest.DFTTest(inputP, tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0], planes=planes),
+                                        inputP,
+                                        mvf.GetPlane(inputP, 0).std.Expr(expr=[expr]),
+                                        planes=planes)
         elif prefilter >= 4:
             if chroma:
                 pref = KNLMeansCL(inputP, d=1, a=1, h=7)
