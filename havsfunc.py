@@ -5146,7 +5146,7 @@ def aaf(                \
     repMode = [18] if isGray else [18, 0]
 
     if mode == "repair":
-        return core.rgvs.Repair(aa, inputClip, mode=[repMode])
+        return core.rgvs.Repair(aa, inputClip, mode=repMode)
 
     if mode != "edge":
         return aa
@@ -5161,7 +5161,7 @@ def aaf(                \
     merged = core.std.MaskedMerge(inputClip, aa, mask, planes=0)
     if aas > 0.84:
         return merged
-    return core.rgvs.Repair(merged, inputClip, mode=[repMode])
+    return core.rgvs.Repair(merged, inputClip, mode=repMode)
 
 
 #####################
