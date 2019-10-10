@@ -11,6 +11,8 @@ Holy's ported AviSynth functions for VapourSynth.
 
 Main functions:
     daa
+    daa3mod
+    mcdaa3
     santiag
     FixChromaBleedingMod
     Deblock_QED
@@ -97,6 +99,28 @@ def daa(c, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, 
     shrpD = core.std.MakeDiff(dbl, core.std.Convolution(dbl, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1] if c.width > 1100 else [1, 2, 1, 2, 4, 2, 1, 2, 1]))
     DD = core.rgvs.Repair(shrpD, dblD, mode=[13])
     return core.std.MergeDiff(dbl, DD)
+
+
+def daa3mod(c1, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, opencl=False, device=None):
+    if not isinstance(c1, vs.VideoNode):
+        raise TypeError('daa3mod: This is not a clip')
+
+    c = core.resize.Spline36(c1, c1.width, c1.height * 3 // 2)
+    return daa(c, nsize, nns, qual, pscrn, int16_prescreener, int16_predictor, exp, opencl, device).resize.Spline36(c1.width, c1.height)
+
+
+def mcdaa3(input, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, opencl=False, device=None):
+    if not isinstance(input, vs.VideoNode):
+        raise TypeError('mcdaa3: This is not a clip')
+
+    sup = core.hqdn3d.Hqdn3d(input).fft3dfilter.FFT3DFilter().mv.Super(sharp=1)
+    fv1 = core.mv.Analyse(sup, isb=False, delta=1, truemotion=False, dct=2)
+    fv2 = core.mv.Analyse(sup, isb=True, delta=1, truemotion=True, dct=2)
+    csaa = daa3mod(input, nsize, nns, qual, pscrn, int16_prescreener, int16_predictor, exp, opencl, device)
+    momask1 = core.mv.Mask(input, fv1, ml=2, kind=1)
+    momask2 = core.mv.Mask(input, fv2, ml=3, kind=1)
+    momask = core.std.Merge(momask1, momask2)
+    return core.std.MaskedMerge(input, csaa, momask)
 
 
 # santiag v1.6
