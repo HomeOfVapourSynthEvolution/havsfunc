@@ -492,7 +492,6 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
     if src.format.color_family == vs.RGB:
         raise TypeError('FineDehalo: RGB color family is not supported')
 
-    neutral = 1 << (src.format.bits_per_sample - 1)
     peak = (1 << src.format.bits_per_sample) - 1
 
     if src.format.color_family != vs.GRAY:
@@ -513,12 +512,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
 
     # Contrasharpening
     if contra > 0:
-        bb = core.std.Convolution(dehaloed, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-        bb2 = core.rgvs.Repair(bb, core.rgvs.Repair(bb, core.ctmf.CTMF(bb, radius=2), mode=[1]), mode=[1])
-        xd = core.std.MakeDiff(bb, bb2)
-        xd = core.std.Expr([xd], expr=[f'x {neutral} - 2.49 * {contra} * {neutral} +'])
-        xdd = core.std.Expr([xd, core.std.MakeDiff(src, dehaloed)], expr=[f'x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'])
-        dehaloed = core.std.MergeDiff(dehaloed, xdd)
+        dehaloed = FineDehalo_contrasharp(dehaloed, src, contra)
 
     ### Main edges ###
 
@@ -600,6 +594,36 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
             return edges
         else:
             return strong
+
+# level == 1.0 : normal contrasharp
+def FineDehalo_contrasharp(dehaloed, src, level):
+    if not (isinstance(dehaloed, vs.VideoNode) and isinstance(src, vs.VideoNode)):
+        raise TypeError('FineDehalo_contrasharp: This is not a clip')
+    if dehaloed.format.color_family == vs.RGB:
+        raise TypeError('FineDehalo_contrasharp: RGB color family is not supported')
+    if dehaloed.format.id != src.format.id:
+        raise TypeError('FineDehalo_contrasharp: Both clips must have the same format')
+
+    neutral = 1 << (dehaloed.format.bits_per_sample - 1)
+
+    if dehaloed.format.color_family != vs.GRAY:
+        dehaloed_orig = dehaloed
+        dehaloed = mvf.GetPlane(dehaloed, 0)
+        src = mvf.GetPlane(src, 0)
+    else:
+        dehaloed_orig = None
+
+    bb = core.std.Convolution(dehaloed, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    bb2 = core.rgvs.Repair(bb, core.rgvs.Repair(bb, core.ctmf.CTMF(bb, radius=2), mode=[1]), mode=[1])
+    xd = core.std.MakeDiff(bb, bb2)
+    xd = core.std.Expr([xd], expr=[f'x {neutral} - 2.49 * {level} * {neutral} +'])
+    xdd = core.std.Expr([xd, core.std.MakeDiff(src, dehaloed)], expr=[f'x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'])
+    last = core.std.MergeDiff(dehaloed, xdd)
+
+    if dehaloed_orig is not None:
+        last = core.std.ShufflePlanes([last, dehaloed_orig], planes=[0, 1, 2], colorfamily=dehaloed_orig.format.color_family)
+    return last
+
 
 # Try to remove 2nd order halos
 def FineDehalo2(src, hconv=[-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv=[-2, -1, 0, 0, 40, 0, 0, -1, -2], showmask=0):
