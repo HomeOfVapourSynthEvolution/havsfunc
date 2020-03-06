@@ -5296,13 +5296,13 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None, opacity=1.0):
     if clipb.format.id != clipa.format.id:
         clipb = core.resize.Point(clipb, format=clipa.format.id)
     if mask is None:
-        mask = core.std.BlankClip(clipb, color=[(1 << clipb.format.bits_per_sample) - 1] * clipb.format.num_planes)
+        color = (1 << clipb.format.bits_per_sample) - 1 if clipb.format.sample_type == vs.INTEGER else 1.0
+        mask = core.std.BlankClip(clipb, color=[color] * clipb.format.num_planes)
     elif not isinstance(mask, vs.VideoNode):
         raise TypeError("Overlay: 'mask' is not a clip")
     if mask.width != clipb.width or mask.height != clipb.height:
-        raise TypeError("Overlay: 'mask' must be the same dimension as 'clipb'")
+        raise TypeError("Overlay: 'mask' must have the same dimensions as 'clipb'")
 
-    mask = mvf.GetPlane(mask, 0)
     if opacity < 1:
         mask = core.std.Expr([mask], expr=[f'x {opacity} *'])
 
