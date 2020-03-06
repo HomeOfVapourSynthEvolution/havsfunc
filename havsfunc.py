@@ -1537,6 +1537,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         expr = f'x {neutral} - {ShowNoise} * {neutral} +'
         output = core.std.Expr([finalNoise], expr=[expr] if ChromaNoise or isGray else [expr, repr(neutral)])
+    output = core.std.SetFieldBased(output, value=0)
     if not ShowSettings:
         return output
     else:
