@@ -394,8 +394,9 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
 def DeHalo_alpha(clp, rx=2.0, ry=2.0, darkstr=1.0, brightstr=1.0, lowsens=50, highsens=50, ss=1.5):
     if not isinstance(clp, vs.VideoNode):
         raise TypeError('DeHalo_alpha: This is not a clip')
+
     if clp.format.color_family == vs.RGB:
-        raise TypeError('DeHalo_alpha: RGB color family is not supported')
+        raise TypeError('DeHalo_alpha: RGB format is not supported')
 
     peak = (1 << clp.format.bits_per_sample) - 1
 
@@ -408,18 +409,18 @@ def DeHalo_alpha(clp, rx=2.0, ry=2.0, darkstr=1.0, brightstr=1.0, lowsens=50, hi
     ox = clp.width
     oy = clp.height
 
-    halos = core.resize.Bicubic(clp, m4(ox / rx), m4(oy / ry)).resize.Bicubic(ox, oy, filter_param_a=1, filter_param_b=0)
-    are = core.std.Expr([core.std.Maximum(clp), core.std.Minimum(clp)], expr=['x y -'])
-    ugly = core.std.Expr([core.std.Maximum(halos), core.std.Minimum(halos)], expr=['x y -'])
-    expr = f'y x - y / {peak} * {scale(lowsens, peak)} - y {scale(256, peak)} + {scale(512, peak)} / {highsens / 100} + *'
+    halos = clp.resize.Bicubic(m4(ox / rx), m4(oy / ry)).resize.Bicubic(ox, oy, filter_param_a=1, filter_param_b=0)
+    are = core.std.Expr([clp.std.Maximum(), clp.std.Minimum()], expr=['x y -'])
+    ugly = core.std.Expr([halos.std.Maximum(), halos.std.Minimum()], expr=['x y -'])
+    expr = f'y x - y 0.0001 + / {peak} * {scale(lowsens, peak)} - y {scale(256, peak)} + {scale(512, peak)} / {highsens / 100} + *'
     so = core.std.Expr([ugly, are], expr=[expr])
     lets = core.std.MaskedMerge(halos, clp, so)
     if ss <= 1:
         remove = core.rgvs.Repair(clp, lets, mode=[1])
     else:
-        remove = core.std.Expr([core.std.Expr([core.resize.Spline36(clp, m4(ox * ss), m4(oy * ss)), core.std.Maximum(lets).resize.Bicubic(m4(ox * ss), m4(oy * ss))], expr=['x y min']),
-                                core.std.Minimum(lets).resize.Bicubic(m4(ox * ss), m4(oy * ss))],
-                               expr=['x y max']).resize.Spline36(ox, oy)
+        remove = core.std.Expr([core.std.Expr([clp.resize.Lanczos(m4(ox * ss), m4(oy * ss)), lets.std.Maximum().resize.Bicubic(m4(ox * ss), m4(oy * ss))], expr=['x y min']),
+                                lets.std.Minimum().resize.Bicubic(m4(ox * ss), m4(oy * ss))],
+                               expr=['x y max']).resize.Lanczos(ox, oy)
     them = core.std.Expr([clp, remove], expr=[f'x y < x x y - {darkstr} * - x x y - {brightstr} * - ?'])
 
     if clp_orig is not None:
