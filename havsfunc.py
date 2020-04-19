@@ -490,8 +490,9 @@ def EdgeCleaner(c, strength=10, rep=True, rmode=17, smode=0, hot=False):
 def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, darkstr=1.0, brightstr=1.0, showmask=0, contra=0.0, excl=True, edgeproc=0.0):
     if not isinstance(src, vs.VideoNode):
         raise vs.Error('FineDehalo: This is not a clip')
+
     if src.format.color_family == vs.RGB:
-        raise vs.Error('FineDehalo: RGB color family is not supported')
+        raise vs.Error('FineDehalo: RGB format is not supported')
 
     peak = (1 << src.format.bits_per_sample) - 1
 
@@ -518,10 +519,10 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
     ### Main edges ###
 
     # Basic edge detection, thresholding will be applied later
-    edges = core.std.Sobel(src)
+    edges = src.std.Sobel()
 
     # Keeps only the sharpest edges (line edges)
-    strong = core.std.Expr([edges], expr=[f'x {scale(thmi, peak)} - {thma - thmi} / 255 *'])
+    strong = edges.std.Expr(expr=[f'x {scale(thmi, peak)} - {thma - thmi} / 255 *'])
 
     # Extends them to include the potential halos
     large = mt_expand_multi(strong, sw=rx_i, sh=ry_i)
@@ -532,7 +533,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
     # producing annoying artifacts. Therefore we have to produce a mask to exclude these zones from the halo removal
 
     # Includes more edges than previously, but ignores simple details
-    light = core.std.Expr([edges], expr=[f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 *'])
+    light = edges.std.Expr(expr=[f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 *'])
 
     # To build the exclusion zone, we make grow the edge mask, then shrink it to its original shape
     # During the growing stage, close adjacent edge masks will join and merge, forming a solid area, which will remain solid even after the shrinking stage
@@ -542,13 +543,13 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
 
     # At this point, because the mask was made of a shades of grey, we may end up with large areas of dark grey after shrinking
     # To avoid this, we amplify and saturate the mask here (actually we could even binarize it)
-    shrink = core.std.Expr([shrink], expr=['x 4 *'])
+    shrink = shrink.std.Expr(expr=['x 4 *'])
 
     # Mask shrinking
     shrink = mt_inpand_multi(shrink, mode='ellipse', sw=rx_i, sh=ry_i)
 
     # This mask is almost binary, which will produce distinct discontinuities once applied. Then we have to smooth it
-    shrink = core.std.Convolution(shrink, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+    shrink = shrink.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
 
     ### Final mask building ###
 
@@ -566,7 +567,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
         outside = core.std.Expr([outside, strong], expr=[f'x y {edgeproc * 0.66} * +'])
 
     # Smooth again and amplify to grow the mask a bit, otherwise the halo parts sticking to the edges could be missed
-    outside = core.std.Convolution(outside, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Expr(expr=['x 2 *'])
+    outside = outside.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Expr(expr=[f'x 2 * {peak} min'])
 
     ### Masking ###
 
@@ -600,8 +601,10 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
 def FineDehalo_contrasharp(dehaloed, src, level):
     if not (isinstance(dehaloed, vs.VideoNode) and isinstance(src, vs.VideoNode)):
         raise vs.Error('FineDehalo_contrasharp: This is not a clip')
+
     if dehaloed.format.color_family == vs.RGB:
-        raise vs.Error('FineDehalo_contrasharp: RGB color family is not supported')
+        raise vs.Error('FineDehalo_contrasharp: RGB format is not supported')
+
     if dehaloed.format.id != src.format.id:
         raise vs.Error('FineDehalo_contrasharp: Both clips must have the same format')
 
@@ -614,10 +617,10 @@ def FineDehalo_contrasharp(dehaloed, src, level):
     else:
         dehaloed_orig = None
 
-    bb = core.std.Convolution(dehaloed, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    bb2 = core.rgvs.Repair(bb, core.rgvs.Repair(bb, core.ctmf.CTMF(bb, radius=2), mode=[1]), mode=[1])
+    bb = dehaloed.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    bb2 = core.rgvs.Repair(bb, core.rgvs.Repair(bb, bb.ctmf.CTMF(radius=2), mode=[1]), mode=[1])
     xd = core.std.MakeDiff(bb, bb2)
-    xd = core.std.Expr([xd], expr=[f'x {neutral} - 2.49 * {level} * {neutral} +'])
+    xd = xd.std.Expr(expr=[f'x {neutral} - 2.49 * {level} * {neutral} +'])
     xdd = core.std.Expr([xd, core.std.MakeDiff(src, dehaloed)], expr=[f'x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'])
     last = core.std.MergeDiff(dehaloed, xdd)
 
@@ -629,16 +632,17 @@ def FineDehalo_contrasharp(dehaloed, src, level):
 # Try to remove 2nd order halos
 def FineDehalo2(src, hconv=[-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv=[-2, -1, 0, 0, 40, 0, 0, -1, -2], showmask=0):
     def grow_mask(mask, coordinates):
-        mask = core.std.Maximum(mask, coordinates=coordinates).std.Minimum(coordinates=coordinates)
-        mask_1 = core.std.Maximum(mask, coordinates=coordinates)
-        mask_2 = core.std.Maximum(mask_1, coordinates=coordinates).std.Maximum(coordinates=coordinates)
+        mask = mask.std.Maximum(coordinates=coordinates).std.Minimum(coordinates=coordinates)
+        mask_1 = mask.std.Maximum(coordinates=coordinates)
+        mask_2 = mask_1.std.Maximum(coordinates=coordinates).std.Maximum(coordinates=coordinates)
         mask = core.std.Expr([mask_2, mask_1], expr=['x y -'])
-        return core.std.Convolution(mask, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]).std.Expr(expr=['x 1.8 *'])
+        return mask.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]).std.Expr(expr=['x 1.8 *'])
 
     if not isinstance(src, vs.VideoNode):
         raise vs.Error('FineDehalo2: This is not a clip')
+
     if src.format.color_family == vs.RGB:
-        raise vs.Error('FineDehalo2: RGB color family is not supported')
+        raise vs.Error('FineDehalo2: RGB format is not supported')
 
     if src.format.color_family != vs.GRAY:
         src_orig = src
@@ -646,10 +650,10 @@ def FineDehalo2(src, hconv=[-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv=[-2, -1, 0, 0
     else:
         src_orig = None
 
-    fix_h = core.std.Convolution(src, matrix=vconv, mode='v')
-    fix_v = core.std.Convolution(src, matrix=hconv, mode='h')
-    mask_h = core.std.Convolution(src, matrix=[1, 2, 1, 0, 0, 0, -1, -2, -1], divisor=4, saturate=False)
-    mask_v = core.std.Convolution(src, matrix=[1, 0, -1, 2, 0, -2, 1, 0, -1], divisor=4, saturate=False)
+    fix_h = src.std.Convolution(matrix=vconv, mode='v')
+    fix_v = src.std.Convolution(matrix=hconv, mode='h')
+    mask_h = src.std.Convolution(matrix=[1, 2, 1, 0, 0, 0, -1, -2, -1], divisor=4, saturate=False)
+    mask_v = src.std.Convolution(matrix=[1, 0, -1, 2, 0, -2, 1, 0, -1], divisor=4, saturate=False)
     temp_h = core.std.Expr([mask_h, mask_v], expr=['x 3 * y -'])
     temp_v = core.std.Expr([mask_v, mask_h], expr=['x 3 * y -'])
     mask_h = grow_mask(temp_h, [0, 1, 0, 0, 0, 0, 1, 0])
@@ -665,7 +669,7 @@ def FineDehalo2(src, hconv=[-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv=[-2, -1, 0, 0
         if showmask <= 0:
             last = core.std.ShufflePlanes([last, src_orig], planes=[0, 1, 2], colorfamily=src_orig.format.color_family)
         else:
-            last = core.resize.Bicubic(last, format=src_orig.format.id)
+            last = last.resize.Bicubic(format=src_orig.format.id)
     return last
 
 
