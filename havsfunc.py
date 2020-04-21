@@ -4177,12 +4177,13 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
                  Smode=-2, Mfactor=2, RGmode=12, useDB=True):
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('SmoothLevels: This is not a clip')
-    if input.format.color_family == vs.RGB:
-        raise vs.Error('SmoothLevels: RGB color family is not supported')
 
+    if input.format.color_family == vs.RGB:
+        raise vs.Error('SmoothLevels: RGB format is not supported')
+
+    isGray = (input.format.color_family == vs.GRAY)
     neutral = 1 << (input.format.bits_per_sample - 1)
     peak = (1 << input.format.bits_per_sample) - 1
-    isGray = (input.format.color_family == vs.GRAY)
 
     if chroma <= 0 and not isGray:
         input_orig = input
@@ -4192,35 +4193,45 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
 
     if input_high is None:
         input_high = peak
+
     if output_high is None:
         output_high = peak
+
     if Ecenter is None:
         Ecenter = neutral
 
-    if RGmode == 4:
-        Filter = partial(core.std.Median)
-    elif RGmode in [11, 12]:
-        Filter = partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    elif RGmode == 19:
-        Filter = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
-    elif RGmode == 20:
-        Filter = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-    else:
-        Filter = partial(core.rgvs.RemoveGrain, mode=[RGmode])
+    if gamma <= 0:
+        raise vs.Error('SmoothLevels: gamma must be greater than 0.0')
+
+    if Mfactor <= 0:
+        raise vs.Error('SmoothLevels: Mfactor must be greater than 0')
 
     Dstr = DarkSTR / 100
     Bstr = BrightSTR / 100
 
+    if RGmode == 4:
+        RemoveGrain = partial(core.std.Median)
+    elif RGmode in [11, 12]:
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    elif RGmode == 19:
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+    elif RGmode == 20:
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+    else:
+        RemoveGrain = partial(core.rgvs.RemoveGrain, mode=[RGmode])
+
     ### EXPRESSION
     def get_lut(x):
         exprY = ((x - input_low) / (input_high - input_low)) ** (1 / gamma) * (output_high - output_low) + output_low
+        if isinstance(exprY, complex):
+            exprY = exprY.real
 
         if Lmode <= 0:
             exprL = 1
         elif Ecurve <= 0:
             if Lmode == 1:
                 if x < Ecenter:
-                    exprL = math.sin((x * (333 / 106)) / (2 * Ecenter)) ** Dstr
+                    exprL = math.sin(x * (333 / 106) / (2 * Ecenter)) ** Dstr
                 elif x > Ecenter:
                     exprL = math.sin((333 / 106) / 2 + (x - Ecenter) * (333 / 106) / (2 * (peak - Ecenter))) ** Bstr
                 else:
@@ -4263,27 +4274,27 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
 
     ### PROCESS
     if limiter == 1 or limiter >= 3:
-        limitI = core.std.Expr([input], expr=[f'x {input_low} < {input_low} x {input_high} > {input_high} x ? ?'])
+        limitI = input.std.Expr(expr=[f'x {input_low} < {input_low} x {input_high} > {input_high} x ? ?'])
     else:
         limitI = input
 
-    level = core.std.Lut(limitI, planes=[0], function=get_lut)
+    level = limitI.std.Lut(planes=[0], function=get_lut)
     if chroma > 0 and not isGray:
         scaleC = ((output_high - output_low) / (input_high - input_low) + 100 / chroma - 1) / (100 / chroma)
-        level = core.std.Expr([level], expr=['', f'x {neutral} - {scaleC} * {neutral} +'])
+        level = level.std.Expr(expr=['', f'x {neutral} - {scaleC} * {neutral} +'])
     diff = core.std.Expr([limitI, level], expr=[f'x y - {Mfactor} * {neutral} +'])
-    process = Filter(diff)
+    process = RemoveGrain(diff)
     if useDB:
-        process = core.std.Expr([process], expr=[f'x {neutral} - {Mfactor} / {neutral} +']).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
+        process = process.std.Expr(expr=[f'x {neutral} - {Mfactor} / {neutral} +']).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
         smth = core.std.MakeDiff(limitI, process)
     else:
         smth = core.std.Expr([limitI, process], expr=[f'x y {neutral} - {Mfactor} / -'])
 
     level2 = core.std.Expr([limitI, diff], expr=[f'x y {neutral} - {Mfactor} / -'])
     diff2 = core.std.Expr([level2, level], expr=[f'x y - {Mfactor} * {neutral} +'])
-    process2 = Filter(diff2)
+    process2 = RemoveGrain(diff2)
     if useDB:
-        process2 = core.std.Expr([process2], expr=[f'x {neutral} - {Mfactor} / {neutral} +']).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
+        process2 = process2.std.Expr(expr=[f'x {neutral} - {Mfactor} / {neutral} +']).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
         smth2 = core.std.MakeDiff(smth, process2)
     else:
         smth2 = core.std.Expr([smth, process2], expr=[f'x y {neutral} - {Mfactor} / -'])
@@ -4303,7 +4314,7 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
         Slevel = level
 
     if limiter >= 2:
-        limitO = core.std.Expr([Slevel], expr=[f'x {output_low} < {output_low} x {output_high} > {output_high} x ? ?'])
+        limitO = Slevel.std.Expr(expr=[f'x {output_low} < {output_low} x {output_high} > {output_high} x ? ?'])
     else:
         limitO = Slevel
 
