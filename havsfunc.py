@@ -53,6 +53,7 @@ Main functions:
 
 Utility functions:
     AverageFrames
+    AvsPrewitt
     Bob
     ChangeFPS
     Clamp
@@ -447,8 +448,9 @@ def DeHalo_alpha(clp, rx=2.0, ry=2.0, darkstr=1.0, brightstr=1.0, lowsens=50, hi
 def EdgeCleaner(c, strength=10, rep=True, rmode=17, smode=0, hot=False):
     if not isinstance(c, vs.VideoNode):
         raise vs.Error('EdgeCleaner: This is not a clip')
+
     if c.format.color_family == vs.RGB:
-        raise vs.Error('EdgeCleaner: RGB color family is not supported')
+        raise vs.Error('EdgeCleaner: RGB format is not supported')
 
     peak = (1 << c.format.bits_per_sample) - 1
 
@@ -458,23 +460,23 @@ def EdgeCleaner(c, strength=10, rep=True, rmode=17, smode=0, hot=False):
     else:
         c_orig = None
 
-    if smode >= 1:
+    if smode > 0:
         strength += 4
 
     main = Padding(c, 6, 6, 6, 6).warp.AWarpSharp2(blur=1, depth=cround(strength / 2)).std.Crop(6, 6, 6, 6)
     if rep:
         main = core.rgvs.Repair(main, c, mode=[rmode])
 
-    mask = core.std.Sobel(c).std.Expr(expr=[f'x {scale(4, peak)} < 0 x {scale(32, peak)} > {peak} x ? ?']).std.Invert().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+    mask = AvsPrewitt(c).std.Expr(expr=[f'x {scale(4, peak)} < 0 x {scale(32, peak)} > {peak} x ? ?']).std.Invert().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
 
     final = core.std.MaskedMerge(c, main, mask)
     if hot:
         final = core.rgvs.Repair(final, c, mode=[2])
-    if smode >= 1:
-        clean = core.rgvs.RemoveGrain(c, mode=[17])
+    if smode > 0:
+        clean = c.rgvs.RemoveGrain(mode=[17])
         diff = core.std.MakeDiff(c, clean)
         expr = f'x {scale(4, peak)} < 0 x {scale(16, peak)} > {peak} x ? ?'
-        mask = core.std.Levels(diff, min_in=scale(40, peak), max_in=scale(168, peak), gamma=0.35).rgvs.RemoveGrain(mode=[7]).std.Sobel().std.Expr(expr=[expr])
+        mask = AvsPrewitt(diff.std.Levels(min_in=scale(40, peak), max_in=scale(168, peak), gamma=0.35).rgvs.RemoveGrain(mode=[7])).std.Expr(expr=[expr])
         final = core.std.MaskedMerge(final, c, mask)
 
     if c_orig is not None:
@@ -519,7 +521,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
     ### Main edges ###
 
     # Basic edge detection, thresholding will be applied later
-    edges = src.std.Sobel()
+    edges = AvsPrewitt(src)
 
     # Keeps only the sharpest edges (line edges)
     strong = edges.std.Expr(expr=[f'x {scale(thmi, peak)} - {thma - thmi} / 255 *'])
@@ -736,10 +738,13 @@ def YAHR(clp, blur=2, depth=32):
 def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, mthr=60, minp=1, nrmode=None, sharp=1, drrep=24, thr=12.0, elast=2.0, darkthr=None, planes=[0], show=False):
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('HQDeringmod: This is not a clip')
+
     if input.format.color_family == vs.RGB:
-        raise vs.Error('HQDeringmod: RGB color family is not supported')
+        raise vs.Error('HQDeringmod: RGB format is not supported')
+
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
         raise vs.Error("HQDeringmod: 'p' must be the same format as input")
+
     if ringmask is not None and not isinstance(ringmask, vs.VideoNode):
         raise vs.Error("HQDeringmod: 'ringmask' is not a clip")
 
@@ -794,8 +799,8 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     # Post-Process: Ringing Mask Generating
     if ringmask is None:
         expr = f'x {scale(mthr, peak)} < 0 x ?'
-        sobelm = core.std.Sobel(input, planes=[0]).std.Expr(expr=[expr] if isGray else [expr, ''])
-        fmask = core.misc.Hysteresis(core.std.Median(sobelm, planes=[0]), sobelm, planes=[0])
+        prewittm = AvsPrewitt(input, planes=[0]).std.Expr(expr=[expr] if isGray else [expr, ''])
+        fmask = core.misc.Hysteresis(prewittm.std.Median(planes=[0]), prewittm, planes=[0])
         if mrad > 0:
             omask = mt_expand_multi(fmask, planes=[0], sw=mrad, sh=mrad)
         else:
@@ -806,13 +811,13 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
             ringmask = omask
         else:
             if minp > 3:
-                imask = core.std.Minimum(fmask, planes=[0]).std.Minimum(planes=[0])
+                imask = fmask.std.Minimum(planes=[0]).std.Minimum(planes=[0])
             elif minp > 2:
-                imask = core.std.Inflate(fmask, planes=[0]).std.Minimum(planes=[0]).std.Minimum(planes=[0])
+                imask = fmask.std.Inflate(planes=[0]).std.Minimum(planes=[0]).std.Minimum(planes=[0])
             elif minp > 1:
-                imask = core.std.Minimum(fmask, planes=[0])
+                imask = fmask.std.Minimum(planes=[0])
             elif minp > 0:
-                imask = core.std.Inflate(fmask, planes=[0]).std.Minimum(planes=[0])
+                imask = fmask.std.Inflate(planes=[0]).std.Minimum(planes=[0])
             else:
                 imask = fmask
             expr = f'x {peak} y - * {peak} /'
@@ -2977,6 +2982,7 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
                       settings='low'):
     if not isinstance(i, vs.VideoNode):
         raise vs.Error('MCTemporalDenoise: This is not a clip')
+
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != i.format.id):
         raise vs.Error("MCTemporalDenoise: 'p' must be the same format as input")
 
@@ -3258,18 +3264,18 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
 
     ### EDGECLEANING
     if edgeclean:
-        mP = core.std.Sobel(mvf.GetPlane(smP, 0))
+        mP = AvsPrewitt(mvf.GetPlane(smP, 0))
         mS = mt_expand_multi(mP, sw=ECrad, sh=ECrad).std.Inflate()
-        mD = core.std.Expr([mS, core.std.Inflate(mP)], expr=[f'x y - {ECthr} <= 0 x y - ?']).std.Inflate().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-        smP = core.std.MaskedMerge(smP, DeHalo_alpha(core.dfttest.DFTTest(smP, tbsize=1, planes=planes), darkstr=0), mD, planes=planes)
+        mD = core.std.Expr([mS, mP.std.Inflate()], expr=[f'x y - {ECthr} <= 0 x y - ?']).std.Inflate().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        smP = core.std.MaskedMerge(smP, DeHalo_alpha(smP.dfttest.DFTTest(tbsize=1, planes=planes), darkstr=0), mD, planes=planes)
 
     ### STABILIZING
     if stabilize:
         # mM = core.std.Merge(mvf.GetPlane(SAD_f1m, 0), mvf.GetPlane(SAD_b1m, 0)).std.Lut(function=lambda x: min(cround(x ** 1.6), peak))
-        mE = core.std.Sobel(mvf.GetPlane(smP, 0)).std.Lut(function=lambda x: min(cround(x ** 1.8), peak)).std.Median().std.Inflate()
+        mE = AvsPrewitt(mvf.GetPlane(smP, 0)).std.Lut(function=lambda x: min(cround(x ** 1.8), peak)).std.Median().std.Inflate()
         # mF = core.std.Expr([mM, mE], expr=['x y max']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-        mF = core.std.Convolution(mE, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-        TTc = core.ttmpsm.TTempSmooth(smP, maxr=maxr, mdiff=[255], strength=TTstr, planes=planes)
+        mF = mE.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        TTc = smP.ttmpsm.TTempSmooth(maxr=maxr, mdiff=[255], strength=TTstr, planes=planes)
         smP = core.std.MaskedMerge(TTc, smP, mF, planes=planes)
 
     ### OUTPUT
@@ -5244,6 +5250,22 @@ def AverageFrames(clip, weights, scenechange=None, planes=None):
         clip = SCDetect(clip, scenechange)
         scenechange = True
     return core.misc.AverageFrames(clip, weights=weights, scenechange=scenechange, planes=planes)
+
+
+def AvsPrewitt(clip, planes=None):
+    if not isinstance(clip, vs.VideoNode):
+        raise vs.Error('AvsPrewitt: This is not a clip')
+
+    if planes is None:
+        planes = list(range(clip.format.num_planes))
+    elif isinstance(planes, int):
+        planes = [planes]
+
+    return core.std.Expr([clip.std.Convolution(matrix=[1, 1, 0, 1, 0, -1, 0, -1, -1], planes=planes, saturate=False),
+                          clip.std.Convolution(matrix=[1, 1, 1, 0, 0, 0, -1, -1, -1], planes=planes, saturate=False),
+                          clip.std.Convolution(matrix=[1, 0, -1, 1, 0, -1, 1, 0, -1], planes=planes, saturate=False),
+                          clip.std.Convolution(matrix=[0, -1, -1, 1, 0, -1, 1, 1, 0], planes=planes, saturate=False)],
+                          expr=['x y max z max a max' if i in planes else '' for i in range(clip.format.num_planes)])
 
 
 def Bob(clip, b=1/3, c=1/3, tff=None):
