@@ -410,7 +410,7 @@ def DeHalo_alpha(clp, rx=2.0, ry=2.0, darkstr=1.0, brightstr=1.0, lowsens=50, hi
     ox = clp.width
     oy = clp.height
 
-    halos = clp.resize.Bicubic(m4(ox / rx), m4(oy / ry)).resize.Bicubic(ox, oy, filter_param_a=1, filter_param_b=0)
+    halos = clp.resize.Bicubic(m4(ox / rx), m4(oy / ry), filter_param_a=1/3, filter_param_b=1/3).resize.Bicubic(ox, oy, filter_param_a=1, filter_param_b=0)
     are = core.std.Expr([clp.std.Maximum(), clp.std.Minimum()], expr=['x y -'])
     ugly = core.std.Expr([halos.std.Maximum(), halos.std.Minimum()], expr=['x y -'])
     expr = f'y x - y 0.0001 + / {peak} * {scale(lowsens, peak)} - y {scale(256, peak)} + {scale(512, peak)} / {highsens / 100} + *'
@@ -419,8 +419,10 @@ def DeHalo_alpha(clp, rx=2.0, ry=2.0, darkstr=1.0, brightstr=1.0, lowsens=50, hi
     if ss <= 1:
         remove = core.rgvs.Repair(clp, lets, mode=[1])
     else:
-        remove = core.std.Expr([core.std.Expr([clp.resize.Lanczos(m4(ox * ss), m4(oy * ss)), lets.std.Maximum().resize.Bicubic(m4(ox * ss), m4(oy * ss))], expr=['x y min']),
-                                lets.std.Minimum().resize.Bicubic(m4(ox * ss), m4(oy * ss))],
+        remove = core.std.Expr([core.std.Expr([clp.resize.Lanczos(m4(ox * ss), m4(oy * ss)),
+                                               lets.std.Maximum().resize.Bicubic(m4(ox * ss), m4(oy * ss), filter_param_a=1/3, filter_param_b=1/3)],
+                                               expr=['x y min']),
+                                lets.std.Minimum().resize.Bicubic(m4(ox * ss), m4(oy * ss), filter_param_a=1/3, filter_param_b=1/3)],
                                expr=['x y max']).resize.Lanczos(ox, oy)
     them = core.std.Expr([clp, remove], expr=[f'x y < x x y - {darkstr} * - x x y - {brightstr} * - ?'])
 
