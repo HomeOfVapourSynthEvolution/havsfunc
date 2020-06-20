@@ -4458,6 +4458,7 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ### +--------------+
 ###
 ### -> RGVS
+### -> CAS
 ###
 ###
 ###
@@ -4469,15 +4470,16 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ### --------------
 ### Strength of the sharpening
 ###
-### Smode [int: 1,2]
+### Smode [int: 1,2,3]
 ### ----------------------
 ### Sharpen mode:
 ###    =1 : Range sharpening
 ###    =2 : Nonlinear sharpening (corrected version)
+###    =3 : Contrast Adaptive Sharpening
 ###
 ### Smethod [int: 1,2,3]
 ### --------------------
-### Sharpen method:
+### Sharpen method: (only used in Smode=1,2)
 ###    =1 : 3x3 kernel
 ###    =2 : Min/Max
 ###    =3 : Min/Max + 3x3 kernel
@@ -4689,14 +4691,14 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ###                   - edgemode    = 0
 ###                   - edgemaskHQ  = true
 ###
-###                   - ss_x        = 1.50
+###                   - ss_x        = Smode==3?1.00:1.50
 ###                   - ss_y        = ss_x
 ###                   - dest_x      = ox
 ###                   - dest_y      = oy
 ###
 ###
 ### defaults="fast" : - strength    = 100
-### ----------------- - Smode       = 1
+### ----------------- - Smode       = 3
 ###                   - Smethod     = 2
 ###                   - kernel      = 11
 ###
@@ -4722,7 +4724,7 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ###                   - edgemode    = 0
 ###                   - edgemaskHQ  = false
 ###
-###                   - ss_x        = 1.25
+###                   - ss_x        = Smode==3?1.00:1.25
 ###                   - ss_y        = ss_x
 ###                   - dest_x      = ox
 ###                   - dest_y      = oy
@@ -4761,7 +4763,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     oy = input.height
 
     if Smode is None:
-        Smode = [1, 2, 1][num]
+        Smode = [1, 2, 3][num]
     if Smethod is None:
         Smethod = [2 if Smode == 1 else 1, 3, 2][num]
     if secure is None:
@@ -4791,7 +4793,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if edgemaskHQ is None:
         edgemaskHQ = [True, True, False][num]
     if ss_x is None:
-        ss_x = [1.5 if Smode == 1 else 1.25, 1.5, 1.25][num]
+        ss_x = [1.5 if Smode == 1 else 1.25, 1.0 if Smode == 3 else 1.5, 1.0 if Smode == 3 else 1.25][num]
     if ss_y is None:
         ss_y = ss_x
     if dest_x is None:
@@ -4839,26 +4841,36 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     dark_limit = pre.std.Minimum()
     bright_limit = pre.std.Maximum()
 
-    if Smethod <= 1:
-        method = Filter(pre)
-    elif Smethod == 2:
-        method = core.std.Merge(dark_limit, bright_limit)
+    if Smode < 3:
+        if Smethod <= 1:
+            method = Filter(pre)
+        elif Smethod == 2:
+            method = core.std.Merge(dark_limit, bright_limit)
+        else:
+            method = Filter(core.std.Merge(dark_limit, bright_limit))
+
+        if secure:
+            method = core.std.Expr([method, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))])
+
+        if preblur:
+            method = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, method))
+
+        if Smode <= 1:
+            normsharp = core.std.Expr([tmp, method], expr=[f'x x y - {Str} * +'])
+        else:
+            tmpScaled = tmp.std.Expr(expr=[f'x {1 / factor if isInteger else factor} *'], format=tmp.format.replace(sample_type=vs.FLOAT, bits_per_sample=32))
+            methodScaled = method.std.Expr(expr=[f'x {1 / factor if isInteger else factor} *'], format=method.format.replace(sample_type=vs.FLOAT, bits_per_sample=32))
+            expr = f'x y = x x x y - abs {Szrp} / {1 / Spwr} pow {Szrp} * {Str} * x y - dup abs / * x y - dup * {Szrp * Szrp} {SdmpLo} + * x y - dup * {SdmpLo} + {Szrp * Szrp} * / * 1 {SdmpHi} 0 = 0 {(Szrp / SdmpHi) ** 4} ? + 1 {SdmpHi} 0 = 0 x y - abs {SdmpHi} / 4 pow ? + / * + ? {factor if isInteger else 1 / factor} *'
+            normsharp = core.std.Expr([tmpScaled, methodScaled], expr=[expr], format=tmp.format)
     else:
-        method = Filter(core.std.Merge(dark_limit, bright_limit))
+        normsharp = pre.cas.CAS(sharpness=min(Str, 1))
 
-    if secure:
-        method = core.std.Expr([method, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))])
+        if secure:
+            normsharp = core.std.Expr([normsharp, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))])
 
-    if preblur:
-        method = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, method))
+        if preblur:
+            normsharp = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, normsharp))
 
-    if Smode <= 1:
-        normsharp = core.std.Expr([tmp, method], expr=[f'x x y - {Str} * +'])
-    else:
-        tmpScaled = tmp.std.Expr(expr=[f'x {1 / factor if isInteger else factor} *'], format=tmp.format.replace(sample_type=vs.FLOAT, bits_per_sample=32))
-        methodScaled = method.std.Expr(expr=[f'x {1 / factor if isInteger else factor} *'], format=method.format.replace(sample_type=vs.FLOAT, bits_per_sample=32))
-        expr = f'x y = x x x y - abs {Szrp} / {1 / Spwr} pow {Szrp} * {Str} * x y - dup abs / * x y - dup * {Szrp * Szrp} {SdmpLo} + * x y - dup * {SdmpLo} + {Szrp * Szrp} * / * 1 {SdmpHi} 0 = 0 {(Szrp / SdmpHi) ** 4} ? + 1 {SdmpHi} 0 = 0 x y - abs {SdmpHi} / 4 pow ? + / * + ? {factor if isInteger else 1 / factor} *'
-        normsharp = core.std.Expr([tmpScaled, methodScaled], expr=[expr], format=tmp.format)
 
     ### LIMIT
     normal = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot, peak), scale(undershoot, peak))
