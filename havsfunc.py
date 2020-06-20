@@ -4732,15 +4732,24 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
            overshoot2=None, undershoot2=None, soft=None, soothe=None, keep=None, edgemode=0, edgemaskHQ=None, ss_x=None, ss_y=None, dest_x=None, dest_y=None, defaults='fast'):
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('LSFmod: This is not a clip')
+
     if input.format.color_family == vs.RGB:
-        raise vs.Error('LSFmod: RGB color family is not supported')
+        raise vs.Error('LSFmod: RGB format is not supported')
+
     if source is not None and (not isinstance(source, vs.VideoNode) or source.format.id != input.format.id):
         raise vs.Error("LSFmod: 'source' must be the same format as input")
 
-    neutral = 1 << (input.format.bits_per_sample - 1)
-    peak = (1 << input.format.bits_per_sample) - 1
-    multiple = peak / 255
     isGray = (input.format.color_family == vs.GRAY)
+    isInteger = (input.format.sample_type == vs.INTEGER)
+
+    if isInteger:
+        neutral = 1 << (input.format.bits_per_sample - 1)
+        peak = (1 << input.format.bits_per_sample) - 1
+        factor = 1 << (input.format.bits_per_sample - 8)
+    else:
+        neutral = 0.0
+        peak = 1.0
+        factor = 255.0
 
     ### DEFAULTS
     try:
@@ -4812,25 +4821,9 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
 
     Str = strength / 100
 
-    # x y == x x x y - abs Szrp / 1 Spwr / ^ Szrp * str * x y - x y - abs / * x y - 2 ^ Szrp 2 ^ SdmpLo + * x y - 2 ^ SdmpLo + Szrp 2 ^ * / * 1 SdmpHi 0 == 0 Szrp SdmpHi / 4 ^ ? + 1 SdmpHi 0 == 0 x y - abs SdmpHi / 4 ^ ? + / * + ?
-    def get_lut1(x):
-        if x == neutral:
-            return x
-        else:
-            tmp = (x - neutral) / multiple
-            return min(max(cround(x + (abs(tmp) / Szrp) ** (1 / Spwr) * Szrp * (Str * multiple) * (1 if x > neutral else -1) * (tmp ** 2 * (Szrp ** 2 + SdmpLo) / ((tmp ** 2 + SdmpLo) * Szrp ** 2)) * ((1 + (0 if SdmpHi == 0 else (Szrp / SdmpHi) ** 4)) / (1 + (0 if SdmpHi == 0 else (abs(tmp) / SdmpHi) ** 4)))), 0), peak)
-
-    # x 128 / 0.86 ^ 255 *
-    def get_lut2(x):
-        return min(cround((x / multiple / 128) ** 0.86 * 255 * multiple), peak)
-
-    # x 32 / 0.86 ^ 255 *
-    def get_lut3(x):
-        return min(cround((x / multiple / 32) ** 0.86 * 255 * multiple), peak)
-
     ### SHARP
     if ss_x > 1 or ss_y > 1:
-        tmp = core.resize.Spline36(input, xxs, yys)
+        tmp = input.resize.Spline36(xxs, yys)
     else:
         tmp = input
 
@@ -4843,8 +4836,8 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     else:
         pre = MinBlur(tmp, 1)
 
-    dark_limit = core.std.Minimum(pre)
-    bright_limit = core.std.Maximum(pre)
+    dark_limit = pre.std.Minimum()
+    bright_limit = pre.std.Maximum()
 
     if Smethod <= 1:
         method = Filter(pre)
@@ -4862,8 +4855,10 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if Smode <= 1:
         normsharp = core.std.Expr([tmp, method], expr=[f'x x y - {Str} * +'])
     else:
-        diff = core.std.MakeDiff(tmp, method).std.Lut(function=get_lut1)
-        normsharp = core.std.MergeDiff(method, diff)
+        tmpScaled = tmp.std.Expr(expr=[f'x {1 / factor if isInteger else factor} *'], format=tmp.format.replace(sample_type=vs.FLOAT, bits_per_sample=32))
+        methodScaled = method.std.Expr(expr=[f'x {1 / factor if isInteger else factor} *'], format=method.format.replace(sample_type=vs.FLOAT, bits_per_sample=32))
+        expr = f'x y = x x x y - abs {Szrp} / {1 / Spwr} pow {Szrp} * {Str} * x y - dup abs / * x y - dup * {Szrp * Szrp} {SdmpLo} + * x y - dup * {SdmpLo} + {Szrp * Szrp} * / * 1 {SdmpHi} 0 = 0 {(Szrp / SdmpHi) ** 4} ? + 1 {SdmpHi} 0 = 0 x y - abs {SdmpHi} / 4 pow ? + / * + ? {factor if isInteger else 1 / factor} *'
+        normsharp = core.std.Expr([tmpScaled, methodScaled], expr=[expr], format=tmp.format)
 
     ### LIMIT
     normal = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot, peak), scale(undershoot, peak))
@@ -4871,9 +4866,10 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     zero = Clamp(normsharp, bright_limit, dark_limit, 0, 0)
 
     if edgemaskHQ:
-        edge = core.std.Sobel(tmp, scale=2).std.Lut(function=get_lut2)
+        edge = tmp.std.Sobel(scale=2)
     else:
-        edge = core.std.Expr([core.std.Maximum(tmp), core.std.Minimum(tmp)], expr=['x y -']).std.Lut(function=get_lut3)
+        edge = core.std.Expr([tmp.std.Maximum(), tmp.std.Minimum()], expr=['x y -'])
+    edge = edge.std.Expr(expr=[f'x {1 / factor if isInteger else factor} * {128 if edgemaskHQ else 32} / 0.86 pow 255 * {factor if isInteger else 1 / factor} *'])
 
     if Lmode < 0:
         limit1 = core.rgvs.Repair(normsharp, tmp, mode=[abs(Lmode)])
@@ -4882,26 +4878,25 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     elif Lmode == 1:
         limit1 = normal
     elif Lmode == 2:
-        limit1 = core.std.MaskedMerge(normsharp, normal, core.std.Inflate(edge))
+        limit1 = core.std.MaskedMerge(normsharp, normal, edge.std.Inflate())
     elif Lmode == 3:
-        limit1 = core.std.MaskedMerge(normal, zero, core.std.Inflate(edge))
+        limit1 = core.std.MaskedMerge(normal, zero, edge.std.Inflate())
     else:
-        limit1 = core.std.MaskedMerge(second, normal, core.std.Inflate(edge))
+        limit1 = core.std.MaskedMerge(second, normal, edge.std.Inflate())
 
     if edgemode <= 0:
         limit2 = limit1
     elif edgemode == 1:
-        limit2 = core.std.MaskedMerge(tmp, limit1, core.std.Inflate(edge).std.Inflate().std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
+        limit2 = core.std.MaskedMerge(tmp, limit1, edge.std.Inflate().std.Inflate().std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
     else:
-        limit2 = core.std.MaskedMerge(limit1, tmp, core.std.Inflate(edge).std.Inflate().std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
+        limit2 = core.std.MaskedMerge(limit1, tmp, edge.std.Inflate().std.Inflate().std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
 
     ### SOFT
     if soft == 0:
         PP1 = limit2
     else:
         sharpdiff = core.std.MakeDiff(tmp, limit2)
-        sharpdiff = core.std.Expr([sharpdiff, core.std.Convolution(sharpdiff, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])],
-                                  expr=[f'x {neutral} - abs y {neutral} - abs > y {soft} * x {100 - soft} * + 100 / x ?'])
+        sharpdiff = core.std.Expr([sharpdiff, sharpdiff.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])], expr=[f'x {neutral} - abs y {neutral} - abs > y {soft} * x {100 - soft} * + 100 / x ?'])
         PP1 = core.std.MakeDiff(tmp, sharpdiff)
 
     ### SOOTHE
@@ -4917,9 +4912,9 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
     if dest_x != ox or dest_y != oy:
         if not isGray:
             PP2 = core.std.ShufflePlanes([PP2, tmp_orig], planes=[0, 1, 2], colorfamily=input.format.color_family)
-        out = core.resize.Spline36(PP2, dest_x, dest_y)
+        out = PP2.resize.Spline36(dest_x, dest_y)
     elif ss_x > 1 or ss_y > 1:
-        out = core.resize.Spline36(PP2, dest_x, dest_y)
+        out = PP2.resize.Spline36(dest_x, dest_y)
         if not isGray:
             out = core.std.ShufflePlanes([out, input], planes=[0, 1, 2], colorfamily=input.format.color_family)
     elif not isGray:
@@ -4928,11 +4923,11 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=Fal
         out = PP2
 
     if edgemode <= -1:
-        return core.resize.Spline36(edge, dest_x, dest_y, format=input.format.id)
+        return edge.resize.Spline36(dest_x, dest_y, format=input.format)
     elif source is not None:
         if dest_x != ox or dest_y != oy:
-            src = core.resize.Spline36(source, dest_x, dest_y)
-            In = core.resize.Spline36(input, dest_x, dest_y)
+            src = source.resize.Spline36(dest_x, dest_y)
+            In = input.resize.Spline36(dest_x, dest_y)
         else:
             src = source
             In = input
@@ -5848,4 +5843,4 @@ def m4(x):
 
 
 def scale(value, peak):
-    return cround(value * peak / 255)
+    return cround(value * peak / 255) if peak != 1 else value / 255
