@@ -302,10 +302,15 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('Deblock_QED: This is not a clip')
 
-    neutral = 1 << (clp.format.bits_per_sample - 1)
-    peak = (1 << clp.format.bits_per_sample) - 1
     isGray = (clp.format.color_family == vs.GRAY)
     planes = [0, 1, 2] if uv >= 3 and not isGray else [0]
+
+    if clp.format.sample_type == vs.INTEGER:
+        neutral = 1 << (clp.format.bits_per_sample - 1)
+        peak = (1 << clp.format.bits_per_sample) - 1
+    else:
+        neutral = 0.0
+        peak = 1.0
 
     # add borders if clp is not mod 8
     w = clp.width
@@ -316,15 +321,13 @@ def Deblock_QED(clp, quant1=24, quant2=26, aOff1=1, bOff1=2, aOff2=1, bOff2=2, u
         clp = clp.resize.Point(w + padX, h + padY, src_width=w + padX, src_height=h + padY)
 
     # block
-    block = clp.std.BlankClip(width=6, height=6, format=vs.GRAY8, length=1, color=[0])
-    block = block.std.AddBorders(1, 1, 1, 1, color=[255])
+    block = clp.std.BlankClip(width=6, height=6, format=clp.format.replace(color_family=vs.GRAY, subsampling_w=0, subsampling_h=0), length=1, color=[0])
+    block = block.std.AddBorders(1, 1, 1, 1, color=[peak])
     block = core.std.StackHorizontal([block for i in range(clp.width // 8)])
     block = core.std.StackVertical([block for i in range(clp.height // 8)])
     if not isGray:
         blockc = block.std.CropAbs(width=clp.width >> clp.format.subsampling_w, height=clp.height >> clp.format.subsampling_h)
         block = core.std.ShufflePlanes([block, blockc], planes=[0, 0, 0], colorfamily=clp.format.color_family)
-    if block.format.bits_per_sample != clp.format.bits_per_sample:
-        block = block.fmtc.bitdepth(bits=clp.format.bits_per_sample, fulls=False, fulld=True)
     block = block.std.Loop(times=clp.num_frames)
 
     # create normal deblocking (for block borders) and strong deblocking (for block interiour)
