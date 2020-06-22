@@ -494,7 +494,8 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
     if src.format.color_family == vs.RGB:
         raise vs.Error('FineDehalo: RGB format is not supported')
 
-    peak = (1 << src.format.bits_per_sample) - 1
+    isInteger = (src.format.sample_type == vs.INTEGER)
+    peak = (1 << src.format.bits_per_sample) - 1 if isInteger else 1.0
 
     if src.format.color_family != vs.GRAY:
         src_orig = src
@@ -522,7 +523,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
     edges = AvsPrewitt(src)
 
     # Keeps only the sharpest edges (line edges)
-    strong = edges.std.Expr(expr=[f'x {scale(thmi, peak)} - {thma - thmi} / 255 *'])
+    strong = edges.std.Expr(expr=[f'x {scale(thmi, peak)} - {thma - thmi} / 255 *' if isInteger else f'x {scale(thmi, peak)} - {thma - thmi} / 255 * 0.0 max 1.0 min'])
 
     # Extends them to include the potential halos
     large = mt_expand_multi(strong, sw=rx_i, sh=ry_i)
@@ -533,7 +534,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
     # producing annoying artifacts. Therefore we have to produce a mask to exclude these zones from the halo removal
 
     # Includes more edges than previously, but ignores simple details
-    light = edges.std.Expr(expr=[f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 *'])
+    light = edges.std.Expr(expr=[f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 *' if isInteger else f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 * 0.0 max 1.0 min'])
 
     # To build the exclusion zone, we make grow the edge mask, then shrink it to its original shape
     # During the growing stage, close adjacent edge masks will join and merge, forming a solid area, which will remain solid even after the shrinking stage
@@ -543,7 +544,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
 
     # At this point, because the mask was made of a shades of grey, we may end up with large areas of dark grey after shrinking
     # To avoid this, we amplify and saturate the mask here (actually we could even binarize it)
-    shrink = shrink.std.Expr(expr=['x 4 *'])
+    shrink = shrink.std.Expr(expr=['x 4 *' if isInteger else 'x 4 * 1.0 min'])
 
     # Mask shrinking
     shrink = mt_inpand_multi(shrink, mode='ellipse', sw=rx_i, sh=ry_i)
@@ -560,14 +561,14 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
         shr_med = strong
 
     # Substracts masks and amplifies the difference to be sure we get 255 on the areas to be processed
-    outside = core.std.Expr([large, shr_med], expr=['x y - 2 *'])
+    outside = core.std.Expr([large, shr_med], expr=['x y - 2 *' if isInteger else 'x y - 2 * 0.0 max 1.0 min'])
 
     # If edge processing is required, adds the edgemask
     if edgeproc > 0:
-        outside = core.std.Expr([outside, strong], expr=[f'x y {edgeproc * 0.66} * +'])
+        outside = core.std.Expr([outside, strong], expr=[f'x y {edgeproc * 0.66} * +' if isInteger else f'x y {edgeproc * 0.66} * + 1.0 min'])
 
     # Smooth again and amplify to grow the mask a bit, otherwise the halo parts sticking to the edges could be missed
-    outside = outside.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Expr(expr=['x 2 *'])
+    outside = outside.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Expr(expr=['x 2 *' if isInteger else 'x 2 * 1.0 min'])
 
     ### Masking ###
 
@@ -608,7 +609,7 @@ def FineDehalo_contrasharp(dehaloed, src, level):
     if dehaloed.format.id != src.format.id:
         raise vs.Error('FineDehalo_contrasharp: Clips must be the same format')
 
-    neutral = 1 << (dehaloed.format.bits_per_sample - 1)
+    neutral = 1 << (dehaloed.format.bits_per_sample - 1) if dehaloed.format.sample_type == vs.INTEGER else 0.0
 
     if dehaloed.format.color_family != vs.GRAY:
         dehaloed_orig = dehaloed
