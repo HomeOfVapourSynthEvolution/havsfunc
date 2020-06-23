@@ -3431,8 +3431,6 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
             pref = prefilter
         elif prefilter <= -1:
             pref = inputP
-        elif prefilter == 0:
-            pref = MinBlur(inputP, r=0, planes=planes)
         elif prefilter == 3:
             expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale(16, peak), j=scale(75, peak), peak=peak)
             pref = core.std.MaskedMerge(inputP.dfttest.DFTTest(tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0], planes=planes),
@@ -3445,7 +3443,7 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
             else:
                 pref = inputP.knlm.KNLMeansCL(d=1, a=1, h=7)
         else:
-            pref = sbr(inputP, r=prefilter, planes=planes)
+            pref = MinBlur(inputP, r=prefilter, planes=planes)
     else:
         pref = inputP
 
