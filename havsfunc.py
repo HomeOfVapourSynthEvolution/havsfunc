@@ -5723,7 +5723,7 @@ def sbr(c, r=1, planes=None):
     if not isinstance(c, vs.VideoNode):
         raise vs.Error('sbr: This is not a clip')
 
-    neutral = 1 << (c.format.bits_per_sample - 1)
+    neutral = 1 << (c.format.bits_per_sample - 1) if c.format.sample_type == vs.INTEGER else 0.0
 
     if planes is None:
         planes = list(range(c.format.num_planes))
@@ -5758,7 +5758,7 @@ def sbrV(c, r=1, planes=None):
     if not isinstance(c, vs.VideoNode):
         raise vs.Error('sbrV: This is not a clip')
 
-    neutral = 1 << (c.format.bits_per_sample - 1)
+    neutral = 1 << (c.format.bits_per_sample - 1) if c.format.sample_type == vs.INTEGER else 0.0
 
     if planes is None:
         planes = list(range(c.format.num_planes))
