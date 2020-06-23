@@ -3740,8 +3740,12 @@ def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3
     if clp.format.color_family == vs.RGB:
         raise vs.Error('GrainFactory3: RGB format is not supported')
 
-    neutral = 1 << (clp.format.bits_per_sample - 1)
-    peak = (1 << clp.format.bits_per_sample) - 1
+    if clp.format.sample_type == vs.INTEGER:
+        neutral = 1 << (clp.format.bits_per_sample - 1)
+        peak = (1 << clp.format.bits_per_sample) - 1
+    else:
+        neutral = 0.0
+        peak = 1.0
 
     if clp.format.color_family != vs.GRAY:
         clp_orig = clp
@@ -3782,21 +3786,21 @@ def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3
     th3 = scale(th3, peak)
     th4 = scale(th4, peak)
 
-    grainlayer1 = clp.std.BlankClip(width=sx1, height=sy1, color=[neutral]).grain.Add(g1str)
+    grainlayer1 = clp.std.BlankClip(width=sx1, height=sy1, color=[neutral]).grain.Add(var=g1str)
     if g1size != 1 and (sx1 != ox or sy1 != oy):
         if g1size > 1.5:
             grainlayer1 = grainlayer1.resize.Bicubic(sx1a, sy1a, filter_param_a=b1a, filter_param_b=c1a).resize.Bicubic(ox, oy, filter_param_a=b1a, filter_param_b=c1a)
         else:
             grainlayer1 = grainlayer1.resize.Bicubic(ox, oy, filter_param_a=b1, filter_param_b=c1)
 
-    grainlayer2 = clp.std.BlankClip(width=sx2, height=sy2, color=[neutral]).grain.Add(g2str)
+    grainlayer2 = clp.std.BlankClip(width=sx2, height=sy2, color=[neutral]).grain.Add(var=g2str)
     if g2size != 1 and (sx2 != ox or sy2 != oy):
         if g2size > 1.5:
             grainlayer2 = grainlayer2.resize.Bicubic(sx2a, sy2a, filter_param_a=b2a, filter_param_b=c2a).resize.Bicubic(ox, oy, filter_param_a=b2a, filter_param_b=c2a)
         else:
             grainlayer2 = grainlayer2.resize.Bicubic(ox, oy, filter_param_a=b2, filter_param_b=c2)
 
-    grainlayer3 = clp.std.BlankClip(width=sx3, height=sy3, color=[neutral]).grain.Add(g3str)
+    grainlayer3 = clp.std.BlankClip(width=sx3, height=sy3, color=[neutral]).grain.Add(var=g3str)
     if g3size != 1 and (sx3 != ox or sy3 != oy):
         if g3size > 1.5:
             grainlayer3 = grainlayer3.resize.Bicubic(sx3a, sy3a, filter_param_a=b3a, filter_param_b=c3a).resize.Bicubic(ox, oy, filter_param_a=b3a, filter_param_b=c3a)
@@ -3806,10 +3810,12 @@ def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3
     expr1 = f'x {th1} < 0 x {th2} > {peak} {peak} {th2 - th1} / x {th1} - * ? ?'
     expr2 = f'x {th3} < 0 x {th4} > {peak} {peak} {th4 - th3} / x {th3} - * ? ?'
     grainlayer = core.std.MaskedMerge(core.std.MaskedMerge(grainlayer1, grainlayer2, clp.std.Expr(expr=[expr1])), grainlayer3, clp.std.Expr(expr=[expr2]))
+
     if temp_avg > 0:
         grainlayer = core.std.Merge(grainlayer, AverageFrames(grainlayer, weights=[1] * 3), weight=[tmpavg])
     if ontop_grain > 0:
-        grainlayer = grainlayer.grain.Add(ontop_grain)
+        grainlayer = grainlayer.grain.Add(var=ontop_grain)
+
     result = core.std.MakeDiff(clp, grainlayer)
 
     if clp_orig is not None:
