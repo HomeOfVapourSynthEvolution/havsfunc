@@ -5801,13 +5801,15 @@ def DitherLumaRebuild(src, s0=2.0, c=0.0625, chroma=True):
     if src.format.color_family == vs.RGB:
         raise vs.Error('DitherLumaRebuild: RGB format is not supported')
 
-    shift = src.format.bits_per_sample - 8
-    neutral = 128 << shift
     isGray = (src.format.color_family == vs.GRAY)
+    isInteger = (src.format.sample_type == vs.INTEGER)
+
+    shift = src.format.bits_per_sample - 8
+    neutral = 128 << shift if isInteger else 0.0
 
     k = (s0 - 1) * c
-    t = f'x {16 << shift} - {219 << shift} / 0 max 1 min'
-    e = f'{k} {1 + c} {(1 + c) * c} {t} {c} + / - * {t} 1 {k} - * + {256 << shift} *'
+    t = f'x {16 << shift if isInteger else 16 / 255} - {219 << shift if isInteger else 219 / 255} / 0 max 1 min'
+    e = f'{k} {1 + c} {(1 + c) * c} {t} {c} + / - * {t} 1 {k} - * + {256 << shift if isInteger else 256 / 255} *'
     return src.std.Expr(expr=[e] if isGray else [e, f'x {neutral} - 128 * 112 / {neutral} +' if chroma else ''])
 
 
