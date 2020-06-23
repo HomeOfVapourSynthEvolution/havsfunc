@@ -4246,9 +4246,14 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
         raise vs.Error('SmoothLevels: RGB format is not supported')
 
     isGray = (input.format.color_family == vs.GRAY)
+    isInteger = (input.format.sample_type == vs.INTEGER)
 
-    neutral = 1 << (input.format.bits_per_sample - 1)
-    peak = (1 << input.format.bits_per_sample) - 1
+    if isInteger:
+        neutral = [1 << (input.format.bits_per_sample - 1)] * 2
+        peak = (1 << input.format.bits_per_sample) - 1
+    else:
+        neutral = [0.5, 0.0]
+        peak = 1.0
 
     if chroma <= 0 and not isGray:
         input_orig = input
@@ -4263,16 +4268,13 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
         output_high = peak
 
     if Ecenter is None:
-        Ecenter = neutral
+        Ecenter = neutral[0]
 
     if gamma <= 0:
         raise vs.Error('SmoothLevels: gamma must be greater than 0.0')
 
     if Mfactor <= 0:
         raise vs.Error('SmoothLevels: Mfactor must be greater than 0')
-
-    Dstr = DarkSTR / 100
-    Bstr = BrightSTR / 100
 
     if RGmode == 4:
         RemoveGrain = partial(core.std.Median)
@@ -4286,86 +4288,67 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
         RemoveGrain = partial(core.rgvs.RemoveGrain, mode=[RGmode])
 
     ### EXPRESSION
-    def get_lut(x):
-        exprY = ((x - input_low) / (input_high - input_low)) ** (1 / gamma) * (output_high - output_low) + output_low
-        if isinstance(exprY, complex):
-            exprY = exprY.real
+    exprY = f'x {input_low} - {input_high - input_low} / {1 / gamma} pow {output_high - output_low} * {output_low} +'
 
-        if Lmode <= 0:
-            exprL = 1
-        elif Ecurve <= 0:
-            if Lmode == 1:
-                if x < Ecenter:
-                    exprL = math.sin(x * (333 / 106) / (2 * Ecenter)) ** Dstr
-                elif x > Ecenter:
-                    exprL = math.sin((333 / 106) / 2 + (x - Ecenter) * (333 / 106) / (2 * (peak - Ecenter))) ** Bstr
-                else:
-                    exprL = 1
-            elif Lmode == 2:
-                exprL = math.sin(x * (333 / 106) / (2 * peak)) ** Dstr
-            else:
-                exprL = math.sin((333 / 106) / 2 + x * (333 / 106) / (2 * peak)) ** Bstr
+    scaleC = ((output_high - output_low) / (input_high - input_low) + 100 / chroma - 1) / (100 / chroma)
+    exprC = f'x {neutral[1]} - {scaleC} * {neutral[1]} +'
+
+    Dstr = DarkSTR / 100
+    Bstr = BrightSTR / 100
+
+    if Lmode <= 0:
+        exprL = '1'
+    elif Ecurve <= 0:
+        raise vs.Error('SmoothLevels: Ecurve=0 is unusable at the moment due to missing sin operator in Expr')
+        if Lmode == 1:
+            exprL = f'x {Ecenter} < x {333 / 106} * {2 * Ecenter} / sin {Dstr} pow x {Ecenter} > {(333 / 106) / 2} x {Ecenter} - {333 / 106} * {2 * (peak - Ecenter)} / + sin {Bstr} pow 1 ? ?'
+        elif Lmode == 2:
+            exprL = f'x {333 / 106} * {2 * peak} / sin {Dstr} pow'
         else:
-            if Lmode == 1:
-                if x < Ecenter:
-                    exprL = abs(x / Ecenter) ** Dstr
-                elif x > Ecenter:
-                    exprL = (1 - abs((x - Ecenter) / (peak - Ecenter))) ** Bstr
-                else:
-                    exprL = 1
-            elif Lmode == 2:
-                exprL = (1 - abs((x - peak) / peak)) ** Dstr
-            else:
-                exprL = abs((x - peak) / peak) ** Bstr
-
-        if protect <= -1:
-            exprP = 1
-        elif Ecurve <= 0:
-            if x <= protect:
-                exprP = 0
-            elif x >= protect + scale(16, peak):
-                exprP = 1
-            else:
-                exprP = math.sin((x - protect) * (333 / 106) / (2 * scale(16, peak)))
+            exprL = f'{(333 / 106) / 2} x {333 / 106} * {2 * peak} / + sin {Bstr} pow'
+    else:
+        if Lmode == 1:
+            exprL = f'x {Ecenter} < x {Ecenter} / abs {Dstr} pow x {Ecenter} > 1 x {Ecenter} - {peak - Ecenter} / abs - {Bstr} pow 1 ? ?'
+        elif Lmode == 2:
+            exprL = f'1 x {peak} - {peak} / abs - {Dstr} pow'
         else:
-            if x <= protect:
-                exprP = 0
-            elif x >= protect + scale(16, peak):
-                exprP = 1
-            else:
-                exprP = abs((x - protect) / scale(16, peak))
+            exprL = f'x {peak} - {peak} / abs {Bstr} pow'
 
-        return min(max(cround(exprL * exprP * (exprY - x) + x), 0), peak)
+    if protect <= -1:
+        exprP = '1'
+    elif Ecurve <= 0:
+        raise vs.Error('SmoothLevels: Ecurve=0 is unusable at the moment due to missing sin operator in Expr')
+        exprP = f'x {protect} <= 0 x {protect + scale(16, peak)} >= 1 x {protect} - {333 / 106} * {2 * scale(16, peak)} / sin ? ?'
+    else:
+        exprP = f'x {protect} <= 0 x {protect + scale(16, peak)} >= 1 x {protect} - {scale(16, peak)} / abs ? ?'
 
     ### PROCESS
     if limiter == 1 or limiter >= 3:
-        limitI = input.std.Expr(expr=[f'x {input_low} < {input_low} x {input_high} > {input_high} x ? ?'])
+        limitI = input.std.Expr(expr=[f'x {input_low} max {input_high} min'])
     else:
         limitI = input
 
-    level = limitI.std.Lut(planes=[0], function=get_lut)
-    if chroma > 0 and not isGray:
-        scaleC = ((output_high - output_low) / (input_high - input_low) + 100 / chroma - 1) / (100 / chroma)
-        level = level.std.Expr(expr=['', f'x {neutral} - {scaleC} * {neutral} +'])
-    diff = core.std.Expr([limitI, level], expr=[f'x y - {Mfactor} * {neutral} +'])
+    expr = exprL + ' ' + exprP + ' * ' + exprY + ' x - * x +'
+    level = limitI.std.Expr(expr=[expr] if chroma <= 0 or isGray else [expr, exprC])
+    diff = core.std.Expr([limitI, level], expr=[f'x y - {Mfactor} * {neutral[1]} +'])
     process = RemoveGrain(diff)
     if useDB:
-        process = process.std.Expr(expr=[f'x {neutral} - {Mfactor} / {neutral} +']).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
+        process = process.std.Expr(expr=[f'x {neutral[1]} - {Mfactor} / {neutral[1]} +']).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
         smth = core.std.MakeDiff(limitI, process)
     else:
-        smth = core.std.Expr([limitI, process], expr=[f'x y {neutral} - {Mfactor} / -'])
+        smth = core.std.Expr([limitI, process], expr=[f'x y {neutral[1]} - {Mfactor} / -'])
 
-    level2 = core.std.Expr([limitI, diff], expr=[f'x y {neutral} - {Mfactor} / -'])
-    diff2 = core.std.Expr([level2, level], expr=[f'x y - {Mfactor} * {neutral} +'])
+    level2 = core.std.Expr([limitI, diff], expr=[f'x y {neutral[1]} - {Mfactor} / -'])
+    diff2 = core.std.Expr([level2, level], expr=[f'x y - {Mfactor} * {neutral[1]} +'])
     process2 = RemoveGrain(diff2)
     if useDB:
-        process2 = process2.std.Expr(expr=[f'x {neutral} - {Mfactor} / {neutral} +']).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
+        process2 = process2.std.Expr(expr=[f'x {neutral[1]} - {Mfactor} / {neutral[1]} +']).f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
         smth2 = core.std.MakeDiff(smth, process2)
     else:
-        smth2 = core.std.Expr([smth, process2], expr=[f'x y {neutral} - {Mfactor} / -'])
+        smth2 = core.std.Expr([smth, process2], expr=[f'x y {neutral[1]} - {Mfactor} / -'])
 
-    mask1 = core.std.Expr([limitI, level], expr=[f'x y - abs {neutral} {Mfactor} / >= {peak} 0 ?'])
-    mask2 = core.std.Expr([limitI, level], expr=[f'x y - abs {peak} {Mfactor} / >= {peak} 0 ?'])
+    mask1 = core.std.Expr([limitI, level], expr=[f'x y - abs {neutral[0] / Mfactor} >= {peak} 0 ?'])
+    mask2 = core.std.Expr([limitI, level], expr=[f'x y - abs {peak / Mfactor} >= {peak} 0 ?'])
 
     if Smode >= 2:
         Slevel = smth2
@@ -4379,7 +4362,7 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
         Slevel = level
 
     if limiter >= 2:
-        limitO = Slevel.std.Expr(expr=[f'x {output_low} < {output_low} x {output_high} > {output_high} x ? ?'])
+        limitO = Slevel.std.Expr(expr=[f'x {output_low} max {output_high} min'])
     else:
         limitO = Slevel
 
