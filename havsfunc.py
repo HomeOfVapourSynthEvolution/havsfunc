@@ -4231,14 +4231,14 @@ def FixRowBrightnessProtect2(c, row, adj_val, prot_val=16):
 ### --------------------
 ### In strength order: + 19 > 12 >> 20 > 11 -
 ###
-### useDB [default: true]
+### useDB [default: false]
 ### ---------------------
 ### Use f3kdb on top of removegrain: prevent posterize when doing levels conversion
 ###
 ###
 #########################################################################################
 def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, output_high=None, chroma=50, limiter=0, Lmode=0, DarkSTR=100, BrightSTR=100, Ecenter=None, protect=-1, Ecurve=0,
-                 Smode=-2, Mfactor=2, RGmode=12, useDB=True):
+                 Smode=-2, Mfactor=2, RGmode=12, useDB=False):
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('SmoothLevels: This is not a clip')
 
