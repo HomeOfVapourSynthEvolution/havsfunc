@@ -2417,8 +2417,12 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('Vinverse: This is not a clip')
 
-    neutral = 1 << (clp.format.bits_per_sample - 1)
-    peak = (1 << clp.format.bits_per_sample) - 1
+    if clp.format.sample_type == vs.INTEGER:
+        neutral = 1 << (clp.format.bits_per_sample - 1)
+        peak = (1 << clp.format.bits_per_sample) - 1
+    else:
+        neutral = 0.0
+        peak = 1.0
 
     if not chroma and clp.format.color_family != vs.GRAY:
         clp_orig = clp
@@ -2447,8 +2451,12 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('Vinverse2: This is not a clip')
 
-    neutral = 1 << (clp.format.bits_per_sample - 1)
-    peak = (1 << clp.format.bits_per_sample) - 1
+    if clp.format.sample_type == vs.INTEGER:
+        neutral = 1 << (clp.format.bits_per_sample - 1)
+        peak = (1 << clp.format.bits_per_sample) - 1
+    else:
+        neutral = 0.0
+        peak = 1.0
 
     if not chroma and clp.format.color_family != vs.GRAY:
         clp_orig = clp
