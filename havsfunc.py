@@ -18,7 +18,7 @@ Main functions:
     Deblock_QED
     DeHalo_alpha
     EdgeCleaner
-    FineDehalo
+    FineDehalo, FineDehalo2
     YAHR
     HQDeringmod
     QTGMC
@@ -65,12 +65,10 @@ Utility functions:
     Weave
     ContraSharpening
     MinBlur
-    sbr
+    sbr, sbrV
     DitherLumaRebuild
-    mt_expand_multi
-    mt_inpand_multi
-    mt_inflate_multi
-    mt_deflate_multi
+    mt_expand_multi, mt_inpand_multi
+    mt_inflate_multi, mt_deflate_multi
 """
 
 
@@ -495,6 +493,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
         raise vs.Error('FineDehalo: RGB format is not supported')
 
     isInteger = (src.format.sample_type == vs.INTEGER)
+
     peak = (1 << src.format.bits_per_sample) - 1 if isInteger else 1.0
 
     if src.format.color_family != vs.GRAY:
@@ -523,7 +522,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
     edges = AvsPrewitt(src)
 
     # Keeps only the sharpest edges (line edges)
-    strong = edges.std.Expr(expr=[f'x {scale(thmi, peak)} - {thma - thmi} / 255 *' if isInteger else f'x {scale(thmi, peak)} - {thma - thmi} / 255 * 0.0 max 1.0 min'])
+    strong = edges.std.Expr(expr=[f'x {scale(thmi, peak)} - {thma - thmi} / 255 *' if isInteger else f'x {scale(thmi, peak)} - {thma - thmi} / 255 * 0 max 1 min'])
 
     # Extends them to include the potential halos
     large = mt_expand_multi(strong, sw=rx_i, sh=ry_i)
@@ -534,7 +533,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
     # producing annoying artifacts. Therefore we have to produce a mask to exclude these zones from the halo removal
 
     # Includes more edges than previously, but ignores simple details
-    light = edges.std.Expr(expr=[f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 *' if isInteger else f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 * 0.0 max 1.0 min'])
+    light = edges.std.Expr(expr=[f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 *' if isInteger else f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 * 0 max 1 min'])
 
     # To build the exclusion zone, we make grow the edge mask, then shrink it to its original shape
     # During the growing stage, close adjacent edge masks will join and merge, forming a solid area, which will remain solid even after the shrinking stage
@@ -544,7 +543,7 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
 
     # At this point, because the mask was made of a shades of grey, we may end up with large areas of dark grey after shrinking
     # To avoid this, we amplify and saturate the mask here (actually we could even binarize it)
-    shrink = shrink.std.Expr(expr=['x 4 *' if isInteger else 'x 4 * 1.0 min'])
+    shrink = shrink.std.Expr(expr=['x 4 *' if isInteger else 'x 4 * 1 min'])
 
     # Mask shrinking
     shrink = mt_inpand_multi(shrink, mode='ellipse', sw=rx_i, sh=ry_i)
@@ -561,14 +560,14 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
         shr_med = strong
 
     # Substracts masks and amplifies the difference to be sure we get 255 on the areas to be processed
-    outside = core.std.Expr([large, shr_med], expr=['x y - 2 *' if isInteger else 'x y - 2 * 0.0 max 1.0 min'])
+    outside = core.std.Expr([large, shr_med], expr=['x y - 2 *' if isInteger else 'x y - 2 * 0 max 1 min'])
 
     # If edge processing is required, adds the edgemask
     if edgeproc > 0:
-        outside = core.std.Expr([outside, strong], expr=[f'x y {edgeproc * 0.66} * +' if isInteger else f'x y {edgeproc * 0.66} * + 1.0 min'])
+        outside = core.std.Expr([outside, strong], expr=[f'x y {edgeproc * 0.66} * +' if isInteger else f'x y {edgeproc * 0.66} * + 1 min'])
 
     # Smooth again and amplify to grow the mask a bit, otherwise the halo parts sticking to the edges could be missed
-    outside = outside.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Expr(expr=['x 2 *' if isInteger else 'x 2 * 1.0 min'])
+    outside = outside.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Expr(expr=['x 2 *' if isInteger else 'x 2 * 1 min'])
 
     ### Masking ###
 
@@ -748,9 +747,10 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
     if ringmask is not None and not isinstance(ringmask, vs.VideoNode):
         raise vs.Error("HQDeringmod: 'ringmask' is not a clip")
 
+    isGray = (input.format.color_family == vs.GRAY)
+
     neutral = 1 << (input.format.bits_per_sample - 1)
     peak = (1 << input.format.bits_per_sample) - 1
-    isGray = (input.format.color_family == vs.GRAY)
 
     if isinstance(planes, int):
         planes = [planes]
@@ -1027,9 +1027,10 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     if InputType != 1 and not isinstance(TFF, bool):
         raise vs.Error("QTGMC: 'TFF' must be set when InputType!=1. Setting TFF to true means top field first and false means bottom field first")
 
+    isGray = (Input.format.color_family == vs.GRAY)
+
     neutral = 1 << (Input.format.bits_per_sample - 1)
     peak = (1 << Input.format.bits_per_sample) - 1
-    isGray = (Input.format.color_family == vs.GRAY)
 
     SOvs = scale(SOvs, peak)
 
@@ -1615,10 +1616,11 @@ def QTGMC_Interpolate(Input, InputType, EdiMode, NNSize, NNeurons, EdiQual, EdiM
 # Rough algorithm: Get difference, deflate vertically by a couple of pixels or so, then inflate again. Thin regions will be removed
 #                  by this process. Restore remaining areas of difference back to as they were in reference clip
 def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
-    neutral = 1 << (Input.format.bits_per_sample - 1)
-    peak = (1 << Input.format.bits_per_sample) - 1
     isGray = (Input.format.color_family == vs.GRAY)
     planes = [0, 1, 2] if Chroma and not isGray else [0]
+
+    neutral = 1 << (Input.format.bits_per_sample - 1)
+    peak = (1 << Input.format.bits_per_sample) - 1
 
     # ed is the erosion distance - how much to deflate then reflate to remove thin areas of interest: 0 = minimum to 6 = maximum
     # od is over-dilation level  - extra inflation to ensure areas to restore back are fully caught:  0 = none to 3 = one full pixel
@@ -1673,10 +1675,11 @@ def QTGMC_KeepOnlyBobShimmerFixes(Input, Ref, Rep=1, Chroma=True):
 # Given noise extracted from an interlaced source (i.e. the noise is interlaced), generate "progressive" noise with a new "field" of noise injected. The new
 # noise is centered on a weighted local average and uses the difference between local min & max as an estimate of local variance
 def QTGMC_Generate2ndFieldNoise(Input, InterleavedClip, ChromaNoise=False, TFF=None):
-    neutral = 1 << (Input.format.bits_per_sample - 1)
-    peak = (1 << Input.format.bits_per_sample) - 1
     isGray = (Input.format.color_family == vs.GRAY)
     planes = [0, 1, 2] if ChromaNoise and not isGray else [0]
+
+    neutral = 1 << (Input.format.bits_per_sample - 1)
+    peak = (1 << Input.format.bits_per_sample) - 1
 
     origNoise = Input.std.SeparateFields(tff=TFF)
     noiseMax = origNoise.std.Maximum(planes=planes).std.Maximum(planes=planes, coordinates=[0, 0, 0, 1, 1, 0, 0, 0])
@@ -1827,8 +1830,7 @@ def smartfademod(clip, threshold=0.4, show=False, tff=None):
         diff = abs(f[0].props['PlaneStatsAverage'] - f[1].props['PlaneStatsAverage']) * 255
         if show:
             return orig.text.Text(text=diff)
-        else:
-            return defade if diff > threshold else orig
+        return defade if diff > threshold else orig
 
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('smartfademod: This is not a clip')
@@ -2374,7 +2376,7 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
         raise vs.Error('logoNR: This is not a clip')
 
     if dlg.format.id != src.format.id:
-        raise vs.Error('logoNR: clips must be the same format')
+        raise vs.Error('logoNR: Clips must be the same format')
 
     if dlg.format.color_family == vs.GRAY:
         chroma = False
@@ -2999,9 +3001,10 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
     if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != i.format.id):
         raise vs.Error("MCTemporalDenoise: 'p' must be the same format as input")
 
+    isGray = (i.format.color_family == vs.GRAY)
+
     neutral = 1 << (i.format.bits_per_sample - 1)
     peak = (1 << i.format.bits_per_sample) - 1
-    isGray = (i.format.color_family == vs.GRAY)
 
     ### DEFAULTS
     try:
@@ -3324,10 +3327,11 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('SMDegrain: This is not a clip')
 
-    peak = (1 << input.format.bits_per_sample) - 1
     if input.format.color_family == vs.GRAY:
         plane = 0
         chroma = False
+
+    peak = (1 << input.format.bits_per_sample) - 1
 
     # Defaults & Conditionals
     thSAD2 = thSAD // 2
@@ -3606,9 +3610,8 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
                              expr=[texpr if i in planes else '' for i in range(clp.format.num_planes)])
     if back > 0:
         expr = f'x {back} + y < x {back} + x {back} - y > x {back} - y ? ?'
-        return core.std.Expr([last, clp], expr=[expr if i in planes else '' for i in range(clp.format.num_planes)])
-    else:
-        return last
+        last = core.std.Expr([last, clp], expr=[expr if i in planes else '' for i in range(clp.format.num_planes)])
+    return last
 
 
 # a.k.a. BalanceBordersMod
@@ -3617,7 +3620,7 @@ def bbmod(c, cTop, cBottom, cLeft, cRight, thresh=128, blur=999):
         raise vs.Error('bbmod: This is not a clip')
 
     if c.format.color_family in [vs.GRAY, vs.RGB]:
-        raise vs.Error('bbmod: Gray and RGB color families are not supported')
+        raise vs.Error('bbmod: Gray and RGB formats are not supported')
 
     if thresh <= 0:
         raise vs.Error('bbmod: thresh must be greater than 0')
@@ -3650,7 +3653,7 @@ def bbmod(c, cTop, cBottom, cLeft, cRight, thresh=128, blur=999):
         originalBlur = BicubicResize(BicubicResize(last, blurWidth * 2, cTop * 2), cWidth * 2, cTop * 2)
 
         balancedChroma = core.std.Expr([original, originalBlurChroma, referenceBlurChroma], expr=['', f'z y / 8 min 0.4 max x {neutral} - * {neutral} +'])
-        expr = f'z {scale(16, peak)} - y {scale(16, peak)} - / 8 min 0.4 max x {scale(16, peak)} - * {scale(16, peak)} +'
+        expr = 'z {i} - y {i} - / 8 min 0.4 max x {i} - * {i} +'.format(i=scale(16, peak))
         balancedLuma = core.std.Expr([balancedChroma, originalBlur, referenceBlur], expr=[expr, 'z y - x +'])
 
         difference = core.std.MakeDiff(balancedLuma, original)
@@ -3678,6 +3681,12 @@ def SigmoidInverse(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
         raise vs.Error('SigmoidInverse: This is not a 16-bit clip')
 
+    if thr < 0 or thr > 1:
+        raise vs.Error('SigmoidInverse: thr must be between 0.0 and 1.0 (inclusive)')
+
+    if cont <= 0:
+        raise vs.Error('SigmoidInverse: cont must be greater than 0.0')
+
     x0 = 1 / (1 + math.exp(cont * thr))
     x1m0 = 1 / (1 + math.exp(cont * (thr - 1))) - x0
     expr = f'{thr} 1 x 65536 / {x1m0} * {x0} + 0.000001 max / 1 - 0.000001 max log {cont} / - 65536 *'
@@ -3687,6 +3696,12 @@ def SigmoidInverse(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
 def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
     if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
         raise vs.Error('SigmoidDirect: This is not a 16-bit clip')
+
+    if thr < 0 or thr > 1:
+        raise vs.Error('SigmoidDirect: thr must be between 0.0 and 1.0 (inclusive)')
+
+    if cont <= 0:
+        raise vs.Error('SigmoidDirect: cont must be greater than 0.0')
 
     x0 = 1 / (1 + math.exp(cont * thr))
     x1m0 = 1 / (1 + math.exp(cont * (thr - 1))) - x0
@@ -4217,6 +4232,7 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
         raise vs.Error('SmoothLevels: RGB format is not supported')
 
     isGray = (input.format.color_family == vs.GRAY)
+
     neutral = 1 << (input.format.bits_per_sample - 1)
     peak = (1 << input.format.bits_per_sample) - 1
 
@@ -5229,10 +5245,10 @@ def aaf(                \
     sx = inputClip.width
     sy = inputClip.height
 
+    isGray = (inputClip.format.color_family == vs.GRAY)
+
     neutral = 1 << (inputClip.format.bits_per_sample - 1)
     peak = (1 << inputClip.format.bits_per_sample) - 1
-
-    isGray = (inputClip.format.color_family == vs.GRAY)
 
     if aay > 0:
         # Do the upscaling
@@ -5384,6 +5400,7 @@ def Overlay(clipa, clipb, x=0, y=0, mask=None, opacity=1.0, mode='blend'):
             raise vs.Error("Overlay: 'mask' must have the same dimensions and bit depth as 'clipb'")
 
     isGray = (clipa.format.color_family == vs.GRAY)
+
     sample_type = clipa.format.sample_type
     bits_per_sample = clipa.format.bits_per_sample
 
