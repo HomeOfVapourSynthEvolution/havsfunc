@@ -4405,7 +4405,7 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
     if c.format.color_family == vs.RGB:
         raise vs.Error('FastLineDarkenMOD: RGB format is not supported')
 
-    peak = (1 << c.format.bits_per_sample) - 1
+    peak = (1 << c.format.bits_per_sample) - 1 if c.format.sample_type == vs.INTEGER else 1.0
 
     if c.format.color_family != vs.GRAY:
         c_orig = c
@@ -4420,7 +4420,7 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
     thn = thinning / 16
 
     ## filtering ##
-    exin = c.std.Maximum(threshold=peak // (protection + 1)).std.Minimum()
+    exin = c.std.Maximum(threshold=peak / (protection + 1)).std.Minimum()
     thick = core.std.Expr([c, exin], expr=[f'y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {Str} * x +'])
     if thinning <= 0:
         last = thick
