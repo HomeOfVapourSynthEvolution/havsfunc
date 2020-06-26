@@ -4742,12 +4742,12 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ###                   - dest_y      = oy
 ###
 ###
-### defaults="fast" : - strength    = 100
+### defaults="fast" : - strength    = 80
 ### ----------------- - Smode       = 3
 ###                   - Smethod     = 2
 ###                   - kernel      = 11
 ###
-###                   - preblur     = -1
+###                   - preblur     = 0
 ###                   - secure      = true
 ###                   - source      = undefined
 ###
@@ -4756,14 +4756,14 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ###                   - SdmpLo      = 4
 ###                   - SdmpHi      = 48
 ###
-###                   - Lmode       = 1
+###                   - Lmode       = 0
 ###                   - overshoot   = strength/100
 ###                   - undershoot  = overshoot
 ###                   - overshoot2  = overshoot*2
 ###                   - undershoot2 = overshoot2
 ###
 ###                   - soft        = 0
-###                   - soothe      = true
+###                   - soothe      = false
 ###                   - keep        = 20
 ###
 ###                   - edgemode    = 0
@@ -4775,7 +4775,7 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ###                   - dest_y      = oy
 ###
 ################################################################################################
-def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=-1, secure=None, source=None, Szrp=16, Spwr=None, SdmpLo=None, SdmpHi=None, Lmode=None, overshoot=None, undershoot=None,
+def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=None, secure=None, source=None, Szrp=16, Spwr=None, SdmpLo=None, SdmpHi=None, Lmode=None, overshoot=None, undershoot=None,
            overshoot2=None, undershoot2=None, soft=None, soothe=None, keep=None, edgemode=0, edgemaskHQ=None, ss_x=None, ss_y=None, dest_x=None, dest_y=None, defaults='fast'):
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('LSFmod: This is not a clip')
@@ -4807,10 +4807,14 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=-1,
     ox = input.width
     oy = input.height
 
+    if strength is None:
+        strength = [100, 100, 80][num]
     if Smode is None:
         Smode = [1, 2, 3][num]
     if Smethod is None:
         Smethod = [2 if Smode == 1 else 1, 3, 2][num]
+    if preblur is None:
+        preblur = [-1, -1, 0][num]
     if secure is None:
         secure = [False, True, True][num]
     if Spwr is None:
@@ -4820,7 +4824,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=-1,
     if SdmpHi is None:
         SdmpHi = [0, 48, 48][num]
     if Lmode is None:
-        Lmode = [1, 4, 1][num]
+        Lmode = [1, 4, 0][num]
     if overshoot is None:
         overshoot = [1, strength // 100, strength // 100][num]
     if undershoot is None:
@@ -4832,7 +4836,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=-1,
     if soft is None:
         soft = [0, -2, 0][num]
     if soothe is None:
-        soothe = [False, True, True][num]
+        soothe = [False, True, False][num]
     if keep is None:
         keep = [25, 20, 20][num]
     if edgemaskHQ is None:
@@ -4847,15 +4851,15 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=-1,
         dest_y = oy
 
     if kernel == 4:
-        Filter = partial(core.std.Median)
+        RemoveGrain = partial(core.std.Median)
     elif kernel in [11, 12]:
-        Filter = partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     elif kernel == 19:
-        Filter = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
     elif kernel == 20:
-        Filter = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
     else:
-        Filter = partial(core.rgvs.RemoveGrain, mode=[kernel])
+        RemoveGrain = partial(core.rgvs.RemoveGrain, mode=[kernel])
 
     if soft == -1:
         soft = math.sqrt(((ss_x + ss_y) / 2 - 1) * 100) * 10
@@ -4891,11 +4895,11 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=-1,
 
     if Smode < 3:
         if Smethod <= 1:
-            method = Filter(pre)
+            method = RemoveGrain(pre)
         elif Smethod == 2:
             method = core.std.Merge(dark_limit, bright_limit)
         else:
-            method = Filter(core.std.Merge(dark_limit, bright_limit))
+            method = RemoveGrain(core.std.Merge(dark_limit, bright_limit))
 
         if secure:
             method = core.std.Expr([method, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))])
@@ -4918,7 +4922,6 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=-1,
 
         if preblur > -1:
             normsharp = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, normsharp))
-
 
     ### LIMIT
     normal = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot, peak), scale(undershoot, peak))
