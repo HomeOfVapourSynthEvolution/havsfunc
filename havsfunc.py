@@ -4538,10 +4538,11 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ### preblur [int: 0,1,2,3]
 ### --------------------------------
 ### Mode to avoid noise sharpening & ringing:
-###    =0 : No preblur
-###    =1 : MinBlur(1)
-###    =2 : MinBlur(2)
-###    =3 : DFTTest
+###    =-1 : No preblur
+###    = 0 : MinBlur(0)
+###    = 1 : MinBlur(1)
+###    = 2 : MinBlur(2)
+###    = 3 : DFTTest
 ###
 ### secure [bool]
 ### -------------
@@ -4680,7 +4681,7 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ###                   - Smethod     = Smode==1?2:1
 ###                   - kernel      = 11
 ###
-###                   - preblur     = 0
+###                   - preblur     = -1
 ###                   - secure      = false
 ###                   - source      = undefined
 ###
@@ -4713,7 +4714,7 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ###                   - Smethod     = 3
 ###                   - kernel      = 11
 ###
-###                   - preblur     = 0
+###                   - preblur     = -1
 ###                   - secure      = true
 ###                   - source      = undefined
 ###
@@ -4746,7 +4747,7 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ###                   - Smethod     = 2
 ###                   - kernel      = 11
 ###
-###                   - preblur     = 0
+###                   - preblur     = -1
 ###                   - secure      = true
 ###                   - source      = undefined
 ###
@@ -4774,7 +4775,7 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 ###                   - dest_y      = oy
 ###
 ################################################################################################
-def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=0, secure=None, source=None, Szrp=16, Spwr=None, SdmpLo=None, SdmpHi=None, Lmode=None, overshoot=None, undershoot=None,
+def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=-1, secure=None, source=None, Szrp=16, Spwr=None, SdmpLo=None, SdmpHi=None, Lmode=None, overshoot=None, undershoot=None,
            overshoot2=None, undershoot2=None, soft=None, soothe=None, keep=None, edgemode=0, edgemaskHQ=None, ss_x=None, ss_y=None, dest_x=None, dest_y=None, defaults='fast'):
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('LSFmod: This is not a clip')
@@ -4877,7 +4878,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=0, 
         tmp_orig = tmp
         tmp = mvf.GetPlane(tmp, 0)
 
-    if preblur <= 0:
+    if preblur <= -1:
         pre = tmp
     elif preblur >= 3:
         expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale(16, peak), j=scale(75, peak), peak=peak)
@@ -4899,7 +4900,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=0, 
         if secure:
             method = core.std.Expr([method, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))])
 
-        if preblur > 0:
+        if preblur > -1:
             method = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, method))
 
         if Smode <= 1:
@@ -4915,7 +4916,7 @@ def LSFmod(input, strength=100, Smode=None, Smethod=None, kernel=11, preblur=0, 
         if secure:
             normsharp = core.std.Expr([normsharp, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))])
 
-        if preblur > 0:
+        if preblur > -1:
             normsharp = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, normsharp))
 
 
