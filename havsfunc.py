@@ -4200,7 +4200,7 @@ def FixRowBrightnessProtect2(c, row, adj_val, prot_val=16):
 ###            (ex: with 16, the black areas like borders and generic are untouched so they don't look washed out)
 ### /!\ The value is not internally normalized on an 8-bit scale, and must be scaled to the bit depth of input format manually by users
 ###
-### Ecurve [default: 0]
+### Ecurve [default: 1]
 ### -------------------
 ### Curve used for limit & protect:
 ### 0 = use sine curve
@@ -4235,7 +4235,7 @@ def FixRowBrightnessProtect2(c, row, adj_val, prot_val=16):
 ###
 ###
 #########################################################################################
-def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, output_high=None, chroma=50, limiter=0, Lmode=0, DarkSTR=100, BrightSTR=100, Ecenter=None, protect=-1, Ecurve=0,
+def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, output_high=None, chroma=50, limiter=0, Lmode=0, DarkSTR=100, BrightSTR=100, Ecenter=None, protect=-1, Ecurve=1,
                  Smode=-2, Mfactor=2, RGmode=12, useDB=False):
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('SmoothLevels: This is not a clip')
@@ -4244,9 +4244,8 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
         raise vs.Error('SmoothLevels: RGB format is not supported')
 
     isGray = (input.format.color_family == vs.GRAY)
-    isInteger = (input.format.sample_type == vs.INTEGER)
 
-    if isInteger:
+    if input.format.sample_type == vs.INTEGER:
         neutral = [1 << (input.format.bits_per_sample - 1)] * 2
         peak = (1 << input.format.bits_per_sample) - 1
     else:
