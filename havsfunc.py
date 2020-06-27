@@ -4270,6 +4270,9 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
     if gamma <= 0:
         raise vs.Error('SmoothLevels: gamma must be greater than 0.0')
 
+    if Ecenter <= 0 or Ecenter >= peak:
+        raise vs.Error('SmoothLevels: Ecenter must be greater than 0 and less than maximum value of input format')
+
     if Mfactor <= 0:
         raise vs.Error('SmoothLevels: Mfactor must be greater than 0')
 
@@ -4285,10 +4288,11 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
         RemoveGrain = partial(core.rgvs.RemoveGrain, mode=[RGmode])
 
     ### EXPRESSION
-    exprY = f'x {input_low} - {input_high - input_low} / {1 / gamma} pow {output_high - output_low} * {output_low} +'
+    exprY = f'x {input_low} - {input_high - input_low + (input_high == input_low)} / {1 / gamma} pow {output_high - output_low} * {output_low} +'
 
-    scaleC = ((output_high - output_low) / (input_high - input_low) + 100 / chroma - 1) / (100 / chroma)
-    exprC = f'x {neutral[1]} - {scaleC} * {neutral[1]} +'
+    if chroma > 0 and not isGray:
+        scaleC = ((output_high - output_low) / (input_high - input_low + (input_high == input_low)) + 100 / chroma - 1) / (100 / chroma)
+        exprC = f'x {neutral[1]} - {scaleC} * {neutral[1]} +'
 
     Dstr = DarkSTR / 100
     Bstr = BrightSTR / 100
