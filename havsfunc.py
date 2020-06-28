@@ -5416,6 +5416,7 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
 #  pinlight
 #  reflect
 #  screen
+#  softlight
 #  subtract
 #  vividlight
 def Overlay(base, overlay, x=0, y=0, mask=None, opacity=1.0, mode='normal', planes=None, mask_first_plane=True):
@@ -5530,8 +5531,8 @@ def Overlay(base, overlay, x=0, y=0, mask=None, opacity=1.0, mode='normal', plan
         expr = f'y {peak} >= y x x * {peak} y - / ?'
     elif mode =='screen':
         expr = f'{peak} {peak} x - {peak} y - * {peak} / -'
-    # elif mode == 'softlight': # Expr hangs for unknown reason. Disabled until Expr gets fixed.
-        # expr = f'x {neutral} > y {peak} y - x {neutral} - * {neutral} / 0.5 y {neutral} - abs {peak} / - * + y y {neutral} x - {neutral} / * 0.5 y {neutral} - abs {peak} / - * - ?'
+    elif mode == 'softlight':
+        expr = f'x {neutral} > y {peak} y - x {neutral} - * {neutral} / 0.5 y {neutral} - abs {peak} / - * + y y {neutral} x - {neutral} / * 0.5 y {neutral} - abs {peak} / - * - ?'
     elif mode == 'subtract':
         expr = f'x y -'
     elif mode == 'vividlight':
