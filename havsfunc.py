@@ -393,7 +393,9 @@ def DeHalo_alpha(clp, rx=2.0, ry=2.0, darkstr=1.0, brightstr=1.0, lowsens=50, hi
     if clp.format.color_family == vs.RGB:
         raise vs.Error('DeHalo_alpha: RGB format is not supported')
 
-    peak = (1 << clp.format.bits_per_sample) - 1 if clp.format.sample_type == vs.INTEGER else 1.0
+    isInteger = (clp.format.sample_type == vs.INTEGER)
+
+    peak = (1 << clp.format.bits_per_sample) - 1 if isInteger else 1.0
 
     if clp.format.color_family != vs.GRAY:
         clp_orig = clp
@@ -407,7 +409,7 @@ def DeHalo_alpha(clp, rx=2.0, ry=2.0, darkstr=1.0, brightstr=1.0, lowsens=50, hi
     halos = clp.resize.Bicubic(m4(ox / rx), m4(oy / ry), filter_param_a=1/3, filter_param_b=1/3).resize.Bicubic(ox, oy, filter_param_a=1, filter_param_b=0)
     are = core.std.Expr([clp.std.Maximum(), clp.std.Minimum()], expr=['x y -'])
     ugly = core.std.Expr([halos.std.Maximum(), halos.std.Minimum()], expr=['x y -'])
-    expr = f'y x - y y 0 = + / {peak} * {scale(lowsens, peak)} - y {scale(256, peak)} + {scale(512, peak)} / {highsens / 100} + *'
+    expr = f'y x - y y 0 = + / {peak} * {scale(lowsens, peak)} - y {scale(256, peak)} + {scale(512, peak)} / {highsens / 100} + * {"0 max 1 min" if not isInteger else ""}'
     so = core.std.Expr([ugly, are], expr=[expr])
     lets = core.std.MaskedMerge(halos, clp, so)
     if ss <= 1:
