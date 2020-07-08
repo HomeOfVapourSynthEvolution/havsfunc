@@ -8,9 +8,10 @@
 
 ## Plugins used
 
-Not include built-in plugins
+Not include built-in plugins.
 
 * [AddGrain](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain)
+* [CAS](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS)
 * [CTMF](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF)
 * [DCTFilter](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter)
 * [Deblock](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Deblock)
