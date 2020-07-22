@@ -4302,13 +4302,16 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
     if Lmode <= 0:
         exprL = '1'
     elif Ecurve <= 0:
-        raise vs.Error('SmoothLevels: Ecurve=0 is unusable at the moment due to missing sin operator in Expr')
         if Lmode == 1:
-            exprL = f'x {Ecenter} < x {333 / 106} * {2 * Ecenter} / sin {Dstr} pow x {Ecenter} > {(333 / 106) / 2} x {Ecenter} - {333 / 106} * {2 * (peak - Ecenter)} / + sin {Bstr} pow 1 ? ?'
+            var_d = f'x {Ecenter} /'
+            var_b = f'{peak} x - {peak} {Ecenter} - /'
+            exprL = f'x {Ecenter} < ' + sine_expr(var_d) + f' {Dstr} pow x {Ecenter} > ' + sine_expr(var_b) + f' {Bstr} pow 1 ? ?'
         elif Lmode == 2:
-            exprL = f'x {333 / 106} * {2 * peak} / sin {Dstr} pow'
+            var_d = f'x {peak} /'
+            exprL = sine_expr(var_d) + f' {Dstr} pow'
         else:
-            exprL = f'{(333 / 106) / 2} x {333 / 106} * {2 * peak} / + sin {Bstr} pow'
+            var_b = f'{peak} x - {peak} /'
+            exprL = sine_expr(var_b) + f' {Bstr} pow'
     else:
         if Lmode == 1:
             exprL = f'x {Ecenter} < x {Ecenter} / abs {Dstr} pow x {Ecenter} > 1 x {Ecenter} - {peak - Ecenter} / abs - {Bstr} pow 1 ? ?'
@@ -4320,8 +4323,8 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
     if protect <= -1:
         exprP = '1'
     elif Ecurve <= 0:
-        raise vs.Error('SmoothLevels: Ecurve=0 is unusable at the moment due to missing sin operator in Expr')
-        exprP = f'x {protect} <= 0 x {protect + scale(16, peak)} >= 1 x {protect} - {333 / 106} * {2 * scale(16, peak)} / sin ? ?'
+        var_p = f'x {protect} - {scale(16, peak)} /'
+        exprP = f'x {protect} <= 0 x {protect + scale(16, peak)} >= 1 ' + sine_expr(var_p) + f' ? ?'
     else:
         exprP = f'x {protect} <= 0 x {protect + scale(16, peak)} >= 1 x {protect} - {scale(16, peak)} / abs ? ?'
 
@@ -5907,3 +5910,7 @@ def m4(x):
 
 def scale(value, peak):
     return cround(value * peak / 255) if peak != 1 else value / 255
+
+# sin(pi x / 2) for -1 < x < 1 using Taylor series
+def sine_expr(var):
+    return f'{-3.5988432352121e-6} {var} * {var} * {0.00016044118478736} + {var} * {var} * {-0.0046817541353187} + {var} * {var} * {0.079692626246167} + {var} * {var} * {-0.64596409750625} + {var} * {var} * {1.5707963267949} + {var} *'
