@@ -185,7 +185,7 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, p
                 if c.format.color_family != vs.GRAY:
                     cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
                 c = Resize(c, w, h * 2, sy=cshift, dmode=1)
-            return c.sangnom.SangNom(order=field, aa=aa)
+            return c.sangnom.SangNom(order=field + 1, aa=aa)
         else:
             raise vs.Error('santiag: unexpected value for type')
 
@@ -5551,7 +5551,7 @@ def Overlay(base, overlay, x=0, y=0, mask=None, opacity=1.0, mode='normal', plan
 
     # Return padded clip
     if base_orig is not None:
-        last = core.resize.Point(last, format=base_orig.format)
+        last = last.resize.Point(format=base_orig.format)
     return last
 
 
