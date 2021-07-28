@@ -2542,8 +2542,8 @@ def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=
         else:
             return clips[1]
 
-    if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
-        raise vs.Error('LUTDeCrawl: This is not an 8-10 bit YUV or YCoCg clip')
+    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 10:
+        raise vs.Error('LUTDeCrawl: This is not an 8-10 bit YUV clip')
 
     shift = input.format.bits_per_sample - 8
     peak = (1 << input.format.bits_per_sample) - 1
@@ -2634,8 +2634,8 @@ def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=
 #
 ###################
 def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False):
-    if not isinstance(input, vs.VideoNode) or input.format.color_family not in [vs.YUV, vs.YCOCG] or input.format.bits_per_sample > 10:
-        raise vs.Error('LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip')
+    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 10:
+        raise vs.Error('LUTDeRainbow: This is not an 8-10 bit YUV clip')
 
     shift = input.format.bits_per_sample - 8
     peak = (1 << input.format.bits_per_sample) - 1
@@ -5385,8 +5385,8 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('KNLMeansCL: This is not a clip')
 
-    if clip.format.color_family not in [vs.YUV, vs.YCOCG]:
-        raise vs.Error('KNLMeansCL: This wrapper is intended to be used only for YUV and YCoCg formats')
+    if clip.format.color_family != vs.YUV:
+        raise vs.Error('KNLMeansCL: This wrapper is intended to be used only for YUV format')
 
     if clip.format.subsampling_w > 0 or clip.format.subsampling_h > 0:
         return clip.knlm.KNLMeansCL(d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id).knlm.KNLMeansCL(
