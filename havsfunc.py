@@ -1,9 +1,10 @@
-from functools import partial
 import math
+from functools import partial
 
-from vapoursynth import core
-import vapoursynth as vs
 import mvsfunc as mvf
+import vapoursynth as vs
+
+core = vs.core
 
 """
 Holy's ported AviSynth functions for VapourSynth.
