@@ -4,7 +4,6 @@ import math
 from vapoursynth import core
 import vapoursynth as vs
 import mvsfunc as mvf
-import adjust
 
 """
 Holy's ported AviSynth functions for VapourSynth.
@@ -224,6 +223,8 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, p
 #  strength (float) - Saturation strength in clip to be merged with the original chroma. Value below 1.0 reduces the saturation, a value of 1.0 leaves the saturation intact. Default is 0.8
 #  blur (bool)      - Set to true to blur the mask clip. Default is false
 def FixChromaBleedingMod(input, cx=4, cy=4, thr=4.0, strength=0.8, blur=False):
+    import adjust
+
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('FixChromaBleedingMod: This is not a clip')
 

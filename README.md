@@ -1,15 +1,11 @@
 # HAvsFunc
 
-## Dependent modules
-
+## Dependent scripts
 * [adjust](https://github.com/dubhater/vapoursynth-adjust)
 * [mvsfunc](https://github.com/HomeOfVapourSynthEvolution/mvsfunc)
 * [nnedi3_resample](https://github.com/mawen1250/VapourSynth-script)
 
-## Plugins used
-
-Not include built-in plugins.
-
+## Dependent plugins
 * [AddGrain](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain)
 * [CAS](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS)
 * [CTMF](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF)
