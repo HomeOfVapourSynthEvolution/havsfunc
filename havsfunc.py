@@ -1214,7 +1214,7 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     # Calculate forward and backward motion vectors from motion search clip
     if maxTR > 0:
         analyse_args = dict(blksize=BlockSize, overlap=Overlap, search=Search, searchparam=SearchParam, pelsearch=PelSearch, truemotion=TrueMotion, _lambda=Lambda, lsad=LSAD, pnew=PNew, plevel=PLevel,
-                            _global=GlobalMotion, dct=DCT, chroma=ChromaMotion)
+                            global_=GlobalMotion, dct=DCT, chroma=ChromaMotion)
         srchSuper = DitherLumaRebuild(srchClip, s0=1, chroma=ChromaMotion).mv.Super(pel=SubPel, sharp=SubPelInterp, hpad=hpad, vpad=vpad, chroma=ChromaMotion)
         bVec1 = srchSuper.mv.Analyse(isb=True, delta=1, **analyse_args)
         fVec1 = srchSuper.mv.Analyse(isb=False, delta=1, **analyse_args)
@@ -2776,7 +2776,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     psuper = DitherLumaRebuild(pre_nr, s0=1, chroma=chromamv).mv.Super(pel=1, chroma=chromamv)
     difsuper = dif_nr.mv.Super(pel=1, levels=1, chroma=chromamv)
 
-    analyse_args = dict(blksize=blksize, chroma=chromamv, truemotion=False, _global=True, overlap=overlap)
+    analyse_args = dict(blksize=blksize, chroma=chromamv, truemotion=False, global_=True, overlap=overlap)
     fv1 = psuper.mv.Analyse(isb=False, delta=1, **analyse_args)
     bv1 = psuper.mv.Analyse(isb=True, delta=1, **analyse_args)
     if radius >= 2:
@@ -3133,7 +3133,7 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
     if refine:
         rMVS = p.mv.Super(levels=1, **super_args)
 
-    analyse_args = dict(blksize=blksize, search=search, searchparam=searchparam, pelsearch=pelsearch, chroma=chroma, truemotion=truemotion, _global=MVglobal, overlap=overlap, dct=DCT)
+    analyse_args = dict(blksize=blksize, search=search, searchparam=searchparam, pelsearch=pelsearch, chroma=chroma, truemotion=truemotion, global_=MVglobal, overlap=overlap, dct=DCT)
     recalculate_args = dict(thsad=thSAD // 2, blksize=max(blksize // 2, 4), search=search, chroma=chroma, truemotion=truemotion, overlap=max(overlap // 2, 2), dct=DCT)
     f1v = pMVS.mv.Analyse(isb=False, delta=1, **analyse_args)
     b1v = pMVS.mv.Analyse(isb=True, delta=1, **analyse_args)
@@ -3466,7 +3466,7 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
     # Motion vectors search
     global bv6, bv4, bv3, bv2, bv1, fv1, fv2, fv3, fv4, fv6
     super_args = dict(hpad=hpad, vpad=vpad, pel=pel)
-    analyse_args = dict(blksize=blksize, search=search, chroma=chroma, truemotion=truemotion, _global=MVglobal, overlap=overlap, dct=dct)
+    analyse_args = dict(blksize=blksize, search=search, chroma=chroma, truemotion=truemotion, global_=MVglobal, overlap=overlap, dct=dct)
     if RefineMotion:
         recalculate_args = dict(thsad=halfthSAD, blksize=halfblksize, search=search, chroma=chroma, truemotion=truemotion, overlap=halfoverlap, dct=dct)
 
