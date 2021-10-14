@@ -5318,7 +5318,7 @@ def AverageFrames(clip, weights, scenechange=None, planes=None):
 
     if scenechange:
         clip = SCDetect(clip, threshold=scenechange)
-    return clip.misc.AverageFrames(weights=weights, scenechange=scenechange, planes=planes)
+    return clip.std.AverageFrames(weights=weights, scenechange=scenechange, planes=planes)
 
 
 def AvsPrewitt(clip, planes=None):
