@@ -1167,14 +1167,19 @@ def QTGMC(Input, Preset='Slower', TR0=None, TR1=None, TR2=None, Rep0=None, Rep1=
     else:
         bobbed = clip.std.Convolution(matrix=[1, 2, 1], mode='v')
 
-    CMplanes = [0, 1, 2] if ChromaMotion and not isGray else [0]
+    if ChromaMotion and not isGray:
+        CMplanes = [0, 1, 2]
+        CMts = 255
+    else:
+        CMplanes = [0]
+        CMts = 0
 
     # The bobbed clip will shimmer due to being derived from alternating fields. Temporally smooth over the neighboring frames using a binomial kernel. Binomial
     # kernels give equal weight to even and odd frames and hence average away the shimmer. The two kernels used are [1 2 1] and [1 4 6 4 1] for radius 1 and 2.
     # These kernels are approximately Gaussian kernels, which work well as a prefilter before motion analysis (hence the original name for this script)
-    # Create linear weightings of neighbors first                                                     -2    -1    0     1     2
-    if TR0 > 0: ts1 = AverageFrames(bobbed, weights=[1] * 3, scenechange=28 / 255, planes=CMplanes) # 0.00  0.33  0.33  0.33  0.00
-    if TR0 > 1: ts2 = AverageFrames(bobbed, weights=[1] * 5, scenechange=28 / 255, planes=CMplanes) # 0.20  0.20  0.20  0.20  0.20
+    # Create linear weightings of neighbors first                           -2    -1    0     1     2
+    if TR0 > 0: ts1 = bobbed.focus2.TemporalSoften2(1, 255, CMts, 28, 2)  # 0.00  0.33  0.33  0.33  0.00
+    if TR0 > 1: ts2 = bobbed.focus2.TemporalSoften2(2, 255, CMts, 28, 2)  # 0.20  0.20  0.20  0.20  0.20
 
     # Combine linear weightings to give binomial weightings - TR0=0: (1), TR0=1: (1:2:1), TR0=2: (1:4:6:4:1)
     if TR0 <= 0:
@@ -2686,8 +2691,8 @@ def Stab(clp, dxmax=4, dymax=4, mirror=0):
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('Stab: This is not a clip')
 
-    temp = AverageFrames(clp, weights=[1] * 15, scenechange=25 / 255)
-    inter = core.std.Interleave([core.rgvs.Repair(temp, AverageFrames(clp, weights=[1] * 3, scenechange=25 / 255), mode=[1]), clp])
+    temp = clp.focus2.TemporalSoften2(7, 255, 255, 25, 2)
+    inter = core.std.Interleave([core.rgvs.Repair(temp, clp.focus2.TemporalSoften2(1, 255, 255, 25, 2), mode=[1]), clp])
     mdata = inter.mv.DepanEstimate(trust=0, dxmax=dxmax, dymax=dymax)
     last = inter.mv.DepanCompensate(data=mdata, offset=-1, mirror=mirror)
     return last[::2]
@@ -3809,7 +3814,7 @@ def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3
     grainlayer = core.std.MaskedMerge(core.std.MaskedMerge(grainlayer1, grainlayer2, clp.std.Expr(expr=[expr1])), grainlayer3, clp.std.Expr(expr=[expr2]))
 
     if temp_avg > 0:
-        grainlayer = core.std.Merge(grainlayer, AverageFrames(grainlayer, weights=[1] * 3), weight=[tmpavg])
+        grainlayer = core.std.Merge(grainlayer, grainlayer.focus2.TemporalSoften2(1, 255, 0, 0, 2), weight=[tmpavg])
     if ontop_grain > 0:
         grainlayer = grainlayer.grain.Add(var=ontop_grain)
 
@@ -4970,7 +4975,7 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
     ### SOOTHE
     if soothe:
         diff = core.std.MakeDiff(tmp, PP1)
-        diff = core.std.Expr([diff, AverageFrames(diff, weights=[1] * 3, scenechange=32 / 255)],
+        diff = core.std.Expr([diff, diff.focus2.TemporalSoften2(1, 255, 0, 32, 2)],
                              expr=[f'x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {100 - keep} * + 100 / x ? ?'])
         PP2 = core.std.MakeDiff(tmp, diff)
     else:

@@ -25,5 +25,6 @@
 - [RGVS](https://github.com/vapoursynth/vs-removegrain)
 - [SangNom](https://bitbucket.org/James1201/vapoursynth-sangnom)
 - [SVP](https://www.svp-team.com/wiki/Main_Page)
+- [TemporalSoften2](https://github.com/dubhater/vapoursynth-temporalsoften2)
 - [TTempSmooth](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth)
 - [ZNEDI3](https://github.com/sekrit-twc/znedi3)
