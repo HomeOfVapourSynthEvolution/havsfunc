@@ -3,7 +3,7 @@
 ## Dependent scripts
 - [adjust](https://github.com/dubhater/vapoursynth-adjust)
 - [mvsfunc](https://github.com/HomeOfVapourSynthEvolution/mvsfunc)
-- [nnedi3_resample](https://github.com/mawen1250/VapourSynth-script)
+- [nnedi3_resample](https://github.com/HomeOfVapourSynthEvolution/nnedi3_resample)
 
 ## Dependent plugins
 - [AddGrain](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain)
