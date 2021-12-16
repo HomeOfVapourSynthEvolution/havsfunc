@@ -3814,7 +3814,7 @@ def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3
     grainlayer = core.std.MaskedMerge(core.std.MaskedMerge(grainlayer1, grainlayer2, clp.std.Expr(expr=[expr1])), grainlayer3, clp.std.Expr(expr=[expr2]))
 
     if temp_avg > 0:
-        grainlayer = core.std.Merge(grainlayer, grainlayer.focus2.TemporalSoften2(1, 255, 0, 0, 2), weight=[tmpavg])
+        grainlayer = core.std.Merge(grainlayer, grainlayer.focus2.TemporalSoften2(1, 255 << (clp.format.bits_per_sample - 8), 0, 0, 2), weight=[tmpavg])
     if ontop_grain > 0:
         grainlayer = grainlayer.grain.Add(var=ontop_grain)
 
