@@ -3733,11 +3733,12 @@ def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
 #  g3size (float)      - [0.5 - 4.0] size of grain / for bright areas. Default is 0.9
 #  temp_avg (int)      - [0 - 100] percentage of noise's temporal averaging. Default is 0
 #  ontop_grain (float) - [0 - ???] additional grain to put on top of prev. generated grain. Default is 0.0
+#  seed (int)          - specifies a repeatable grain sequence. Set to at least 0 to use.
 #  th1 (int)           - start of dark->midtone mixing zone. Default is 24
 #  th2 (int)           - end of dark->midtone mixing zone. Default is 56
 #  th3 (int)           - start of midtone->bright mixing zone. Default is 128
 #  th4 (int)           - end of midtone->bright mixing zone. Default is 160
-def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3shrp=80, g1size=1.5, g2size=1.2, g3size=0.9, temp_avg=0, ontop_grain=0.0, th1=24, th2=56, th3=128, th4=160):
+def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3shrp=80, g1size=1.5, g2size=1.2, g3size=0.9, temp_avg=0, ontop_grain=0.0, seed=-1, th1=24, th2=56, th3=128, th4=160):
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('GrainFactory3: This is not a clip')
 
@@ -3790,21 +3791,21 @@ def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3
     th3 = scale(th3, peak)
     th4 = scale(th4, peak)
 
-    grainlayer1 = clp.std.BlankClip(width=sx1, height=sy1, color=[neutral]).grain.Add(var=g1str)
+    grainlayer1 = clp.std.BlankClip(width=sx1, height=sy1, color=[neutral]).grain.Add(var=g1str, seed=seed)
     if g1size != 1 and (sx1 != ox or sy1 != oy):
         if g1size > 1.5:
             grainlayer1 = grainlayer1.resize.Bicubic(sx1a, sy1a, filter_param_a=b1a, filter_param_b=c1a).resize.Bicubic(ox, oy, filter_param_a=b1a, filter_param_b=c1a)
         else:
             grainlayer1 = grainlayer1.resize.Bicubic(ox, oy, filter_param_a=b1, filter_param_b=c1)
 
-    grainlayer2 = clp.std.BlankClip(width=sx2, height=sy2, color=[neutral]).grain.Add(var=g2str)
+    grainlayer2 = clp.std.BlankClip(width=sx2, height=sy2, color=[neutral]).grain.Add(var=g2str, seed=seed)
     if g2size != 1 and (sx2 != ox or sy2 != oy):
         if g2size > 1.5:
             grainlayer2 = grainlayer2.resize.Bicubic(sx2a, sy2a, filter_param_a=b2a, filter_param_b=c2a).resize.Bicubic(ox, oy, filter_param_a=b2a, filter_param_b=c2a)
         else:
             grainlayer2 = grainlayer2.resize.Bicubic(ox, oy, filter_param_a=b2, filter_param_b=c2)
 
-    grainlayer3 = clp.std.BlankClip(width=sx3, height=sy3, color=[neutral]).grain.Add(var=g3str)
+    grainlayer3 = clp.std.BlankClip(width=sx3, height=sy3, color=[neutral]).grain.Add(var=g3str, seed=seed)
     if g3size != 1 and (sx3 != ox or sy3 != oy):
         if g3size > 1.5:
             grainlayer3 = grainlayer3.resize.Bicubic(sx3a, sy3a, filter_param_a=b3a, filter_param_b=c3a).resize.Bicubic(ox, oy, filter_param_a=b3a, filter_param_b=c3a)
@@ -3818,7 +3819,7 @@ def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3
     if temp_avg > 0:
         grainlayer = core.std.Merge(grainlayer, grainlayer.focus2.TemporalSoften2(1, 255 << (clp.format.bits_per_sample - 8), 0, 0, 2), weight=[tmpavg])
     if ontop_grain > 0:
-        grainlayer = grainlayer.grain.Add(var=ontop_grain)
+        grainlayer = grainlayer.grain.Add(var=ontop_grain, seed=seed)
 
     result = core.std.MakeDiff(clp, grainlayer)
 
