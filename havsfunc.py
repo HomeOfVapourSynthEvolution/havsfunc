@@ -2418,7 +2418,8 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
 # sstr: strength of contra sharpening
 # amnt: change no pixel by more than this (default=255: unrestricted)
 # chroma: chroma mode, True=process chroma, False=pass chroma through
-def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
+# scl: scale factor for vshrpD*vblurD < 0
+def Vinverse(clp, sstr=2.7, amnt=255, chroma=True, scl=0.25):
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('Vinverse: This is not a clip')
 
@@ -2439,7 +2440,7 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
     vblurD = core.std.MakeDiff(clp, vblur)
     vshrp = core.std.Expr([vblur, vblur.std.Convolution(matrix=[1, 4, 6, 4, 1], mode='v')], expr=[f'x x y - {sstr} * +'])
     vshrpD = core.std.MakeDiff(vshrp, vblur)
-    expr = f'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - 0.25 * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'
+    expr = f'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - {scl} * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'
     vlimD = core.std.Expr([vshrpD, vblurD], expr=[expr])
     last = core.std.MergeDiff(vblur, vlimD)
     if amnt <= 0:
@@ -2452,7 +2453,7 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True):
     return last
 
 
-def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
+def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True, scl=0.25):
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('Vinverse2: This is not a clip')
 
@@ -2473,7 +2474,7 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True):
     vblurD = core.std.MakeDiff(clp, vblur)
     vshrp = core.std.Expr([vblur, vblur.std.Convolution(matrix=[1, 2, 1], mode='v')], expr=[f'x x y - {sstr} * +'])
     vshrpD = core.std.MakeDiff(vshrp, vblur)
-    expr = f'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - 0.25 * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'
+    expr = f'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - {scl} * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'
     vlimD = core.std.Expr([vshrpD, vblurD], expr=[expr])
     last = core.std.MergeDiff(vblur, vlimD)
     if amnt <= 0:
