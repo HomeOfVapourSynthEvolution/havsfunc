@@ -195,10 +195,7 @@ def santiag(
 
         c = santiag_stronger(c, strength, type)
 
-        cshift = 0.0 if halfres else 0.5
-        if c.format.color_family != vs.GRAY:
-            cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-        return Resize(c, fw, fh, sy=cshift, dmode=1)
+        return c.resize.Spline36(fw, fh, src_top=0 if halfres else 0.5)
 
     def santiag_stronger(c: vs.VideoNode, strength: int, type: str) -> vs.VideoNode:
         if opencl:
@@ -224,20 +221,14 @@ def santiag(
             return nnedi3(c, field=field, dh=dh)
         elif type == 'eedi2':
             if not dh:
-                cshift = 1 - field
-                if c.format.color_family != vs.GRAY:
-                    cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-                c = Resize(c, w, h // 2, sy=cshift, kernel='point', dmode=1)
+                c = c.resize.Point(w, h // 2, src_top=1 - field)
             return c.eedi2.EEDI2(field=field)
         elif type == 'eedi3':
             sclip = nnedi3(c, field=field, dh=dh)
             return eedi3(c, field=field, dh=dh, sclip=sclip)
         elif type == 'sangnom':
             if dh:
-                cshift = -0.25
-                if c.format.color_family != vs.GRAY:
-                    cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
-                c = Resize(c, w, h * 2, sy=cshift, dmode=1)
+                c = c.resize.Spline36(w, h * 2, src_top=-0.25)
             return c.sangnom.SangNom(order=field + 1, aa=aa)
         else:
             raise vs.Error('santiag: unexpected value for type')
