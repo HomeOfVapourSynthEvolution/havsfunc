@@ -109,7 +109,18 @@ def daa(
     return core.std.MergeDiff(dbl, DD)
 
 
-def daa3mod(c1, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, opencl=False, device=None):
+def daa3mod(
+    c1: vs.VideoNode,
+    nsize: Optional[int] = None,
+    nns: Optional[int] = None,
+    qual: Optional[int] = None,
+    pscrn: Optional[int] = None,
+    int16_prescreener: Optional[bool] = None,
+    int16_predictor: Optional[bool] = None,
+    exp: Optional[int] = None,
+    opencl: bool = False,
+    device: Optional[int] = None,
+) -> vs.VideoNode:
     if not isinstance(c1, vs.VideoNode):
         raise vs.Error('daa3mod: this is not a clip')
 
