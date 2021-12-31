@@ -65,6 +65,7 @@ Utility functions:
 
 import math
 from functools import partial
+from typing import Optional
 
 import mvsfunc as mvf
 import vapoursynth as vs
@@ -72,21 +73,39 @@ import vapoursynth as vs
 core = vs.core
 
 
-# Anti-aliasing with contra-sharpening by Didée
-def daa(c, nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, opencl=False, device=None):
+def daa(
+    c: vs.VideoNode,
+    nsize: Optional[int] = None,
+    nns: Optional[int] = None,
+    qual: Optional[int] = None,
+    pscrn: Optional[int] = None,
+    int16_prescreener: Optional[bool] = None,
+    int16_predictor: Optional[bool] = None,
+    exp: Optional[int] = None,
+    opencl: bool = False,
+    device: Optional[int] = None,
+) -> vs.VideoNode:
+    '''
+    Anti-aliasing with contra-sharpening by Didée.
+
+    It averages two independent interpolations, where each interpolation set works between odd-distanced pixels.
+    This on its own provides sufficient amount of blurring. Enough blurring that the script uses a contra-sharpening step to counteract the blurring.
+    '''
     if not isinstance(c, vs.VideoNode):
         raise vs.Error('daa: this is not a clip')
 
     if opencl:
         nnedi3 = partial(core.nnedi3cl.NNEDI3CL, nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, device=device)
     else:
-        nnedi3 = partial(core.znedi3.nnedi3, nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
+        nnedi3 = partial(
+            core.znedi3.nnedi3, nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp
+        )
 
     nn = nnedi3(c, field=3)
     dbl = core.std.Merge(nn[::2], nn[1::2])
     dblD = core.std.MakeDiff(c, dbl)
     shrpD = core.std.MakeDiff(dbl, dbl.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1] if c.width > 1100 else [1, 2, 1, 2, 4, 2, 1, 2, 1]))
-    DD = core.rgvs.Repair(shrpD, dblD, mode=[13])
+    DD = core.rgvs.Repair(shrpD, dblD, mode=13)
     return core.std.MergeDiff(dbl, DD)
 
 
