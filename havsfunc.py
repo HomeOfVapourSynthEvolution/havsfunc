@@ -153,19 +153,41 @@ def mcdaa3(
     return core.std.MaskedMerge(input, csaa, momask)
 
 
-# santiag v1.6
-# Simple antialiasing
-#
-# This program is free software. It comes without any warranty, to
-# the extent permitted by applicable law. You can redistribute it
-# and/or modify it under the terms of the Do What The Fuck You Want
-# To Public License, Version 2, as published by Sam Hocevar. See
-# http://sam.zoy.org/wtfpl/COPYING for more details.
-#
-# type = "nnedi3", "eedi2", "eedi3" or "sangnom"
-def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, pscrn=None, int16_prescreener=None, int16_predictor=None, exp=None, aa=None,
-            alpha=None, beta=None, gamma=None, nrad=None, mdis=None, vcheck=None, fw=None, fh=None, halfres=False, typeh=None, typev=None, opencl=False, device=None):
-    def santiag_dir(c, strength, type, fw=None, fh=None):
+def santiag(
+    c: vs.VideoNode,
+    strh: int = 1,
+    strv: int = 1,
+    type: str = 'nnedi3',
+    nsize: Optional[int] = None,
+    nns: Optional[int] = None,
+    qual: Optional[int] = None,
+    pscrn: Optional[int] = None,
+    int16_prescreener: Optional[bool] = None,
+    int16_predictor: Optional[bool] = None,
+    exp: Optional[int] = None,
+    aa: Optional[int] = None,
+    alpha: Optional[float] = None,
+    beta: Optional[float] = None,
+    gamma: Optional[float] = None,
+    nrad: Optional[int] = None,
+    mdis: Optional[int] = None,
+    vcheck: Optional[int] = None,
+    fw: Optional[int] = None,
+    fh: Optional[int] = None,
+    halfres: bool = False,
+    typeh: Optional[str] = None,
+    typev: Optional[str] = None,
+    opencl: bool = False,
+    device: Optional[int] = None,
+) -> vs.VideoNode:
+    '''
+    santiag v1.6
+    Simple antialiasing
+
+    type = "nnedi3", "eedi2", "eedi3" or "sangnom"
+    '''
+
+    def santiag_dir(c: vs.VideoNode, strength: int, type: str, fw: Optional[int] = None, fh: Optional[int] = None) -> vs.VideoNode:
         if fw is None:
             fw = c.width
         if fh is None:
@@ -178,17 +200,19 @@ def santiag(c, strh=1, strv=1, type='nnedi3', nsize=None, nns=None, qual=None, p
             cshift = [cshift, cshift * (1 << c.format.subsampling_h)]
         return Resize(c, fw, fh, sy=cshift, dmode=1)
 
-    def santiag_stronger(c, strength, type):
+    def santiag_stronger(c: vs.VideoNode, strength: int, type: str) -> vs.VideoNode:
         if opencl:
             nnedi3 = partial(core.nnedi3cl.NNEDI3CL, nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, device=device)
             eedi3 = partial(core.eedi3m.EEDI3CL, alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck, device=device)
         else:
-            nnedi3 = partial(core.znedi3.nnedi3, nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp)
+            nnedi3 = partial(
+                core.znedi3.nnedi3, nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp
+            )
             eedi3 = partial(core.eedi3m.EEDI3, alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck)
 
         strength = max(strength, 0)
         field = strength % 2
-        dh = (strength <= 0 and not halfres)
+        dh = strength <= 0 and not halfres
 
         if strength > 0:
             c = santiag_stronger(c, strength - 1, type)
