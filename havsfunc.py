@@ -69,6 +69,7 @@ from typing import Optional
 
 import mvsfunc as mvf
 import vapoursynth as vs
+from vsutil import get_depth, join, plane, scale_value
 
 core = vs.core
 
@@ -259,79 +260,72 @@ def santiag(
     return c
 
 
-# FixChromaBleedingMod v1.35
-#
-# Parameters:
-#  cx (int)         - Horizontal chroma shift. Positive value shifts chroma to left, negative value shifts chroma to right. Default is 4
-#  cy (int)         - Vertical chroma shift. Positive value shifts chroma upwards, negative value shifts chroma downwards. Default is 4
-#  thr (float)      - Masking threshold, higher value treats more areas as color bleed. Default is 4.0
-#  strength (float) - Saturation strength in clip to be merged with the original chroma. Value below 1.0 reduces the saturation, a value of 1.0 leaves the saturation intact. Default is 0.8
-#  blur (bool)      - Set to true to blur the mask clip. Default is false
-def FixChromaBleedingMod(input, cx=4, cy=4, thr=4.0, strength=0.8, blur=False):
-    import adjust
+def FixChromaBleedingMod(input: vs.VideoNode, cx: int = 4, cy: int = 4, thr: float = 4.0, strength: float = 0.8, blur: bool = False) -> vs.VideoNode:
+    '''
+    FixChromaBleedingMod v1.36
+    A script to reduce color bleeding, over-saturation, and color shifting mainly in red and blue areas.
+
+    Parameters:
+        input: Clip to process.
+
+        cx: Horizontal chroma shift. Positive value shifts chroma to the left, negative value shifts chroma to the right.
+
+        cy: Vertical chroma shift. Positive value shifts chroma upwards, negative value shifts chroma downwards.
+
+        thr: Masking threshold, higher values treat more areas as color bleed.
+
+        strength: Saturation strength in clip to be merged with the original chroma.
+            Values below 1.0 reduce the saturation, a value of 1.0 leaves the saturation intact.
+
+        blur: Set to true to blur the mask clip.
+    '''
+    from adjust import Tweak
 
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('FixChromaBleedingMod: this is not a clip')
 
-    if input.format.color_family in [vs.GRAY, vs.RGB]:
-        raise vs.Error('FixChromaBleedingMod: Gray and RGB formats are not supported')
-
-    neutral = 1 << (input.format.bits_per_sample - 1)
-    peak = (1 << input.format.bits_per_sample) - 1
-
-    def Levels(clip, input_low, gamma, input_high, output_low, output_high, coring=True):
-        gamma = 1 / gamma
-        divisor = input_high - input_low + (input_high == input_low)
-
-        tvLow = scale(16, peak)
-        tvHigh = [scale(235, peak), scale(240, peak)]
-        scaleUp = peak / scale(219, peak)
-        scaleDown = scale(219, peak) / peak
-
-        def get_lut1(x):
-            p = ((x - tvLow) * scaleUp - input_low) / divisor if coring else (x - input_low) / divisor
-            p = min(max(p, 0), 1) ** gamma * (output_high - output_low) + output_low
-            return min(max(cround(p * scaleDown + tvLow), tvLow), tvHigh[0]) if coring else min(max(cround(p), 0), peak)
-
-        def get_lut2(x):
-            q = cround((x - neutral) * (output_high - output_low) / divisor + neutral)
-            return min(max(q, tvLow), tvHigh[1]) if coring else min(max(q, 0), peak)
-
-        last = clip.std.Lut(planes=[0], function=get_lut1)
-        if clip.format.color_family != vs.GRAY:
-            last = last.std.Lut(planes=[1, 2], function=get_lut2)
-        return last
+    if input.format.color_family != vs.YUV or input.format.sample_type != vs.INTEGER:
+        raise vs.Error('FixChromaBleedingMod: only YUV format with integer sample type is supported')
 
     # prepare to work on the V channel and filter noise
-    vch = mvf.GetPlane(adjust.Tweak(input, sat=thr), 2)
+    vch = plane(Tweak(input, sat=thr), 2)
     if blur:
         area = vch.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     else:
         area = vch
 
+    bits = get_depth(input)
+    i16 = scale_value(16, 8, bits)
+    i25 = scale_value(25, 8, bits)
+    i231 = scale_value(231, 8, bits)
+    i235 = scale_value(235, 8, bits)
+    i240 = scale_value(240, 8, bits)
+
     # select and normalize both extremes of the scale
-    red = Levels(area, scale(255, peak), 1.0, scale(255, peak), scale(255, peak), 0)
-    blue = Levels(area, 0, 1.0, 0, 0, scale(255, peak))
+    red = area.std.Levels(min_in=i235, max_in=i235, min_out=i235, max_out=i16)
+    blue = area.std.Levels(min_in=i16, max_in=i16, min_out=i16, max_out=i235)
 
     # merge both masks
     mask = core.std.Merge(red, blue)
     if not blur:
         mask = mask.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    mask = Levels(mask, scale(250, peak), 1.0, scale(250, peak), scale(255, peak), 0)
+    mask = mask.std.Levels(min_in=i231, max_in=i231, min_out=i235, max_out=i16)
 
     # expand to cover beyond the bleeding areas and shift to compensate the resizing
-    mask = mask.std.Convolution(matrix=[0, 0, 0, 1, 0, 0, 0, 0, 0], divisor=1, saturate=False).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 0, 0, 0], divisor=8, saturate=False)
+    mask = mask.std.Convolution(matrix=[0, 0, 0, 1, 0, 0, 0, 0, 0], divisor=1, saturate=False).std.Convolution(
+        matrix=[1, 1, 1, 1, 1, 1, 0, 0, 0], divisor=8, saturate=False
+    )
 
     # binarize (also a trick to expand)
-    mask = Levels(mask, scale(10, peak), 1.0, scale(10, peak), 0, scale(255, peak)).std.Inflate()
+    mask = mask.std.Levels(min_in=i25, max_in=i25, min_out=i16, max_out=i240).std.Inflate()
 
     # prepare a version of the image that has its chroma shifted and less saturated
-    input_c = adjust.Tweak(input.resize.Spline36(src_left=cx, src_top=cy), sat=strength)
+    input_c = Tweak(input.resize.Spline16(src_left=cx, src_top=cy), sat=strength)
 
     # combine both images using the mask
-    fu = core.std.MaskedMerge(mvf.GetPlane(input, 1), mvf.GetPlane(input_c, 1), mask)
-    fv = core.std.MaskedMerge(mvf.GetPlane(input, 2), mvf.GetPlane(input_c, 2), mask)
-    return core.std.ShufflePlanes([input, fu, fv], planes=[0, 0, 0], colorfamily=input.format.color_family)
+    fu = core.std.MaskedMerge(plane(input, 1), plane(input_c, 1), mask)
+    fv = core.std.MaskedMerge(plane(input, 2), plane(input_c, 2), mask)
+    return join([input, fu, fv])
 
 
 # Parameters:
