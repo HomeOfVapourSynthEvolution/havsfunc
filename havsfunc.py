@@ -69,7 +69,7 @@ from typing import Optional
 
 import mvsfunc as mvf
 import vapoursynth as vs
-from vsutil import get_depth, join, plane, scale_value
+from vsutil import get_depth, get_y, join, plane, scale_value
 
 core = vs.core
 
@@ -434,56 +434,78 @@ def Deblock_QED(
     return deblocked.std.Crop(right=padX, bottom=padY)
 
 
-# rx, ry [float, 1.0 ... 2.0 ... ~3.0]
-# As usual, the radii for halo removal.
-# Note: this function is rather sensitive to the radius settings. Set it as low as possible! If radius is set too high, it will start missing small spots.
-#
-# darkkstr, brightstr [float, 0.0 ... 1.0] [<0.0 and >1.0 possible]
-# The strength factors for processing dark and bright halos. Default 1.0 both for symmetrical processing.
-# On Comic/Anime, darkstr=0.4~0.8 sometimes might be better ... sometimes. In General, the function seems to preserve dark lines rather good.
-#
-# lowsens, highsens [int, 0 ... 50 ... 100]
-# Sensitivity settings, not that easy to describe them exactly ...
-# In a sense, they define a window between how weak an achieved effect has to be to get fully accepted, and how strong an achieved effect has to be to get fully discarded.
-# Defaults are 50 and 50 ... try and see for yourself.
-#
-# ss [float, 1.0 ... 1.5 ...]
-# Supersampling factor, to avoid creation of aliasing.
-def DeHalo_alpha(clp, rx=2.0, ry=2.0, darkstr=1.0, brightstr=1.0, lowsens=50, highsens=50, ss=1.5):
+def DeHalo_alpha(
+    clp: vs.VideoNode,
+    rx: float = 2.0,
+    ry: float = 2.0,
+    darkstr: float = 1.0,
+    brightstr: float = 1.0,
+    lowsens: float = 50.0,
+    highsens: float = 50.0,
+    ss: float = 1.5,
+) -> vs.VideoNode:
+    '''
+    Reduce halo artifacts that can occur when sharpening.
+
+    Parameters:
+        clp: Clip to process.
+
+        rx, ry: As usual, the radii for halo removal. This function is rather sensitive to the radius settings.
+            Set it as low as possible! If radius is set too high, it will start missing small spots.
+
+        darkstr, brightstr: The strength factors for processing dark and bright halos. Default 1.0 both for symmetrical processing.
+            On Comic/Anime, darkstr=0.4~0.8 sometimes might be better ... sometimes. In General, the function seems to preserve dark lines rather good.
+
+        lowsens, highsens: Sensitivity settings, not that easy to describe them exactly ...
+            In a sense, they define a window between how weak an achieved effect has to be to get fully accepted,
+            and how strong an achieved effect has to be to get fully discarded.
+
+        ss: Supersampling factor, to avoid creation of aliasing.
+    '''
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('DeHalo_alpha: this is not a clip')
 
     if clp.format.color_family == vs.RGB:
         raise vs.Error('DeHalo_alpha: RGB format is not supported')
 
-    isInteger = (clp.format.sample_type == vs.INTEGER)
-
-    peak = (1 << clp.format.bits_per_sample) - 1 if isInteger else 1.0
+    bits = get_depth(clp)
 
     if clp.format.color_family != vs.GRAY:
         clp_orig = clp
-        clp = mvf.GetPlane(clp, 0)
+        clp = get_y(clp)
     else:
         clp_orig = None
 
     ox = clp.width
     oy = clp.height
 
-    halos = clp.resize.Bicubic(m4(ox / rx), m4(oy / ry), filter_param_a=1/3, filter_param_b=1/3).resize.Bicubic(ox, oy, filter_param_a=1, filter_param_b=0)
-    are = core.std.Expr([clp.std.Maximum(), clp.std.Minimum()], expr=['x y -'])
-    ugly = core.std.Expr([halos.std.Maximum(), halos.std.Minimum()], expr=['x y -'])
-    expr = f'y x - y y 0 = + / {peak} * {scale(lowsens, peak)} - y {scale(256, peak)} + {scale(512, peak)} / {highsens / 100} + * {"0 max 1 min" if not isInteger else ""}'
-    so = core.std.Expr([ugly, are], expr=[expr])
+    halos = clp.resize.Bicubic(m4(ox / rx), m4(oy / ry), filter_param_a=1 / 3, filter_param_b=1 / 3).resize.Bicubic(ox, oy, filter_param_a=1, filter_param_b=0)
+    are = core.std.Expr([clp.std.Maximum(), clp.std.Minimum()], expr='x y -')
+    ugly = core.std.Expr([halos.std.Maximum(), halos.std.Minimum()], expr='x y -')
+    so = core.std.Expr(
+        [ugly, are],
+        expr=f'y x - y 0.000001 + / {scale_value(255, 8, bits)} * {scale_value(lowsens, 8, bits)} - y {scale_value(256, 8, bits)} + {scale_value(512, 8, bits)} / {highsens / 100} + *',
+    )
+    if clp.format.sample_type == vs.FLOAT:
+        so = so.std.Limiter()
     lets = core.std.MaskedMerge(halos, clp, so)
     if ss <= 1:
-        remove = core.rgvs.Repair(clp, lets, mode=[1])
+        remove = core.rgvs.Repair(clp, lets, mode=1)
     else:
-        remove = core.std.Expr([core.std.Expr([clp.resize.Lanczos(m4(ox * ss), m4(oy * ss)),
-                                               lets.std.Maximum().resize.Bicubic(m4(ox * ss), m4(oy * ss), filter_param_a=1/3, filter_param_b=1/3)],
-                                               expr=['x y min']),
-                                lets.std.Minimum().resize.Bicubic(m4(ox * ss), m4(oy * ss), filter_param_a=1/3, filter_param_b=1/3)],
-                               expr=['x y max']).resize.Lanczos(ox, oy)
-    them = core.std.Expr([clp, remove], expr=[f'x y < x x y - {darkstr} * - x x y - {brightstr} * - ?'])
+        remove = core.std.Expr(
+            [
+                core.std.Expr(
+                    [
+                        clp.resize.Lanczos(m4(ox * ss), m4(oy * ss)),
+                        lets.std.Maximum().resize.Bicubic(m4(ox * ss), m4(oy * ss), filter_param_a=1 / 3, filter_param_b=1 / 3),
+                    ],
+                    expr='x y min',
+                ),
+                lets.std.Minimum().resize.Bicubic(m4(ox * ss), m4(oy * ss), filter_param_a=1 / 3, filter_param_b=1 / 3),
+            ],
+            expr='x y max',
+        ).resize.Lanczos(ox, oy)
+    them = core.std.Expr([clp, remove], expr=f'x y < x x y - {darkstr} * - x x y - {brightstr} * - ?')
 
     if clp_orig is not None:
         them = core.std.ShufflePlanes([them, clp_orig], planes=[0, 1, 2], colorfamily=clp_orig.format.color_family)
