@@ -592,6 +592,7 @@ def FineDehalo(
     contra: float = 0.0,
     excl: bool = True,
     edgeproc: float = 0.0,
+    mask: Optional[vs.VideoNode] = None,
 ) -> vs.VideoNode:
     '''
     Halo removal script that uses DeHalo_alpha with a few masks and optional contra-sharpening to try remove halos without removing important details.
@@ -618,12 +619,21 @@ def FineDehalo(
         contra: Contra-sharpening.
 
         excl: Activates an additional step (exclusion zones) to make sure that the main edges are really excluded.
+
+        mask: Basic edge mask to apply the threshold instead of applying to the mask created by AvsPrewitt.
     '''
     if not isinstance(src, vs.VideoNode):
         raise vs.Error('FineDehalo: this is not a clip')
 
     if src.format.color_family == vs.RGB:
         raise vs.Error('FineDehalo: RGB format is not supported')
+
+    if mask is not None:
+        if not isinstance(mask, vs.VideoNode):
+            raise vs.Error('FineDehalo: mask is not a clip')
+
+        if mask.format.color_family != vs.GRAY:
+            raise vs.Error('FineDehalo: mask must be Gray format')
 
     is_float = src.format.sample_type == vs.FLOAT
 
@@ -651,7 +661,7 @@ def FineDehalo(
     # Main edges #
 
     # Basic edge detection, thresholding will be applied later
-    edges = AvsPrewitt(src)
+    edges = AvsPrewitt(src) if mask is None else mask
 
     # Keeps only the sharpest edges (line edges)
     strong = edges.std.Expr(expr=f'x {scale_value(thmi, 8, bits)} - {thma - thmi} / 255 *')
