@@ -844,12 +844,17 @@ def FineDehalo2(
     return last
 
 
-# Y'et A'nother H'alo R'educing script
-#
-# Parameters:
-#  blur (int)  - "blur" parameter of AWarpSharp2. Default is 2
-#  depth (int) - "depth" parameter of AWarpSharp2. Default is 32
-def YAHR(clp, blur=2, depth=32):
+def YAHR(clp: vs.VideoNode, blur: int = 2, depth: int = 32) -> vs.VideoNode:
+    '''
+    Y'et A'nother H'alo R'educing script
+
+    Parameters:
+        clp: Clip to process.
+
+        blur: "blur" parameter of AWarpSharp2.
+
+        depth: "depth" parameter of AWarpSharp2.
+    '''
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('YAHR: this is not a clip')
 
@@ -858,16 +863,16 @@ def YAHR(clp, blur=2, depth=32):
 
     if clp.format.color_family != vs.GRAY:
         clp_orig = clp
-        clp = mvf.GetPlane(clp, 0)
+        clp = get_y(clp)
     else:
         clp_orig = None
 
-    b1 = MinBlur(clp, r=2).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    b1 = MinBlur(clp, 2).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     b1D = core.std.MakeDiff(clp, b1)
     w1 = Padding(clp, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.Crop(6, 6, 6, 6)
-    w1b1 = MinBlur(w1, r=2).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    w1b1 = MinBlur(w1, 2).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
     w1b1D = core.std.MakeDiff(w1, w1b1)
-    DD = core.rgvs.Repair(b1D, w1b1D, mode=[13])
+    DD = core.rgvs.Repair(b1D, w1b1D, mode=13)
     DD2 = core.std.MakeDiff(b1D, DD)
     last = core.std.MakeDiff(clp, DD2)
 
