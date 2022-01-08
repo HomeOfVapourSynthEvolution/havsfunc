@@ -65,11 +65,11 @@ Utility functions:
 
 import math
 from functools import partial
-from typing import Optional
+from typing import Optional, Sequence
 
 import mvsfunc as mvf
 import vapoursynth as vs
-from vsutil import get_depth, get_y, join, plane, scale_value
+from vsutil import fallback, get_depth, get_y, join, plane, scale_value
 
 core = vs.core
 
@@ -578,35 +578,69 @@ def EdgeCleaner(c: vs.VideoNode, strength: int = 10, rep: bool = True, rmode: in
     return final
 
 
-# This program is free software. It comes without any warranty, to
-# the extent permitted by applicable law. You can redistribute it
-# and/or modify it under the terms of the Do What The Fuck You Want
-# To Public License, Version 2, as published by Sam Hocevar. See
-# http://sam.zoy.org/wtfpl/COPYING for more details.
-def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, darkstr=1.0, brightstr=1.0, showmask=0, contra=0.0, excl=True, edgeproc=0.0):
+def FineDehalo(
+    src: vs.VideoNode,
+    rx: float = 2.0,
+    ry: Optional[float] = None,
+    thmi: int = 80,
+    thma: int = 128,
+    thlimi: int = 50,
+    thlima: int = 100,
+    darkstr: float = 1.0,
+    brightstr: float = 1.0,
+    showmask: int = 0,
+    contra: float = 0.0,
+    excl: bool = True,
+    edgeproc: float = 0.0,
+) -> vs.VideoNode:
+    '''
+    Halo removal script that uses DeHalo_alpha with a few masks and optional contra-sharpening to try remove halos without removing important details.
+
+    Parameters:
+        src: Clip to process.
+
+        rx, ry: The radii for halo removal in DeHalo_alpha.
+
+        thmi, thma: Minimum and maximum threshold for sharp edges; keep only the sharpest edges (line edges).
+            To see the effects of these settings take a look at the strong mask (showmask=4).
+
+        thlimi, thlima: Minimum and maximum limiting threshold; includes more edges than previously, but ignores simple details.
+
+        darkstr, brightstr: The strength factors for processing dark and bright halos in DeHalo_alpha.
+
+        showmask: Shows mask; useful for adjusting settings.
+            0 = none
+            1 = outside mask
+            2 = shrink mask
+            3 = edge mask
+            4 = strong mask
+
+        contra: Contra-sharpening.
+
+        excl: Activates an additional step (exclusion zones) to make sure that the main edges are really excluded.
+    '''
     if not isinstance(src, vs.VideoNode):
         raise vs.Error('FineDehalo: this is not a clip')
 
     if src.format.color_family == vs.RGB:
         raise vs.Error('FineDehalo: RGB format is not supported')
 
-    isInteger = (src.format.sample_type == vs.INTEGER)
+    is_float = src.format.sample_type == vs.FLOAT
 
-    peak = (1 << src.format.bits_per_sample) - 1 if isInteger else 1.0
+    bits = get_depth(src)
 
     if src.format.color_family != vs.GRAY:
         src_orig = src
-        src = mvf.GetPlane(src, 0)
+        src = get_y(src)
     else:
         src_orig = None
 
-    if ry is None:
-        ry = rx
+    ry = fallback(ry, rx)
 
     rx_i = cround(rx)
     ry_i = cround(ry)
 
-    ### Dehaloing ###
+    # Dehaloing #
 
     dehaloed = DeHalo_alpha(src, rx=rx, ry=ry, darkstr=darkstr, brightstr=brightstr)
 
@@ -614,60 +648,74 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
     if contra > 0:
         dehaloed = FineDehalo_contrasharp(dehaloed, src, contra)
 
-    ### Main edges ###
+    # Main edges #
 
     # Basic edge detection, thresholding will be applied later
     edges = AvsPrewitt(src)
 
     # Keeps only the sharpest edges (line edges)
-    strong = edges.std.Expr(expr=[f'x {scale(thmi, peak)} - {thma - thmi} / 255 *' if isInteger else f'x {scale(thmi, peak)} - {thma - thmi} / 255 * 0 max 1 min'])
+    strong = edges.std.Expr(expr=f'x {scale_value(thmi, 8, bits)} - {thma - thmi} / 255 *')
+    if is_float:
+        strong = strong.std.Limiter()
 
     # Extends them to include the potential halos
     large = mt_expand_multi(strong, sw=rx_i, sh=ry_i)
 
-    ### Exclusion zones ###
+    # Exclusion zones #
 
-    # When two edges are close from each other (both edges of a single line or multiple parallel color bands), the halo removal oversmoothes them or makes seriously bleed the bands,
-    # producing annoying artifacts. Therefore we have to produce a mask to exclude these zones from the halo removal
+    # When two edges are close from each other (both edges of a single line or multiple parallel color bands),
+    # the halo removal oversmoothes them or makes seriously bleed the bands, producing annoying artifacts.
+    # Therefore we have to produce a mask to exclude these zones from the halo removal.
 
     # Includes more edges than previously, but ignores simple details
-    light = edges.std.Expr(expr=[f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 *' if isInteger else f'x {scale(thlimi, peak)} - {thlima - thlimi} / 255 * 0 max 1 min'])
+    light = edges.std.Expr(expr=f'x {scale_value(thlimi, 8, bits)} - {thlima - thlimi} / 255 *')
+    if is_float:
+        light = light.std.Limiter()
 
-    # To build the exclusion zone, we make grow the edge mask, then shrink it to its original shape
-    # During the growing stage, close adjacent edge masks will join and merge, forming a solid area, which will remain solid even after the shrinking stage
+    # To build the exclusion zone, we make grow the edge mask, then shrink it to its original shape.
+    # During the growing stage, close adjacent edge masks will join and merge, forming a solid area, which will remain solid even after the shrinking stage.
 
     # Mask growing
     shrink = mt_expand_multi(light, mode='ellipse', sw=rx_i, sh=ry_i)
 
-    # At this point, because the mask was made of a shades of grey, we may end up with large areas of dark grey after shrinking
-    # To avoid this, we amplify and saturate the mask here (actually we could even binarize it)
-    shrink = shrink.std.Expr(expr=['x 4 *' if isInteger else 'x 4 * 1 min'])
+    # At this point, because the mask was made of a shades of grey, we may end up with large areas of dark grey after shrinking.
+    # To avoid this, we amplify and saturate the mask here (actually we could even binarize it).
+    shrink = shrink.std.Expr(expr='x 4 *')
+    if is_float:
+        shrink = shrink.std.Limiter()
 
     # Mask shrinking
     shrink = mt_inpand_multi(shrink, mode='ellipse', sw=rx_i, sh=ry_i)
 
-    # This mask is almost binary, which will produce distinct discontinuities once applied. Then we have to smooth it
+    # This mask is almost binary, which will produce distinct discontinuities once applied. Then we have to smooth it.
     shrink = shrink.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
 
-    ### Final mask building ###
+    # Final mask building #
 
-    # Previous mask may be a bit weak on the pure edge side, so we ensure that the main edges are really excluded. We do not want them to be smoothed by the halo removal
+    # Previous mask may be a bit weak on the pure edge side, so we ensure that the main edges are really excluded.
+    # We do not want them to be smoothed by the halo removal.
     if excl:
-        shr_med = core.std.Expr([strong, shrink], expr=['x y max'])
+        shr_med = core.std.Expr([strong, shrink], expr='x y max')
     else:
         shr_med = strong
 
     # Substracts masks and amplifies the difference to be sure we get 255 on the areas to be processed
-    outside = core.std.Expr([large, shr_med], expr=['x y - 2 *' if isInteger else 'x y - 2 * 0 max 1 min'])
+    outside = core.std.Expr([large, shr_med], expr='x y - 2 *')
+    if is_float:
+        outside = outside.std.Limiter()
 
     # If edge processing is required, adds the edgemask
     if edgeproc > 0:
-        outside = core.std.Expr([outside, strong], expr=[f'x y {edgeproc * 0.66} * +' if isInteger else f'x y {edgeproc * 0.66} * + 1 min'])
+        outside = core.std.Expr([outside, strong], expr=f'x y {edgeproc * 0.66} * +')
+        if is_float:
+            outside = outside.std.Limiter()
 
     # Smooth again and amplify to grow the mask a bit, otherwise the halo parts sticking to the edges could be missed
-    outside = outside.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Expr(expr=['x 2 *' if isInteger else 'x 2 * 1 min'])
+    outside = outside.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1]).std.Expr(expr='x 2 *')
+    if is_float:
+        outside = outside.std.Limiter()
 
-    ### Masking ###
+    # Masking #
 
     if showmask <= 0:
         last = core.std.MaskedMerge(src, dehaloed, outside)
@@ -676,13 +724,13 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
         if showmask <= 0:
             return core.std.ShufflePlanes([last, src_orig], planes=[0, 1, 2], colorfamily=src_orig.format.color_family)
         elif showmask == 1:
-            return core.resize.Bicubic(outside, format=src_orig.format.id)
+            return outside.resize.Bicubic(format=src_orig.format.id)
         elif showmask == 2:
-            return core.resize.Bicubic(shrink, format=src_orig.format.id)
+            return shrink.resize.Bicubic(format=src_orig.format.id)
         elif showmask == 3:
-            return core.resize.Bicubic(edges, format=src_orig.format.id)
+            return edges.resize.Bicubic(format=src_orig.format.id)
         else:
-            return core.resize.Bicubic(strong, format=src_orig.format.id)
+            return strong.resize.Bicubic(format=src_orig.format.id)
     else:
         if showmask <= 0:
             return last
@@ -695,8 +743,9 @@ def FineDehalo(src, rx=2.0, ry=None, thmi=80, thma=128, thlimi=50, thlima=100, d
         else:
             return strong
 
-# level == 1.0 : normal contrasharp
-def FineDehalo_contrasharp(dehaloed, src, level):
+
+def FineDehalo_contrasharp(dehaloed: vs.VideoNode, src: vs.VideoNode, level: float) -> vs.VideoNode:
+    '''level == 1.0 : normal contrasharp'''
     if not (isinstance(dehaloed, vs.VideoNode) and isinstance(src, vs.VideoNode)):
         raise vs.Error('FineDehalo_contrasharp: this is not a clip')
 
@@ -706,20 +755,22 @@ def FineDehalo_contrasharp(dehaloed, src, level):
     if dehaloed.format.id != src.format.id:
         raise vs.Error('FineDehalo_contrasharp: clips must have the same format')
 
-    neutral = 1 << (dehaloed.format.bits_per_sample - 1) if dehaloed.format.sample_type == vs.INTEGER else 0.0
+    neutral = 1 << (get_depth(dehaloed) - 1) if dehaloed.format.sample_type == vs.INTEGER else 0.0
 
     if dehaloed.format.color_family != vs.GRAY:
         dehaloed_orig = dehaloed
-        dehaloed = mvf.GetPlane(dehaloed, 0)
-        src = mvf.GetPlane(src, 0)
+        dehaloed = get_y(dehaloed)
+        src = get_y(src)
     else:
         dehaloed_orig = None
 
     bb = dehaloed.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    bb2 = core.rgvs.Repair(bb, core.rgvs.Repair(bb, bb.ctmf.CTMF(radius=2), mode=[1]), mode=[1])
+    bb2 = core.rgvs.Repair(bb, core.rgvs.Repair(bb, bb.ctmf.CTMF(radius=2), mode=1), mode=1)
     xd = core.std.MakeDiff(bb, bb2)
-    xd = xd.std.Expr(expr=[f'x {neutral} - 2.49 * {level} * {neutral} +'])
-    xdd = core.std.Expr([xd, core.std.MakeDiff(src, dehaloed)], expr=[f'x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'])
+    xd = xd.std.Expr(expr=f'x {neutral} - 2.49 * {level} * {neutral} +')
+    xdd = core.std.Expr(
+        [xd, core.std.MakeDiff(src, dehaloed)], expr=f'x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'
+    )
     last = core.std.MergeDiff(dehaloed, xdd)
 
     if dehaloed_orig is not None:
@@ -727,14 +778,26 @@ def FineDehalo_contrasharp(dehaloed, src, level):
     return last
 
 
-# Try to remove 2nd order halos
-def FineDehalo2(src, hconv=[-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv=[-2, -1, 0, 0, 40, 0, 0, -1, -2], showmask=0):
-    def grow_mask(mask, coordinates):
+def FineDehalo2(
+    src: vs.VideoNode, hconv: Sequence[int] = [-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv: Sequence[int] = [-2, -1, 0, 0, 40, 0, 0, -1, -2], showmask: bool = False
+) -> vs.VideoNode:
+    '''
+    Try to remove 2nd order halos.
+
+    Parameters:
+        src: Clip to process.
+
+        hconv, vconv: Horizontal and vertical convolutions.
+
+        showmask: Shows mask.
+    '''
+
+    def grow_mask(mask: vs.VideoNode, coordinates: Sequence[int]):
         mask = mask.std.Maximum(coordinates=coordinates).std.Minimum(coordinates=coordinates)
         mask_1 = mask.std.Maximum(coordinates=coordinates)
         mask_2 = mask_1.std.Maximum(coordinates=coordinates).std.Maximum(coordinates=coordinates)
-        mask = core.std.Expr([mask_2, mask_1], expr=['x y -'])
-        return mask.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]).std.Expr(expr=['x 1.8 *'])
+        mask = core.std.Expr([mask_2, mask_1], expr='x y -')
+        return mask.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]).std.Expr(expr='x 1.8 *')
 
     if not isinstance(src, vs.VideoNode):
         raise vs.Error('FineDehalo2: this is not a clip')
@@ -744,7 +807,7 @@ def FineDehalo2(src, hconv=[-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv=[-2, -1, 0, 0
 
     if src.format.color_family != vs.GRAY:
         src_orig = src
-        src = mvf.GetPlane(src, 0)
+        src = get_y(src)
     else:
         src_orig = None
 
@@ -752,19 +815,19 @@ def FineDehalo2(src, hconv=[-1, -2, 0, 0, 40, 0, 0, -2, -1], vconv=[-2, -1, 0, 0
     fix_v = src.std.Convolution(matrix=hconv, mode='h')
     mask_h = src.std.Convolution(matrix=[1, 2, 1, 0, 0, 0, -1, -2, -1], divisor=4, saturate=False)
     mask_v = src.std.Convolution(matrix=[1, 0, -1, 2, 0, -2, 1, 0, -1], divisor=4, saturate=False)
-    temp_h = core.std.Expr([mask_h, mask_v], expr=['x 3 * y -'])
-    temp_v = core.std.Expr([mask_v, mask_h], expr=['x 3 * y -'])
+    temp_h = core.std.Expr([mask_h, mask_v], expr='x 3 * y -')
+    temp_v = core.std.Expr([mask_v, mask_h], expr='x 3 * y -')
     mask_h = grow_mask(temp_h, [0, 1, 0, 0, 0, 0, 1, 0])
     mask_v = grow_mask(temp_v, [0, 0, 0, 1, 1, 0, 0, 0])
 
-    if showmask <= 0:
+    if not showmask:
         last = core.std.MaskedMerge(src, fix_h, mask_h)
         last = core.std.MaskedMerge(last, fix_v, mask_v)
     else:
-        last = core.std.Expr([mask_h, mask_v], expr=['x y max'])
+        last = core.std.Expr([mask_h, mask_v], expr='x y max')
 
     if src_orig is not None:
-        if showmask <= 0:
+        if not showmask:
             last = core.std.ShufflePlanes([last, src_orig], planes=[0, 1, 2], colorfamily=src_orig.format.color_family)
         else:
             last = last.resize.Bicubic(format=src_orig.format.id)
