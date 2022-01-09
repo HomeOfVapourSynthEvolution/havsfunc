@@ -65,7 +65,7 @@ Utility functions:
 
 import math
 from functools import partial
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 
 import mvsfunc as mvf
 import vapoursynth as vs
@@ -881,85 +881,119 @@ def YAHR(clp: vs.VideoNode, blur: int = 2, depth: int = 32) -> vs.VideoNode:
     return last
 
 
-######
-###
-### HQDering mod v1.8      by mawen1250      2014.03.22
-###
-### Requirements: Miscellaneous Filters, RGVS, CTMF
-###
-### Applies deringing by using a smart smoother near edges (where ringing occurs) only
-###
-### Parameters:
-###  mrad (int)      - Expanding of edge mask, higher value means more aggressive processing. Default is 1
-###  msmooth (int)   - Inflate of edge mask, smooth boundaries of mask. Default is 1
-###  incedge (bool)  - Whether to include edge in ring mask, by default ring mask only include area near edges. Default is false
-###  mthr (int)      - Threshold of sobel edge mask, lower value means more aggressive processing. Or define your own mask clip "ringmask". Default is 60
-###                    But for strong ringing, lower value will treat some ringing as edge, which protects this ringing from being processed.
-###  minp (int)      - Inpanding of sobel edge mask, higher value means more aggressive processing. Default is 1
-###  nrmode (int)    - Kernel of dering - 1: MinBlur(radius=1), 2: MinBlur(radius=2), 3: MinBlur(radius=3). Or define your own smoothed clip "p". Default is 2 for HD / 1 for SD
-###  sharp (int)     - Whether to use contra-sharpening to resharp deringed clip, 1-3 represents radius, 0 means no sharpening. Default is 1
-###  drrep (int)     - Use repair for details retention, recommended values are 24/23/13/12/1. Default is 24
-###  thr (float)     - The same meaning with "thr" in Dither_limit_dif16, valid value range is [0.0, 128.0]. Default is 12.0
-###  elast (float)   - The same meaning with "elast" in Dither_limit_dif16, valid value range is [1.0, inf). Default is 2.0
-###                    Larger "thr" will result in more pixels being taken from processed clip
-###                    Larger "thr" will result in less pixels being taken from input clip
-###                    Larger "elast" will result in more pixels being blended from processed&input clip, for smoother merging
-###  darkthr (float) - Threshold for darker area near edges, set it lower if you think deringing destroys too much lines, etc. Default is thr/4
-###                    When "darkthr" is not equal to "thr", "thr" limits darkening while "darkthr" limits brightening
-###  planes (int[])  - Whether to process the corresponding plane. The other planes will be passed through unchanged. Default is [0]
-###  show (bool)     - Whether to output mask clip instead of filtered clip. Default is false
-###
-######
-def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, mthr=60, minp=1, nrmode=None, sharp=1, drrep=24, thr=12.0, elast=2.0, darkthr=None, planes=[0], show=False):
+def HQDeringmod(
+    input: vs.VideoNode,
+    smoothed: Optional[vs.VideoNode] = None,
+    ringmask: Optional[vs.VideoNode] = None,
+    mrad: int = 1,
+    msmooth: int = 1,
+    incedge: bool = False,
+    mthr: int = 60,
+    minp: int = 1,
+    nrmode: Optional[int] = None,
+    sharp: int = 1,
+    drrep: int = 24,
+    thr: float = 12.0,
+    elast: float = 2.0,
+    darkthr: Optional[float] = None,
+    planes: Union[int, Sequence[int]] = 0,
+    show: bool = False,
+) -> vs.VideoNode:
+    '''
+    HQDering mod v1.8
+    Applies deringing by using a smart smoother near edges (where ringing occurs) only.
+
+    Parameters:
+        input: Clip to process.
+
+        mrad: Expanding of edge mask, higher value means more aggressive processing.
+
+        msmooth: Inflate of edge mask, smooth boundaries of mask.
+
+        incedge: Whether to include edge in ring mask, by default ring mask only include area near edges.
+
+        mthr: Threshold of prewitt edge mask, lower value means more aggressive processing.
+            But for strong ringing, lower value will treat some ringing as edge, which protects this ringing from being processed.
+
+        minp: Inpanding of prewitt edge mask, higher value means more aggressive processing.
+
+        nrmode: Kernel of deringing.
+            1 = MinBlur(r=1)
+            2 = MinBlur(r=2)
+            3 = MinBlur(r=3)
+
+        sharp: Whether to use contra-sharpening to resharp deringed clip, 1-3 represents radius, 0 means no sharpening.
+
+        drrep: Use repair for details retention, recommended values are 24/23/13/12/1.
+
+        thr: The same meaning with "thr" in LimitFilter.
+
+        elast: The same meaning with "elast" in LimitFilter.
+
+        darkthr: Threshold for darker area near edges, by default equals to thr/4. Set it lower if you think de-ringing destroys too much lines, etc.
+            When "darkthr" is not equal to "thr", "thr" limits darkening while "darkthr" limits brightening.
+
+        planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
+
+        show: Whether to output mask clip instead of filtered clip.
+    '''
+    from mvsfunc import LimitFilter
+
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('HQDeringmod: this is not a clip')
 
     if input.format.color_family == vs.RGB:
         raise vs.Error('HQDeringmod: RGB format is not supported')
 
-    if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
-        raise vs.Error("HQDeringmod: 'p' must have the same format as input")
+    if smoothed is not None:
+        if not isinstance(smoothed, vs.VideoNode):
+            raise vs.Error('HQDeringmod: smoothed is not a clip')
+
+        if smoothed.format.id != input.format.id:
+            raise vs.Error("HQDeringmod: smoothed must have the same format as input")
 
     if ringmask is not None and not isinstance(ringmask, vs.VideoNode):
-        raise vs.Error("HQDeringmod: 'ringmask' is not a clip")
+        raise vs.Error("HQDeringmod: ringmask is not a clip")
 
-    isGray = (input.format.color_family == vs.GRAY)
+    is_gray = input.format.color_family == vs.GRAY
 
-    neutral = 1 << (input.format.bits_per_sample - 1)
-    peak = (1 << input.format.bits_per_sample) - 1
+    bits = get_depth(input)
+    neutral = 1 << (bits - 1)
+    peak = (1 << bits) - 1
 
     if isinstance(planes, int):
         planes = [planes]
 
-    if nrmode is None:
-        nrmode = 2 if input.width > 1024 or input.height > 576 else 1
-    if darkthr is None:
-        darkthr = thr / 4
+    nrmode = fallback(nrmode, 2 if input.width > 1024 or input.height > 576 else 1)
+    darkthr = fallback(darkthr, thr / 4)
 
     # Kernel: Smoothing
-    if p is None:
-        p = MinBlur(input, r=nrmode, planes=planes)
+    if smoothed is None:
+        smoothed = MinBlur(input, nrmode, planes)
 
     # Post-Process: Contra-Sharpening
     matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
     matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
     if sharp <= 0:
-        sclp = p
+        sclp = smoothed
     else:
-        pre = p.std.Median(planes=planes)
+        pre = smoothed.std.Median(planes=planes)
         if sharp == 1:
             method = pre.std.Convolution(matrix=matrix1, planes=planes)
         elif sharp == 2:
             method = pre.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
         else:
-            method = pre.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
+            method = (
+                pre.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
+            )
         sharpdiff = core.std.MakeDiff(pre, method, planes=planes)
-        allD = core.std.MakeDiff(input, p, planes=planes)
+        allD = core.std.MakeDiff(input, smoothed, planes=planes)
         ssDD = core.rgvs.Repair(sharpdiff, allD, mode=[1 if i in planes else 0 for i in range(input.format.num_planes)])
-        expr = f'x {neutral} - abs y {neutral} - abs <= x y ?'
-        ssDD = core.std.Expr([ssDD, sharpdiff], expr=[expr if i in planes else '' for i in range(input.format.num_planes)])
-        sclp = core.std.MergeDiff(p, ssDD, planes=planes)
+        ssDD = core.std.Expr(
+            [ssDD, sharpdiff], expr=[f'x {neutral} - abs y {neutral} - abs <= x y ?' if i in planes else '' for i in range(input.format.num_planes)]
+        )
+        sclp = core.std.MergeDiff(smoothed, ssDD, planes=planes)
 
     # Post-Process: Repairing
     if drrep <= 0:
@@ -968,41 +1002,41 @@ def HQDeringmod(input, p=None, ringmask=None, mrad=1, msmooth=1, incedge=False, 
         repclp = core.rgvs.Repair(input, sclp, mode=[drrep if i in planes else 0 for i in range(input.format.num_planes)])
 
     # Post-Process: Limiting
-    if (thr <= 0 and darkthr <= 0) or (thr >= 128 and darkthr >= 128):
+    if (thr <= 0 and darkthr <= 0) or (thr >= 255 and darkthr >= 255):
         limitclp = repclp
     else:
-        limitclp = mvf.LimitFilter(repclp, input, thr=thr, elast=elast, brighten_thr=darkthr, planes=planes)
+        limitclp = LimitFilter(repclp, input, thr=thr, elast=elast, brighten_thr=darkthr, planes=planes)
 
     # Post-Process: Ringing Mask Generating
     if ringmask is None:
-        expr = f'x {scale(mthr, peak)} < 0 x ?'
-        prewittm = AvsPrewitt(input, planes=[0]).std.Expr(expr=[expr] if isGray else [expr, ''])
-        fmask = core.misc.Hysteresis(prewittm.std.Median(planes=[0]), prewittm, planes=[0])
+        expr = f'x {scale_value(mthr, 8, bits)} < 0 x ?'
+        prewittm = AvsPrewitt(input, planes=0).std.Expr(expr=expr if is_gray else [expr, ''])
+        fmask = core.misc.Hysteresis(prewittm.std.Median(planes=0), prewittm, planes=0)
         if mrad > 0:
-            omask = mt_expand_multi(fmask, planes=[0], sw=mrad, sh=mrad)
+            omask = mt_expand_multi(fmask, planes=0, sw=mrad, sh=mrad)
         else:
             omask = fmask
         if msmooth > 0:
-            omask = mt_inflate_multi(omask, planes=[0], radius=msmooth)
+            omask = mt_inflate_multi(omask, planes=0, radius=msmooth)
         if incedge:
             ringmask = omask
         else:
             if minp > 3:
-                imask = fmask.std.Minimum(planes=[0]).std.Minimum(planes=[0])
+                imask = fmask.std.Minimum(planes=0).std.Minimum(planes=0)
             elif minp > 2:
-                imask = fmask.std.Inflate(planes=[0]).std.Minimum(planes=[0]).std.Minimum(planes=[0])
+                imask = fmask.std.Inflate(planes=0).std.Minimum(planes=0).std.Minimum(planes=0)
             elif minp > 1:
-                imask = fmask.std.Minimum(planes=[0])
+                imask = fmask.std.Minimum(planes=0)
             elif minp > 0:
-                imask = fmask.std.Inflate(planes=[0]).std.Minimum(planes=[0])
+                imask = fmask.std.Inflate(planes=0).std.Minimum(planes=0)
             else:
                 imask = fmask
             expr = f'x {peak} y - * {peak} /'
-            ringmask = core.std.Expr([omask, imask], expr=[expr] if isGray else [expr, ''])
+            ringmask = core.std.Expr([omask, imask], expr=expr if is_gray else [expr, ''])
 
     # Mask Merging & Output
     if show:
-        if isGray:
+        if is_gray:
             return ringmask
         else:
             return ringmask.std.Expr(expr=['', repr(neutral)])
