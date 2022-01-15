@@ -189,10 +189,8 @@ def santiag(
     '''
 
     def santiag_dir(c: vs.VideoNode, strength: int, type: str, fw: Optional[int] = None, fh: Optional[int] = None) -> vs.VideoNode:
-        if fw is None:
-            fw = c.width
-        if fh is None:
-            fh = c.height
+        fw = fallback(fw, c.width)
+        fh = fallback(fh, c.height)
 
         c = santiag_stronger(c, strength, type)
 
@@ -251,10 +249,8 @@ def santiag(
     if strv >= 0:
         c = santiag_dir(c.std.Transpose(), strv, typev, fh, fw).std.Transpose()
 
-    if fw is None:
-        fw = w
-    if fh is None:
-        fh = h
+    fw = fallback(fw, w)
+    fh = fallback(fh, h)
     if strh < 0 and strv < 0:
         c = c.resize.Spline36(fw, fh)
     return c
@@ -661,7 +657,7 @@ def FineDehalo(
     # Main edges #
 
     # Basic edge detection, thresholding will be applied later
-    edges = AvsPrewitt(src) if mask is None else mask
+    edges = fallback(mask, AvsPrewitt(src))
 
     # Keeps only the sharpest edges (line edges)
     strong = edges.std.Expr(expr=f'x {scale_value(thmi, 8, bits)} - {thma - thmi} / 255 *')
