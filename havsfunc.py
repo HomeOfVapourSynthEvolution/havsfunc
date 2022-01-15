@@ -891,8 +891,12 @@ def HQDeringmod(
     mthr: int = 60,
     minp: int = 1,
     nrmode: Optional[int] = None,
+    sigma: float = 128.0,
+    sigma2: Optional[float] = None,
+    sbsize: Optional[int] = None,
+    sosize: Optional[int] = None,
     sharp: int = 1,
-    drrep: int = 24,
+    drrep: Optional[int] = None,
     thr: float = 12.0,
     elast: float = 2.0,
     darkthr: Optional[float] = None,
@@ -918,9 +922,18 @@ def HQDeringmod(
         minp: Inpanding of prewitt edge mask, higher value means more aggressive processing.
 
         nrmode: Kernel of deringing.
+            0 = DFTTest
             1 = MinBlur(r=1)
             2 = MinBlur(r=2)
             3 = MinBlur(r=3)
+
+        sigma: Sigma for medium frequecies in DFTTest.
+
+        sigma2: Sigma for low & high frequecies in DFTTest.
+
+        sbsize: Length of the sides of the spatial window in DFTTest.
+
+        sosize: Spatial overlap amount in DFTTest.
 
         sharp: Whether to use contra-sharpening to resharp deringed clip, 1-3 represents radius, 0 means no sharpening.
 
@@ -964,12 +977,23 @@ def HQDeringmod(
     if isinstance(planes, int):
         planes = [planes]
 
-    nrmode = fallback(nrmode, 2 if input.width > 1024 or input.height > 576 else 1)
+    HD = input.width > 1024 or input.height > 576
+
+    nrmode = fallback(nrmode, 2 if HD else 1)
+    sigma2 = fallback(sigma2, sigma / 16)
+    sbsize = fallback(sbsize, 8 if HD else 6)
+    sosize = fallback(sosize, 6 if HD else 4)
+    drrep = fallback(drrep, 24 if nrmode > 0 else 0)
     darkthr = fallback(darkthr, thr / 4)
 
     # Kernel: Smoothing
     if smoothed is None:
-        smoothed = MinBlur(input, nrmode, planes)
+        if nrmode <= 0:
+            smoothed = input.dfttest.DFTTest(
+                sbsize=sbsize, sosize=sosize, tbsize=1, slocation=[0.0, sigma2, 0.05, sigma, 0.5, sigma, 0.75, sigma2, 1.0, 0.0], planes=planes
+            )
+        else:
+            smoothed = MinBlur(input, nrmode, planes)
 
     # Post-Process: Contra-Sharpening
     matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
