@@ -798,7 +798,7 @@ def FineDehalo2(
         showmask: Shows mask.
     '''
 
-    def grow_mask(mask: vs.VideoNode, coordinates: Sequence[int]):
+    def grow_mask(mask: vs.VideoNode, coordinates: Sequence[int]) -> vs.VideoNode:
         mask = mask.std.Maximum(coordinates=coordinates).std.Minimum(coordinates=coordinates)
         mask_1 = mask.std.Maximum(coordinates=coordinates)
         mask_2 = mask_1.std.Maximum(coordinates=coordinates).std.Maximum(coordinates=coordinates)
@@ -810,6 +810,8 @@ def FineDehalo2(
 
     if src.format.color_family == vs.RGB:
         raise vs.Error('FineDehalo2: RGB format is not supported')
+
+    is_float = src.format.sample_type == vs.FLOAT
 
     if src.format.color_family != vs.GRAY:
         src_orig = src
@@ -823,8 +825,14 @@ def FineDehalo2(
     mask_v = src.std.Convolution(matrix=[1, 0, -1, 2, 0, -2, 1, 0, -1], divisor=4, saturate=False)
     temp_h = core.std.Expr([mask_h, mask_v], expr='x 3 * y -')
     temp_v = core.std.Expr([mask_v, mask_h], expr='x 3 * y -')
+    if is_float:
+        temp_h = temp_h.std.Limiter()
+        temp_v = temp_v.std.Limiter()
     mask_h = grow_mask(temp_h, [0, 1, 0, 0, 0, 0, 1, 0])
     mask_v = grow_mask(temp_v, [0, 0, 0, 1, 1, 0, 0, 0])
+    if is_float:
+        mask_h = mask_h.std.Limiter()
+        mask_v = mask_v.std.Limiter()
 
     if not showmask:
         last = core.std.MaskedMerge(src, fix_h, mask_h)
