@@ -5770,7 +5770,17 @@ def mt_clamp(
     )
 
 
-def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, device_type=None, device_id=None):
+def KNLMeansCL(
+    clip: vs.VideoNode,
+    d: Optional[int] = None,
+    a: Optional[int] = None,
+    s: Optional[int] = None,
+    h: Optional[float] = None,
+    wmode: Optional[int] = None,
+    wref: Optional[float] = None,
+    device_type: Optional[str] = None,
+    device_id: Optional[int] = None,
+) -> vs.VideoNode:
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('KNLMeansCL: this is not a clip')
 
@@ -5779,9 +5789,11 @@ def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, devi
 
     if clip.format.subsampling_w > 0 or clip.format.subsampling_h > 0:
         return clip.knlm.KNLMeansCL(d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id).knlm.KNLMeansCL(
-                     channels='UV', d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
+            d=d, a=a, s=s, h=h, channels='UV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id
+        )
     else:
         return clip.knlm.KNLMeansCL(d=d, a=a, s=s, h=h, channels='YUV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
+
 
 # Available blend modes:
 #  normal
