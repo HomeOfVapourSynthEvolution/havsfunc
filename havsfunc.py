@@ -5679,7 +5679,9 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
         return out
 
 
-def AverageFrames(clip, weights, scenechange=None, planes=None):
+def AverageFrames(
+    clip: vs.VideoNode, weights: Union[float, Sequence[float]], scenechange: Optional[float] = None, planes: Optional[Union[int, Sequence[int]]] = None
+) -> vs.VideoNode:
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('AverageFrames: this is not a clip')
 
