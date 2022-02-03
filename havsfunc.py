@@ -46,7 +46,7 @@ Utility functions:
     AvsPrewitt
     Bob
     ChangeFPS
-    Clamp
+    mt_clamp
     KNLMeansCL
     Overlay
     Padding
@@ -1971,7 +1971,7 @@ def QTGMC(
         else:
             sharpLimit1 = core.rgvs.Repair(backBlend1, core.rgvs.Repair(backBlend1, edi, mode=12), mode=1)
     elif SLMode == 2:
-        sharpLimit1 = Clamp(backBlend1, tMax, tMin, SOvs, SOvs)
+        sharpLimit1 = mt_clamp(backBlend1, tMax, tMin, SOvs, SOvs)
     else:
         sharpLimit1 = backBlend1
 
@@ -2028,7 +2028,7 @@ def QTGMC(
         else:
             sharpLimit2 = core.rgvs.Repair(repair2, core.rgvs.Repair(repair2, edi, mode=12), mode=1)
     elif SLMode >= 4:
-        sharpLimit2 = Clamp(repair2, tMax, tMin, SOvs, SOvs)
+        sharpLimit2 = mt_clamp(repair2, tMax, tMin, SOvs, SOvs)
     else:
         sharpLimit2 = repair2
 
@@ -5600,9 +5600,9 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
             normsharp = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, normsharp))
 
     ### LIMIT
-    normal = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot, peak), scale(undershoot, peak))
-    second = Clamp(normsharp, bright_limit, dark_limit, scale(overshoot2, peak), scale(undershoot2, peak))
-    zero = Clamp(normsharp, bright_limit, dark_limit, 0, 0)
+    normal = mt_clamp(normsharp, bright_limit, dark_limit, scale(overshoot, peak), scale(undershoot, peak))
+    second = mt_clamp(normsharp, bright_limit, dark_limit, scale(overshoot2, peak), scale(undershoot2, peak))
+    zero = mt_clamp(normsharp, bright_limit, dark_limit, 0, 0)
 
     if edgemaskHQ:
         edge = tmp.std.Sobel(scale=2)
@@ -5742,7 +5742,7 @@ def ChangeFPS(clip: vs.VideoNode, fpsnum: int, fpsden: int = 1) -> vs.VideoNode:
     return attribute_clip.std.FrameEval(eval=frame_adjuster)
 
 
-def Clamp(
+def mt_clamp(
     clip: vs.VideoNode,
     bright_limit: vs.VideoNode,
     dark_limit: vs.VideoNode,
