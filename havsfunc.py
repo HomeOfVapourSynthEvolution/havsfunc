@@ -64,8 +64,9 @@ Utility functions:
 """
 
 import math
+from collections.abc import Mapping, Sequence
 from functools import partial
-from typing import Any, Mapping, Optional, Sequence, Union
+from typing import Any, Optional, Union
 
 import mvsfunc as mvf
 import vapoursynth as vs
