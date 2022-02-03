@@ -5727,13 +5727,13 @@ def Bob(clip: vs.VideoNode, b: float = 1 / 3, c: float = 1 / 3, tff: Optional[bo
     return clip
 
 
-def ChangeFPS(clip, fpsnum, fpsden=1):
+def ChangeFPS(clip: vs.VideoNode, fpsnum: int, fpsden: int = 1) -> vs.VideoNode:
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('ChangeFPS: this is not a clip')
 
     factor = (fpsnum / fpsden) * (clip.fps_den / clip.fps_num)
 
-    def frame_adjuster(n):
+    def frame_adjuster(n: int) -> vs.VideoNode:
         real_n = math.floor(n / factor)
         one_frame_clip = clip[real_n] * (len(clip) + 100)
         return one_frame_clip
