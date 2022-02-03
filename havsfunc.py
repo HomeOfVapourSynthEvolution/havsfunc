@@ -5690,7 +5690,7 @@ def AverageFrames(
     return clip.std.AverageFrames(weights=weights, scenechange=scenechange, planes=planes)
 
 
-def AvsPrewitt(clip, planes=None):
+def AvsPrewitt(clip: vs.VideoNode, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('AvsPrewitt: this is not a clip')
 
@@ -5699,11 +5699,15 @@ def AvsPrewitt(clip, planes=None):
     elif isinstance(planes, int):
         planes = [planes]
 
-    return core.std.Expr([clip.std.Convolution(matrix=[1, 1, 0, 1, 0, -1, 0, -1, -1], planes=planes, saturate=False),
-                          clip.std.Convolution(matrix=[1, 1, 1, 0, 0, 0, -1, -1, -1], planes=planes, saturate=False),
-                          clip.std.Convolution(matrix=[1, 0, -1, 1, 0, -1, 1, 0, -1], planes=planes, saturate=False),
-                          clip.std.Convolution(matrix=[0, -1, -1, 1, 0, -1, 1, 1, 0], planes=planes, saturate=False)],
-                          expr=['x y max z max a max' if i in planes else '' for i in range(clip.format.num_planes)])
+    return core.std.Expr(
+        [
+            clip.std.Convolution(matrix=[1, 1, 0, 1, 0, -1, 0, -1, -1], planes=planes, saturate=False),
+            clip.std.Convolution(matrix=[1, 1, 1, 0, 0, 0, -1, -1, -1], planes=planes, saturate=False),
+            clip.std.Convolution(matrix=[1, 0, -1, 1, 0, -1, 1, 0, -1], planes=planes, saturate=False),
+            clip.std.Convolution(matrix=[0, -1, -1, 1, 0, -1, 1, 1, 0], planes=planes, saturate=False),
+        ],
+        expr=['x y max z max a max' if plane in planes else '' for plane in range(clip.format.num_planes)],
+    )
 
 
 def Bob(clip, b=1/3, c=1/3, tff=None):
