@@ -5710,18 +5710,20 @@ def AvsPrewitt(clip: vs.VideoNode, planes: Optional[Union[int, Sequence[int]]] =
     )
 
 
-def Bob(clip, b=1/3, c=1/3, tff=None):
+def Bob(clip: vs.VideoNode, b: float = 1 / 3, c: float = 1 / 3, tff: Optional[bool] = None) -> vs.VideoNode:
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('Bob: this is not a clip')
 
-    if not isinstance(tff, bool):
-        raise vs.Error("Bob: 'tff' must be set. Setting tff to true means top field first and false means bottom field first")
+    if tff is None:
+        with clip.get_frame(0) as f:
+            if f.props.get('_FieldBased') not in [1, 2]:
+                raise vs.Error('Bob: tff was not specified and field order could not be determined from frame properties')
 
-    bits_per_sample = clip.format.bits_per_sample
+    bits = get_depth(clip)
     clip = clip.std.SeparateFields(tff=tff).fmtc.resample(scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0)
 
-    if clip.format.bits_per_sample != bits_per_sample:
-        clip = clip.fmtc.bitdepth(bits=bits_per_sample, dmode=1)
+    if get_depth(clip) != bits:
+        clip = clip.fmtc.bitdepth(bits=bits, dmode=1)
     return clip
 
 
