@@ -5742,7 +5742,14 @@ def ChangeFPS(clip: vs.VideoNode, fpsnum: int, fpsden: int = 1) -> vs.VideoNode:
     return attribute_clip.std.FrameEval(eval=frame_adjuster)
 
 
-def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=None):
+def Clamp(
+    clip: vs.VideoNode,
+    bright_limit: vs.VideoNode,
+    dark_limit: vs.VideoNode,
+    overshoot: int = 0,
+    undershoot: int = 0,
+    planes: Optional[Union[int, Sequence[int]]] = None,
+) -> vs.VideoNode:
     if not (isinstance(clip, vs.VideoNode) and isinstance(bright_limit, vs.VideoNode) and isinstance(dark_limit, vs.VideoNode)):
         raise vs.Error('Clamp: this is not a clip')
 
@@ -5754,8 +5761,13 @@ def Clamp(clip, bright_limit, dark_limit, overshoot=0, undershoot=0, planes=None
     elif isinstance(planes, int):
         planes = [planes]
 
-    expr = f'x y {overshoot} + > y {overshoot} + x ? z {undershoot} - < z {undershoot} - x y {overshoot} + > y {overshoot} + x ? ?'
-    return core.std.Expr([clip, bright_limit, dark_limit], expr=[expr if i in planes else '' for i in range(clip.format.num_planes)])
+    return core.std.Expr(
+        [clip, bright_limit, dark_limit],
+        expr=[
+            f'x y {overshoot} + > y {overshoot} + x ? z {undershoot} - < z {undershoot} - x y {overshoot} + > y {overshoot} + x ? ?' if plane in planes else ''
+            for plane in range(clip.format.num_planes)
+        ],
+    )
 
 
 def KNLMeansCL(clip, d=None, a=None, s=None, h=None, wmode=None, wref=None, device_type=None, device_id=None):
