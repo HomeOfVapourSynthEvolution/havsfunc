@@ -5984,14 +5984,21 @@ def Overlay(
     return last
 
 
-def Padding(clip, left=0, right=0, top=0, bottom=0):
+def Padding(clip: vs.VideoNode, left: int = 0, right: int = 0, top: int = 0, bottom: int = 0) -> vs.VideoNode:
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('Padding: this is not a clip')
 
     if left < 0 or right < 0 or top < 0 or bottom < 0:
         raise vs.Error('Padding: border size to pad must not be negative')
 
-    return clip.resize.Point(clip.width + left + right, clip.height + top + bottom, src_left=-left, src_top=-top, src_width=clip.width + left + right, src_height=clip.height + top + bottom)
+    return clip.resize.Point(
+        clip.width + left + right,
+        clip.height + top + bottom,
+        src_left=-left,
+        src_top=-top,
+        src_width=clip.width + left + right,
+        src_height=clip.height + top + bottom,
+    )
 
 
 def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None, a1=None, a2=None, invks=None, invkstaps=None, css=None, planes=None,
