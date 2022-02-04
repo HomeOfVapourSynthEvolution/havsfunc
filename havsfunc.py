@@ -6053,8 +6053,8 @@ def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None
         return last.fmtc.bitdepth(bits=bits, planes=planes2, fulls=fulls, fulld=fulld, dmode=dmode, ampo=ampo, ampn=ampn, dyn=dyn, staticnoise=staticnoise, patsize=patsize)
 
 
-def SCDetect(clip, threshold=None):
-    def copy_property(n, f):
+def SCDetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
+    def copy_property(n: int, f: vs.VideoFrame) -> vs.VideoFrame:
         fout = f[0].copy()
         fout.props['_SceneChangePrev'] = f[1].props['_SceneChangePrev']
         fout.props['_SceneChangeNext'] = f[1].props['_SceneChangeNext']
@@ -6066,10 +6066,11 @@ def SCDetect(clip, threshold=None):
     sc = clip
     if clip.format.color_family == vs.RGB:
         sc = clip.resize.Bicubic(format=vs.GRAY8, matrix_s='709')
-    sc = sc.misc.SCDetect(threshold=threshold)
 
+    sc = sc.misc.SCDetect(threshold=threshold)
     if clip.format.color_family == vs.RGB:
         sc = clip.std.ModifyFrame(clips=[clip, sc], selector=copy_property)
+
     return sc
 
 
