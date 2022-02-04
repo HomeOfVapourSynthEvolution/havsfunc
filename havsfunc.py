@@ -6081,37 +6081,42 @@ def Weave(clip: vs.VideoNode, tff: Optional[bool] = None) -> vs.VideoNode:
     return clip.std.DoubleWeave(tff=tff)[::2]
 
 
-########################################
-## Didée's functions:
+def ContraSharpening(
+    denoised: vs.VideoNode, original: vs.VideoNode, radius: Optional[int] = None, rep: int = 13, planes: Optional[Union[int, Sequence[int]]] = None
+) -> vs.VideoNode:
+    '''
+    contra-sharpening: sharpen the denoised clip, but don't add more to any pixel than what was removed previously.
 
-# contra-sharpening: sharpen the denoised clip, but don't add more to any pixel than what was removed previously.
-# script function from Didée, at the VERY GRAINY thread (http://forum.doom9.org/showthread.php?p=1076491#post1076491)
-#
-# Parameters:
-#  radius (int)   - Spatial radius for contra-sharpening (1-3). Default is 2 for HD / 1 for SD
-#  rep (int)      - Mode of repair to limit the difference. Default is 13
-#  planes (int[]) - Whether to process the corresponding plane. The other planes will be passed through unchanged.
-def ContraSharpening(denoised, original, radius=None, rep=13, planes=None):
+    Parameters:
+        radius: Spatial radius for contra-sharpening.
+
+        rep: Mode of repair to limit the difference.
+
+        planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
+    '''
     if not (isinstance(denoised, vs.VideoNode) and isinstance(original, vs.VideoNode)):
         raise vs.Error('ContraSharpening: this is not a clip')
 
     if denoised.format.id != original.format.id:
         raise vs.Error('ContraSharpening: clips must have the same format')
 
-    neutral = 1 << (denoised.format.bits_per_sample - 1)
+    neutral = 1 << (get_depth(denoised) - 1)
+
+    plane_range = range(denoised.format.num_planes)
 
     if planes is None:
-        planes = list(range(denoised.format.num_planes))
+        planes = list(plane_range)
     elif isinstance(planes, int):
         planes = [planes]
 
     if radius is None:
         radius = 2 if denoised.width > 1024 or denoised.height > 576 else 1
 
-    s = MinBlur(denoised, r=radius, planes=planes)                                                                   # damp down remaining spots of the denoised clip
-
     matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
     matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+
+    s = MinBlur(denoised, radius, planes)  # damp down remaining spots of the denoised clip
+    allD = core.std.MakeDiff(original, denoised, planes=planes)  # the difference achieved by the denoising
 
     if radius <= 1:
         RG11 = s.std.Convolution(matrix=matrix1, planes=planes)
@@ -6120,12 +6125,14 @@ def ContraSharpening(denoised, original, radius=None, rep=13, planes=None):
     else:
         RG11 = s.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
 
-    ssD = core.std.MakeDiff(s, RG11, planes=planes)                                                                  # the difference of a simple kernel blur
-    allD = core.std.MakeDiff(original, denoised, planes=planes)                                                      # the difference achieved by the denoising
-    ssDD = core.rgvs.Repair(ssD, allD, mode=[rep if i in planes else 0 for i in range(denoised.format.num_planes)])  # limit the difference to the max of what the denoising removed locally
-    expr = f'x {neutral} - abs y {neutral} - abs < x y ?'
-    ssDD = core.std.Expr([ssDD, ssD], expr=[expr if i in planes else '' for i in range(denoised.format.num_planes)]) # abs(diff) after limiting may not be bigger than before
-    return core.std.MergeDiff(denoised, ssDD, planes=planes)                                                         # apply the limited difference (sharpening is just inverse blurring)
+    ssD = core.std.MakeDiff(s, RG11, planes=planes)  # the difference of a simple kernel blur
+    ssDD = core.rgvs.Repair(
+        ssD, allD, mode=[rep if i in planes else 0 for i in plane_range]
+    )  # limit the difference to the max of what the denoising removed locally
+    ssDD = core.std.Expr(
+        [ssDD, ssD], expr=[f'x {neutral} - abs y {neutral} - abs < x y ?' if i in planes else '' for i in plane_range]
+    )  # abs(diff) after limiting may not be bigger than before
+    return core.std.MergeDiff(denoised, ssDD, planes=planes)  # apply the limited difference. (sharpening is just inverse blurring)
 
 
 # MinBlur   by Didée (http://avisynth.nl/index.php/MinBlur)
