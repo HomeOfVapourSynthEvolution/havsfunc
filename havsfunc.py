@@ -729,13 +729,13 @@ def FineDehalo(
         if showmask <= 0:
             return core.std.ShufflePlanes([last, src_orig], planes=[0, 1, 2], colorfamily=src_orig.format.color_family)
         elif showmask == 1:
-            return outside.resize.Bicubic(format=src_orig.format.id)
+            return outside.resize.Bicubic(format=src_orig.format)
         elif showmask == 2:
-            return shrink.resize.Bicubic(format=src_orig.format.id)
+            return shrink.resize.Bicubic(format=src_orig.format)
         elif showmask == 3:
-            return edges.resize.Bicubic(format=src_orig.format.id)
+            return edges.resize.Bicubic(format=src_orig.format)
         else:
-            return strong.resize.Bicubic(format=src_orig.format.id)
+            return strong.resize.Bicubic(format=src_orig.format)
     else:
         if showmask <= 0:
             return last
@@ -843,7 +843,7 @@ def FineDehalo2(
         if not showmask:
             last = core.std.ShufflePlanes([last, src_orig], planes=[0, 1, 2], colorfamily=src_orig.format.color_family)
         else:
-            last = last.resize.Bicubic(format=src_orig.format.id)
+            last = last.resize.Bicubic(format=src_orig.format)
     return last
 
 
