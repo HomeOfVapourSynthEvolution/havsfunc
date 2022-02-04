@@ -68,7 +68,7 @@ from typing import Any, Optional, Union
 
 import mvsfunc as mvf
 import vapoursynth as vs
-from vsutil import fallback, get_depth, get_y, join, plane, scale_value
+from vsutil import Dither, depth, fallback, get_depth, get_y, join, plane, scale_value
 
 core = vs.core
 
@@ -6143,14 +6143,17 @@ def ContraSharpening(
     return core.std.MergeDiff(denoised, ssDD, planes=planes)  # apply the limited difference. (sharpening is just inverse blurring)
 
 
-# MinBlur   by Didée (http://avisynth.nl/index.php/MinBlur)
-# Nifty Gauss/Median combination
-def MinBlur(clp, r=1, planes=None):
+def MinBlur(clp: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
+    '''Nifty Gauss/Median combination'''
+    from mvsfunc import LimitFilter
+
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('MinBlur: this is not a clip')
 
+    plane_range = range(clp.format.num_planes)
+
     if planes is None:
-        planes = list(range(clp.format.num_planes))
+        planes = list(plane_range)
     elif isinstance(planes, int):
         planes = [planes]
 
@@ -6168,15 +6171,14 @@ def MinBlur(clp, r=1, planes=None):
         RG4 = clp.ctmf.CTMF(radius=2, planes=planes)
     else:
         RG11 = clp.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
-        if clp.format.bits_per_sample == 16:
+        if get_depth(clp) == 16:
             s16 = clp
-            RG4 = clp.fmtc.bitdepth(bits=12, planes=planes, dmode=1).ctmf.CTMF(radius=3, planes=planes).fmtc.bitdepth(bits=16, planes=planes)
-            RG4 = mvf.LimitFilter(s16, RG4, thr=0.0625, elast=2, planes=planes)
+            RG4 = depth(clp, 12, dither_type=Dither.NONE).ctmf.CTMF(radius=3, planes=planes)
+            RG4 = LimitFilter(s16, depth(RG4, 16), thr=0.0625, elast=2, planes=planes)
         else:
             RG4 = clp.ctmf.CTMF(radius=3, planes=planes)
 
-    expr = 'x y - x z - * 0 < x x y - abs x z - abs < y z ? ?'
-    return core.std.Expr([clp, RG11, RG4], expr=[expr if i in planes else '' for i in range(clp.format.num_planes)])
+    return core.std.Expr([clp, RG11, RG4], expr=['x y - x z - * 0 < x x y - abs x z - abs < y z ? ?' if i in planes else '' for i in plane_range])
 
 
 # make a highpass on a blur's difference (well, kind of that)
