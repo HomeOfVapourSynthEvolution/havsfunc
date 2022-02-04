@@ -1111,6 +1111,7 @@ def QTGMC(
     PLevel: Optional[int] = None,
     GlobalMotion: bool = True,
     DCT: int = 0,
+    RefineMotion: bool = False,
     ThSAD1: int = 640,
     ThSAD2: int = 256,
     ThSCD1: int = 180,
@@ -1266,6 +1267,9 @@ def QTGMC(
         GlobalMotion: Whether to estimate camera motion to assist in selecting block motion vectors.
 
         DCT: Modes to use DCT (frequency analysis) or SATD as part of the block matching process - see MVTools2 documentation for choices.
+
+        RefineMotion: Refines and recalculates motion data of previously estimated motion vectors with new parameters set (e.g. lesser block size).
+            The two-stage method may be also useful for more stable (robust) motion estimation.
 
         ThSAD1: SAD threshold for block match on shimmer-removing temporal smooth (TR1). Increase to reduce bob-shimmer more (may smear/blur).
 
@@ -1599,8 +1603,7 @@ def QTGMC(
         ProgSADMask = 0.0
 
     # Get maximum temporal radius needed
-    maxTR = SLRad if temporalSL else 0
-    maxTR = max(maxTR, MatchTR2, TR1, TR2, NoiseTR)
+    maxTR = max(SLRad if temporalSL else 0, MatchTR2, TR1, TR2, NoiseTR)
     if (ProgSADMask > 0 or StabilizeNoise or ShutterBlur > 0) and maxTR < 1:
         maxTR = 1
 
@@ -1635,9 +1638,11 @@ def QTGMC(
     else:
         bobbed = clip.std.Convolution(matrix=[1, 2, 1], mode='v')
 
+    luma_threshold = scale_value(255, 8, bits)
+
     if ChromaMotion and not is_gray:
         CMplanes = [0, 1, 2]
-        CMts = scale_value(255, 8, bits)
+        CMts = luma_threshold
     else:
         CMplanes = [0]
         CMts = 0
@@ -1646,7 +1651,6 @@ def QTGMC(
     # kernels give equal weight to even and odd frames and hence average away the shimmer. The two kernels used are [1 2 1] and [1 4 6 4 1] for radius 1 and 2.
     # These kernels are approximately Gaussian kernels, which work well as a prefilter before motion analysis (hence the original name for this script)
     # Create linear weightings of neighbors first                              -2    -1    0     1     2
-    luma_threshold = scale_value(255, 8, bits)
     if TR0 > 0:
         ts1 = bobbed.focus2.TemporalSoften2(1, luma_threshold, CMts, 28, 2)  # 0.00  0.33  0.33  0.33  0.00
     if TR0 > 1:
@@ -1668,14 +1672,14 @@ def QTGMC(
     else:
         repair0 = QTGMC_KeepOnlyBobShimmerFixes(binomial0, bobbed, Rep0, RepChroma and ChromaMotion)
 
+    matrix = [1, 2, 1, 2, 4, 2, 1, 2, 1]
+
     # Blur image and soften edges to assist in motion matching of edge blocks. Blocks are matched by SAD (sum of absolute differences between blocks), but even
     # a slight change in an edge from frame to frame will give a high SAD due to the higher contrast of edges
     if SrchClipPP == 1:
-        spatialBlur = repair0.resize.Bilinear(w // 2, h // 2).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=CMplanes).resize.Bilinear(w, h)
+        spatialBlur = repair0.resize.Bilinear(w // 2, h // 2).std.Convolution(matrix=matrix, planes=CMplanes).resize.Bilinear(w, h)
     elif SrchClipPP >= 2:
-        spatialBlur = Resize(
-            repair0.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=CMplanes), w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=2, dmode=1
-        )
+        spatialBlur = Resize(repair0.std.Convolution(matrix=matrix, planes=CMplanes), w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=2, dmode=1)
         spatialBlur = core.std.Merge(spatialBlur, repair0, weight=0.1 if ChromaMotion or is_gray else [0.1, 0])
     if SrchClipPP <= 0:
         srchClip = repair0
@@ -1687,32 +1691,54 @@ def QTGMC(
         expr = 'x {i7} + y < x {i2} + x {i7} - y > x {i2} - x 51 * y 49 * + 100 / ? ?'.format(i7=scale_value(7, 8, bits), i2=scale_value(2, 8, bits))
         srchClip = core.std.Expr([spatialBlur, tweaked], expr=expr if ChromaMotion or is_gray else [expr, ''])
 
+    super_args = dict(pel=SubPel, hpad=hpad, vpad=vpad)
+    analyse_args = dict(
+        blksize=BlockSize,
+        overlap=Overlap,
+        search=Search,
+        searchparam=SearchParam,
+        pelsearch=PelSearch,
+        truemotion=TrueMotion,
+        lambda_=Lambda,
+        lsad=LSAD,
+        pnew=PNew,
+        plevel=PLevel,
+        global_=GlobalMotion,
+        dct=DCT,
+        chroma=ChromaMotion,
+    )
+    recalculate_args = dict(
+        thsad=ThSAD1 // 2,
+        blksize=max(BlockSize // 2, 4),
+        search=Search,
+        searchparam=SearchParam,
+        chroma=ChromaMotion,
+        truemotion=TrueMotion,
+        pnew=PNew,
+        overlap=max(Overlap // 2, 2),
+        dct=DCT,
+    )
+
     # Calculate forward and backward motion vectors from motion search clip
     if maxTR > 0:
-        analyse_args = dict(
-            blksize=BlockSize,
-            overlap=Overlap,
-            search=Search,
-            searchparam=SearchParam,
-            pelsearch=PelSearch,
-            truemotion=TrueMotion,
-            lambda_=Lambda,
-            lsad=LSAD,
-            pnew=PNew,
-            plevel=PLevel,
-            global_=GlobalMotion,
-            dct=DCT,
-            chroma=ChromaMotion,
-        )
-        srchSuper = DitherLumaRebuild(srchClip, chroma=ChromaMotion).mv.Super(pel=SubPel, sharp=SubPelInterp, hpad=hpad, vpad=vpad, chroma=ChromaMotion)
+        srchSuper = DitherLumaRebuild(srchClip, chroma=ChromaMotion).mv.Super(sharp=SubPelInterp, chroma=ChromaMotion, **super_args)
         bVec1 = srchSuper.mv.Analyse(isb=True, delta=1, **analyse_args)
         fVec1 = srchSuper.mv.Analyse(isb=False, delta=1, **analyse_args)
+        if RefineMotion:
+            bVec1 = core.mv.Recalculate(srchSuper, bVec1, **recalculate_args)
+            fVec1 = core.mv.Recalculate(srchSuper, fVec1, **recalculate_args)
     if maxTR > 1:
         bVec2 = srchSuper.mv.Analyse(isb=True, delta=2, **analyse_args)
         fVec2 = srchSuper.mv.Analyse(isb=False, delta=2, **analyse_args)
+        if RefineMotion:
+            bVec2 = core.mv.Recalculate(srchSuper, bVec2, **recalculate_args)
+            fVec2 = core.mv.Recalculate(srchSuper, fVec2, **recalculate_args)
     if maxTR > 2:
         bVec3 = srchSuper.mv.Analyse(isb=True, delta=3, **analyse_args)
         fVec3 = srchSuper.mv.Analyse(isb=False, delta=3, **analyse_args)
+        if RefineMotion:
+            bVec3 = core.mv.Recalculate(srchSuper, bVec3, **recalculate_args)
+            fVec3 = core.mv.Recalculate(srchSuper, fVec3, **recalculate_args)
 
     # ---------------------------------------
     # Noise Processing
@@ -1724,7 +1750,7 @@ def QTGMC(
         else:
             fullClip = Bob(clip, 0, 1, TFF)
     if NoiseTR > 0:
-        fullSuper = fullClip.mv.Super(pel=SubPel, levels=1, hpad=hpad, vpad=vpad, chroma=ChromaNoise)  # TEST chroma OK?
+        fullSuper = fullClip.mv.Super(levels=1, chroma=ChromaNoise, **super_args)  # TEST chroma OK?
 
     CNplanes = [0, 1, 2] if ChromaNoise and not is_gray else [0]
 
@@ -1789,7 +1815,7 @@ def QTGMC(
 
             # Motion-compensated stabilization of generated noise
             if StabilizeNoise:
-                noiseSuper = deintNoise.mv.Super(pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad, chroma=ChromaNoise)
+                noiseSuper = deintNoise.mv.Super(sharp=SubPelInterp, levels=1, chroma=ChromaNoise, **super_args)
                 mcNoise = core.mv.Compensate(deintNoise, noiseSuper, bVec1, thscd1=ThSCD1, thscd2=ThSCD2)
                 expr = f'x {neutral} - abs y {neutral} - abs > x y ? 0.6 * x y + 0.2 * +'
                 finalNoise = core.std.Expr([deintNoise, mcNoise], expr=expr if ChromaNoise or is_gray else [expr, ''])
@@ -1830,7 +1856,7 @@ def QTGMC(
 
     # Get the max/min value for each pixel over neighboring motion-compensated frames - used for temporal sharpness limiting
     if TR1 > 0 or temporalSL:
-        ediSuper = edi.mv.Super(pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
+        ediSuper = edi.mv.Super(sharp=SubPelInterp, levels=1, **super_args)
     if temporalSL:
         bComp1 = core.mv.Compensate(edi, ediSuper, bVec1, thscd1=ThSCD1, thscd2=ThSCD2)
         fComp1 = core.mv.Compensate(edi, ediSuper, fVec1, thscd1=ThSCD1, thscd2=ThSCD2)
@@ -1923,14 +1949,14 @@ def QTGMC(
     if SMode <= 0:
         resharp = lossed1
     elif SMode == 1:
-        resharp = core.std.Expr([lossed1, lossed1.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])], expr=f'x x y - {sharpAdj} * +')
+        resharp = core.std.Expr([lossed1, lossed1.std.Convolution(matrix=matrix)], expr=f'x x y - {sharpAdj} * +')
     else:
         vresharp1 = core.std.Merge(lossed1.std.Maximum(coordinates=[0, 1, 0, 0, 0, 0, 1, 0]), lossed1.std.Minimum(coordinates=[0, 1, 0, 0, 0, 0, 1, 0]))
         if Precise:  # Precise mode: reduce tiny overshoot
             vresharp = core.std.Expr([vresharp1, lossed1], expr='x y < x {i1} + x y > x {i1} - x ? ?'.format(i1=scale_value(1, 8, bits)))
         else:
             vresharp = vresharp1
-        resharp = core.std.Expr([lossed1, vresharp.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])], expr=f'x x y - {sharpAdj} * +')
+        resharp = core.std.Expr([lossed1, vresharp.std.Convolution(matrix=matrix)], expr=f'x x y - {sharpAdj} * +')
 
     # Slightly thin down 1-pixel high horizontal edges that have been widened into neigboring field lines by the interpolator
     SVThinSc = SVThin * 6.0
@@ -1939,7 +1965,7 @@ def QTGMC(
         vertMedD = core.std.Expr([lossed1, lossed1.rgvs.VerticalCleaner(mode=1 if is_gray else [1, 0])], expr=expr if is_gray else [expr, ''])
         vertMedD = vertMedD.std.Convolution(matrix=[1, 2, 1], planes=0, mode='h')
         expr = f'y {neutral} - abs x {neutral} - abs > y {neutral} ?'
-        neighborD = core.std.Expr([vertMedD, vertMedD.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=0)], expr=expr if is_gray else [expr, ''])
+        neighborD = core.std.Expr([vertMedD, vertMedD.std.Convolution(matrix=matrix, planes=0)], expr=expr if is_gray else [expr, ''])
         thin = core.std.MergeDiff(resharp, neighborD, planes=0)
     else:
         thin = resharp
@@ -1951,7 +1977,7 @@ def QTGMC(
         backBlend1 = core.std.MakeDiff(
             thin,
             Resize(
-                core.std.MakeDiff(thin, lossed1, planes=0).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=0),
+                core.std.MakeDiff(thin, lossed1, planes=0).std.Convolution(matrix=matrix, planes=0),
                 w,
                 h,
                 sw=w + epsilon,
@@ -1982,7 +2008,7 @@ def QTGMC(
         backBlend2 = core.std.MakeDiff(
             sharpLimit1,
             Resize(
-                core.std.MakeDiff(sharpLimit1, lossed1, planes=0).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=0),
+                core.std.MakeDiff(sharpLimit1, lossed1, planes=0).std.Convolution(matrix=matrix, planes=0),
                 w,
                 h,
                 sw=w + epsilon,
@@ -2004,7 +2030,7 @@ def QTGMC(
 
     # Final light linear temporal smooth for denoising
     if TR2 > 0:
-        stableSuper = addNoise1.mv.Super(pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
+        stableSuper = addNoise1.mv.Super(sharp=SubPelInterp, levels=1, **super_args)
     if TR2 <= 0:
         stable = addNoise1
     elif TR2 == 1:
@@ -2059,10 +2085,8 @@ def QTGMC(
 
     # ShutterBlur mode 2,3 - get finer resolution motion vectors to reduce blur "bleeding" into static areas
     rBlockDivide = [1, 1, 2, 4][ShutterBlur]
-    rBlockSize = BlockSize // rBlockDivide
-    rOverlap = Overlap // rBlockDivide
-    rBlockSize = max(rBlockSize, 4)
-    rOverlap = max(rOverlap, 2)
+    rBlockSize = max(BlockSize // rBlockDivide, 4)
+    rOverlap = max(Overlap // rBlockDivide, 2)
     rBlockDivide = BlockSize // rBlockSize
     rLambda = Lambda // (rBlockDivide * rBlockDivide)
     if ShutterBlur > 1:
@@ -2086,7 +2110,7 @@ def QTGMC(
 
     # Shutter motion blur - use MFlowBlur to blur along motion vectors
     if ShutterBlur > 0:
-        sblurSuper = addNoise2.mv.Super(pel=SubPel, sharp=SubPelInterp, levels=1, hpad=hpad, vpad=vpad)
+        sblurSuper = addNoise2.mv.Super(sharp=SubPelInterp, levels=1, **super_args)
         sblur = core.mv.FlowBlur(addNoise2, sblurSuper, sbBVec1, sbFVec1, blur=blurLevel, thscd1=ThSCD1, thscd2=ThSCD2)
 
     # Shutter motion blur - use motion mask to reduce blurring in areas of low motion - also helps reduce blur "bleeding" into static areas, then select blur type
