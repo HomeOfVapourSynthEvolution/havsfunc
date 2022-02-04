@@ -6074,9 +6074,14 @@ def SCDetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
     return sc
 
 
-def Weave(clip, tff):
+def Weave(clip: vs.VideoNode, tff: Optional[bool] = None) -> vs.VideoNode:
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('Weave: this is not a clip')
+
+    if tff is None:
+        with clip.get_frame(0) as f:
+            if f.props.get('_FieldBased') not in [1, 2]:
+                raise vs.Error('Weave: tff was not specified and field order could not be determined from frame properties')
 
     return clip.std.DoubleWeave(tff=tff)[::2]
 
