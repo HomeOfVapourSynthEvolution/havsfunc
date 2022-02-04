@@ -5775,23 +5775,18 @@ def mt_clamp(
     planes: Optional[Union[int, Sequence[int]]] = None,
 ) -> vs.VideoNode:
     if not (isinstance(clip, vs.VideoNode) and isinstance(bright_limit, vs.VideoNode) and isinstance(dark_limit, vs.VideoNode)):
-        raise vs.Error('Clamp: this is not a clip')
+        raise vs.Error('mt_clamp: this is not a clip')
 
     if bright_limit.format.id != clip.format.id or dark_limit.format.id != clip.format.id:
-        raise vs.Error('Clamp: clips must have the same format')
+        raise vs.Error('mt_clamp: clips must have the same format')
 
     if planes is None:
         planes = list(range(clip.format.num_planes))
     elif isinstance(planes, int):
         planes = [planes]
 
-    return core.std.Expr(
-        [clip, bright_limit, dark_limit],
-        expr=[
-            f'x y {overshoot} + > y {overshoot} + x ? z {undershoot} - < z {undershoot} - x y {overshoot} + > y {overshoot} + x ? ?' if plane in planes else ''
-            for plane in range(clip.format.num_planes)
-        ],
-    )
+    expr = 'x y min z max' if overshoot == 0 and undershoot == 0 else f'x y {overshoot} + min z {undershoot} - max'
+    return core.std.Expr([clip, bright_limit, dark_limit], expr=[expr if plane in planes else '' for plane in range(clip.format.num_planes)])
 
 
 def KNLMeansCL(
