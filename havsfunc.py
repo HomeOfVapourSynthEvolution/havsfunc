@@ -5819,51 +5819,55 @@ def KNLMeansCL(
         return clip.knlm.KNLMeansCL(d=d, a=a, s=s, h=h, channels='YUV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
 
 
-# Available blend modes:
-#  normal
-#  addition
-#  average
-#  burn
-#  darken
-#  difference
-#  divide
-#  dodge
-#  exclusion
-#  extremity
-#  freeze
-#  glow
-#  grainextract
-#  grainmerge
-#  hardlight
-#  hardmix
-#  heat
-#  lighten
-#  linearlight
-#  multiply
-#  negation
-#  overlay
-#  phoenix
-#  pinlight
-#  reflect
-#  screen
-#  softlight
-#  subtract
-#  vividlight
-def Overlay(base, overlay, x=0, y=0, mask=None, opacity=1.0, mode='normal', planes=None, mask_first_plane=True):
+def Overlay(
+    base: vs.VideoNode,
+    overlay: vs.VideoNode,
+    x: int = 0,
+    y: int = 0,
+    mask: Optional[vs.VideoNode] = None,
+    opacity: float = 1.0,
+    mode: str = 'normal',
+    planes: Optional[Union[int, Sequence[int]]] = None,
+    mask_first_plane: bool = True,
+) -> vs.VideoNode:
+    '''
+    Puts clip overlay on top of clip base using different blend modes, and with optional x,y positioning, masking and opacity.
+
+    Parameters:
+        base: This clip will be the base, determining the size and all other video properties of the result.
+
+        overlay: This is the image that will be placed on top of the base clip.
+
+        x, y: Define the placement of the overlay image on the base clip, in pixels. Can be positive or negative.
+
+        mask: Optional transparency mask. Must be the same size as overlay. Where mask is darker, overlay will be more transparent.
+
+        opacity: Set overlay transparency. The value is from 0.0 to 1.0, where 0.0 is transparent and 1.0 is fully opaque.
+            This value is multiplied by mask luminance to form the final opacity.
+
+        mode: Defines how your overlay should be blended with your base image. Available blend modes are:
+            addition, average, burn, darken, difference, divide, dodge, exclusion, extremity, freeze, glow, grainextract, grainmerge, hardlight, hardmix, heat,
+            lighten, linearlight, multiply, negation, normal, overlay, phoenix, pinlight, reflect, screen, softlight, subtract, vividlight
+
+        planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
+
+        mask_first_plane: If true, only the mask's first plane will be used for transparency.
+    '''
     if not (isinstance(base, vs.VideoNode) and isinstance(overlay, vs.VideoNode)):
         raise vs.Error('Overlay: this is not a clip')
 
     if mask is not None:
         if not isinstance(mask, vs.VideoNode):
-            raise vs.Error("Overlay: 'mask' is not a clip")
+            raise vs.Error('Overlay: mask is not a clip')
 
-        if mask.width != overlay.width or mask.height != overlay.height or mask.format.bits_per_sample != overlay.format.bits_per_sample:
-            raise vs.Error("Overlay: 'mask' must have the same dimensions and bit depth as 'overlay'")
+        if mask.width != overlay.width or mask.height != overlay.height or get_depth(mask) != get_depth(overlay):
+            raise vs.Error('Overlay: mask must have the same dimensions and bit depth as overlay')
 
     if base.format.sample_type == vs.INTEGER:
-        neutral = 1 << (base.format.bits_per_sample - 1)
-        peak = (1 << base.format.bits_per_sample) - 1
-        factor = 1 << base.format.bits_per_sample
+        bits = get_depth(base)
+        neutral = 1 << (bits - 1)
+        peak = (1 << bits) - 1
+        factor = 1 << bits
     else:
         neutral = 0.5
         peak = factor = 1.0
@@ -5883,7 +5887,7 @@ def Overlay(base, overlay, x=0, y=0, mask=None, opacity=1.0, mode='normal', plan
         overlay = overlay.resize.Point(format=base.format)
 
     if mask is None:
-        mask = overlay.std.BlankClip(format=overlay.format.replace(color_family=vs.GRAY, subsampling_w=0, subsampling_h=0), color=[peak])
+        mask = overlay.std.BlankClip(format=overlay.format.replace(color_family=vs.GRAY, subsampling_w=0, subsampling_h=0), color=peak)
     elif mask.format.id != overlay.format.id and mask.format.color_family != vs.GRAY:
         mask = mask.resize.Point(format=overlay.format, range_s='full')
 
@@ -5907,7 +5911,7 @@ def Overlay(base, overlay, x=0, y=0, mask=None, opacity=1.0, mode='normal', plan
     mask = mask.std.AddBorders(left=pl, right=pr, top=pt, bottom=pb, color=[0] * mask.format.num_planes)
 
     if opacity < 1:
-        mask = mask.std.Expr(expr=[f'x {opacity} *'])
+        mask = mask.std.Expr(expr=f'x {opacity} *')
 
     if mode == 'normal':
         pass
@@ -5959,7 +5963,7 @@ def Overlay(base, overlay, x=0, y=0, mask=None, opacity=1.0, mode='normal', plan
         expr = f'y {neutral} < x 2 y * min x 2 y {neutral} - * max ?'
     elif mode == 'reflect':
         expr = f'y {peak} >= y x x * {peak} y - / ?'
-    elif mode =='screen':
+    elif mode == 'screen':
         expr = f'{peak} {peak} x - {peak} y - * {peak} / -'
     elif mode == 'softlight':
         expr = f'x {neutral} > y {peak} y - x {neutral} - * {neutral} / 0.5 y {neutral} - abs {peak} / - * + y y {neutral} x - {neutral} / * 0.5 y {neutral} - abs {peak} / - * - ?'
@@ -5968,13 +5972,13 @@ def Overlay(base, overlay, x=0, y=0, mask=None, opacity=1.0, mode='normal', plan
     elif mode == 'vividlight':
         expr = f'x {neutral} < x 0 <= 2 x * {peak} {peak} y - {factor} * 2 x * / - ? 2 x {neutral} - * {peak} >= 2 x {neutral} - * y {factor} * {peak} 2 x {neutral} - * - / ? ?'
     else:
-        raise vs.Error("Overlay: invalid 'mode' specified")
+        raise vs.Error('Overlay: invalid mode specified')
 
     if mode != 'normal':
-        overlay = core.std.Expr([overlay, base], expr=[expr if i in planes else '' for i in range(base.format.num_planes)])
-    last = core.std.MaskedMerge(base, overlay, mask, planes=planes, first_plane=mask_first_plane)
+        overlay = core.std.Expr([overlay, base], expr=[expr if plane in planes else '' for plane in range(base.format.num_planes)])
 
     # Return padded clip
+    last = core.std.MaskedMerge(base, overlay, mask, planes=planes, first_plane=mask_first_plane)
     if base_orig is not None:
         last = last.resize.Point(format=base_orig.format)
     return last
