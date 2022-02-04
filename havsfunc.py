@@ -977,6 +977,8 @@ def HQDeringmod(
     neutral = 1 << (bits - 1)
     peak = (1 << bits) - 1
 
+    plane_range = range(input.format.num_planes)
+
     if isinstance(planes, int):
         planes = [planes]
 
@@ -1016,9 +1018,9 @@ def HQDeringmod(
             )
         sharpdiff = core.std.MakeDiff(pre, method, planes=planes)
         allD = core.std.MakeDiff(input, smoothed, planes=planes)
-        ssDD = core.rgvs.Repair(sharpdiff, allD, mode=[1 if i in planes else 0 for i in range(input.format.num_planes)])
+        ssDD = core.rgvs.Repair(sharpdiff, allD, mode=[1 if i in planes else 0 for i in plane_range])
         ssDD = core.std.Expr(
-            [ssDD, sharpdiff], expr=[f'x {neutral} - abs y {neutral} - abs <= x y ?' if i in planes else '' for i in range(input.format.num_planes)]
+            [ssDD, sharpdiff], expr=[f'x {neutral} - abs y {neutral} - abs <= x y ?' if i in planes else '' for i in plane_range]
         )
         sclp = core.std.MergeDiff(smoothed, ssDD, planes=planes)
 
@@ -1026,7 +1028,7 @@ def HQDeringmod(
     if drrep <= 0:
         repclp = sclp
     else:
-        repclp = core.rgvs.Repair(input, sclp, mode=[drrep if i in planes else 0 for i in range(input.format.num_planes)])
+        repclp = core.rgvs.Repair(input, sclp, mode=[drrep if i in planes else 0 for i in plane_range])
 
     # Post-Process: Limiting
     if (thr <= 0 and darkthr <= 0) or (thr >= 255 and darkthr >= 255):
@@ -5718,8 +5720,10 @@ def AvsPrewitt(clip: vs.VideoNode, planes: Optional[Union[int, Sequence[int]]] =
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('AvsPrewitt: this is not a clip')
 
+    plane_range = range(clip.format.num_planes)
+
     if planes is None:
-        planes = list(range(clip.format.num_planes))
+        planes = list(plane_range)
     elif isinstance(planes, int):
         planes = [planes]
 
@@ -5730,7 +5734,7 @@ def AvsPrewitt(clip: vs.VideoNode, planes: Optional[Union[int, Sequence[int]]] =
             clip.std.Convolution(matrix=[1, 0, -1, 1, 0, -1, 1, 0, -1], planes=planes, saturate=False),
             clip.std.Convolution(matrix=[0, -1, -1, 1, 0, -1, 1, 1, 0], planes=planes, saturate=False),
         ],
-        expr=['x y max z max a max' if plane in planes else '' for plane in range(clip.format.num_planes)],
+        expr=['x y max z max a max' if i in planes else '' for i in plane_range],
     )
 
 
@@ -5780,13 +5784,15 @@ def mt_clamp(
     if bright_limit.format.id != clip.format.id or dark_limit.format.id != clip.format.id:
         raise vs.Error('mt_clamp: clips must have the same format')
 
+    plane_range = range(clip.format.num_planes)
+
     if planes is None:
-        planes = list(range(clip.format.num_planes))
+        planes = list(plane_range)
     elif isinstance(planes, int):
         planes = [planes]
 
     expr = 'x y min z max' if overshoot == 0 and undershoot == 0 else f'x y {overshoot} + min z {undershoot} - max'
-    return core.std.Expr([clip, bright_limit, dark_limit], expr=[expr if plane in planes else '' for plane in range(clip.format.num_planes)])
+    return core.std.Expr([clip, bright_limit, dark_limit], expr=[expr if i in planes else '' for i in plane_range])
 
 
 def KNLMeansCL(
@@ -5867,8 +5873,10 @@ def Overlay(
         neutral = 0.5
         peak = factor = 1.0
 
+    plane_range = range(base.format.num_planes)
+
     if planes is None:
-        planes = list(range(base.format.num_planes))
+        planes = list(plane_range)
     elif isinstance(planes, int):
         planes = [planes]
 
@@ -5970,7 +5978,7 @@ def Overlay(
         raise vs.Error('Overlay: invalid mode specified')
 
     if mode != 'normal':
-        overlay = core.std.Expr([overlay, base], expr=[expr if plane in planes else '' for plane in range(base.format.num_planes)])
+        overlay = core.std.Expr([overlay, base], expr=[expr if i in planes else '' for i in plane_range])
 
     # Return padded clip
     last = core.std.MaskedMerge(base, overlay, mask, planes=planes, first_plane=mask_first_plane)
