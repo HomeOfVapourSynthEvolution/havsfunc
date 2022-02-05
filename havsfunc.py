@@ -6356,21 +6356,21 @@ def mt_inpand_multi(src: vs.VideoNode, mode: str = 'rectangle', planes: Optional
     return src
 
 
-def mt_inflate_multi(src, planes=None, radius=1):
+def mt_inflate_multi(src: vs.VideoNode, planes: Optional[Union[int, Sequence[int]]] = None, radius: int = 1) -> vs.VideoNode:
     if not isinstance(src, vs.VideoNode):
         raise vs.Error('mt_inflate_multi: this is not a clip')
 
-    for i in range(radius):
-        src = core.std.Inflate(src, planes=planes)
+    for _ in range(radius):
+        src = src.std.Inflate(planes=planes)
     return src
 
 
-def mt_deflate_multi(src, planes=None, radius=1):
+def mt_deflate_multi(src: vs.VideoNode, planes: Optional[Union[int, Sequence[int]]] = None, radius: int = 1) -> vs.VideoNode:
     if not isinstance(src, vs.VideoNode):
         raise vs.Error('mt_deflate_multi: this is not a clip')
 
-    for i in range(radius):
-        src = core.std.Deflate(src, planes=planes)
+    for _ in range(radius):
+        src = src.std.Deflate(planes=planes)
     return src
 
 
