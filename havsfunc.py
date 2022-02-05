@@ -5791,8 +5791,7 @@ def mt_clamp(
     elif isinstance(planes, int):
         planes = [planes]
 
-    expr = 'x y min z max' if overshoot == 0 and undershoot == 0 else f'x y {overshoot} + min z {undershoot} - max'
-    return core.std.Expr([clip, bright_limit, dark_limit], expr=[expr if i in planes else '' for i in plane_range])
+    return core.std.Expr([clip, bright_limit, dark_limit], expr=[f'x y {overshoot} + min z {undershoot} - max' if i in planes else '' for i in plane_range])
 
 
 def KNLMeansCL(
