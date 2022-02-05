@@ -2511,15 +2511,22 @@ def QTGMC_ApplySourceMatch(
     return core.std.MergeDiff(match1Shp, match3)
 
 
-# based on smartfade v0.2 by martino - Aimed at removing interlaced fades in anime. Uses luma difference between two fields as activation threshold.
-# mod by thetoof : removed degrainmedian post-processing
-#                  changed how the fields are blended together (average of 2 nnedi interpolations + contra-sharpening to retain more detail)
-#
-# Parameters:
-#  threshold (float) - Threshold for fade detection. Default is 0.4
-#  show (bool)       - Display luma difference between fields without processing anything. Default is false
-def smartfademod(clip, threshold=0.4, show=False, tff=None):
-    def frame_eval(n, f, orig, defade):
+def smartfademod(clip: vs.VideoNode, threshold: float = 0.4, show: bool = False, tff: Optional[bool] = None) -> vs.VideoNode:
+    '''
+    Aimed at removing interlaced fades in anime. Uses luma difference between two fields as activation threshold.
+
+    Parameters:
+        clip: Clip to process.
+
+        threshold: Threshold for fade detection.
+
+        show: Displays luma difference between fields without processing anything.
+
+        tff: Since VapourSynth only has a weak notion of field order internally, tff may have to be set. Setting tff to true means top field first and false
+            means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over tff.
+    '''
+
+    def frame_eval(n: int, f: Sequence[vs.VideoFrame], orig: vs.VideoNode, defade: vs.VideoNode) -> vs.VideoNode:
         diff = abs(f[0].props['PlaneStatsAverage'] - f[1].props['PlaneStatsAverage']) * 255
         if show:
             return orig.text.Text(text=diff)
@@ -2528,13 +2535,16 @@ def smartfademod(clip, threshold=0.4, show=False, tff=None):
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('smartfademod: this is not a clip')
 
-    if not isinstance(tff, bool):
-        raise vs.Error("smartfademod: 'tff' must be set. Setting tff to true means top field first and false means bottom field first")
+    if tff is None:
+        with clip.get_frame(0) as f:
+            if f.props.get('_FieldBased') not in [1, 2]:
+                raise vs.Error('smartfademod: tff was not specified and field order could not be determined from frame properties')
 
     sep = clip.std.SeparateFields(tff=tff)
     even = sep[::2].std.PlaneStats()
     odd = sep[1::2].std.PlaneStats()
-    return clip.std.FrameEval(eval=partial(frame_eval, orig=clip, defade=daa(clip)), prop_src=[even, odd])
+    defade = daa(clip)
+    return clip.std.FrameEval(eval=partial(frame_eval, orig=clip, defade=defade), prop_src=[even, odd], clip_src=[clip, defade])
 
 
 ###### srestore v2.7e ######
