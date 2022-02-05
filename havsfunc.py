@@ -6374,11 +6374,11 @@ def mt_deflate_multi(src: vs.VideoNode, planes: Optional[Union[int, Sequence[int
     return src
 
 
-def cround(x):
+def cround(x: float) -> int:
     return math.floor(x + 0.5) if x > 0 else math.ceil(x - 0.5)
 
 
-def m4(x):
+def m4(x: Union[float, int]) -> int:
     return 16 if x < 16 else cround(x / 4) * 4
 
 
