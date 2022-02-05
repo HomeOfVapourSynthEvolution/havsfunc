@@ -6290,24 +6290,22 @@ def DitherLumaRebuild(src: vs.VideoNode, s0: float = 2.0, c: float = 0.0625, chr
     return src.std.Expr(expr=e if is_gray else [e, f'x {neutral} - 128 * 112 / {neutral} +' if chroma and is_integer else ''])
 
 
-#=============================================================================
-#   mt_expand_multi
-#   mt_inpand_multi
-#
-#   Calls mt_expand or mt_inpand multiple times in order to grow or shrink
-#   the mask from the desired width and height.
-#
-#   Parameters:
-#   - sw   : Growing/shrinking shape width. 0 is allowed. Default: 1
-#   - sh   : Growing/shrinking shape height. 0 is allowed. Default: 1
-#   - mode : "rectangle" (default), "ellipse" or "losange". Replaces the
-#       mt_xxpand mode. Ellipses are actually combinations of
-#       rectangles and losanges and look more like octogons.
-#       Losanges are truncated (not scaled) when sw and sh are not
-#       equal.
-#   Other parameters are the same as mt_xxpand.
-#=============================================================================
-def mt_expand_multi(src, mode='rectangle', planes=None, sw=1, sh=1):
+def mt_expand_multi(src: vs.VideoNode, mode: str = 'rectangle', planes: Optional[Union[int, Sequence[int]]] = None, sw: int = 1, sh: int = 1) -> vs.VideoNode:
+    '''
+    Calls std.Maximum multiple times in order to grow the mask from the desired width and height.
+
+    Parameters:
+        src: Clip to process.
+
+        mode: "rectangle", "ellipse" or "losange". Ellipses are actually combinations of rectangles and losanges and look more like octogons.
+            Losanges are truncated (not scaled) when sw and sh are not equal.
+
+        planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
+
+        sw: Growing shape width. 0 is allowed.
+
+        sh: Growing shape height. 0 is allowed.
+    '''
     if not isinstance(src, vs.VideoNode):
         raise vs.Error('mt_expand_multi: this is not a clip')
 
@@ -6325,7 +6323,22 @@ def mt_expand_multi(src, mode='rectangle', planes=None, sw=1, sh=1):
     return src
 
 
-def mt_inpand_multi(src, mode='rectangle', planes=None, sw=1, sh=1):
+def mt_inpand_multi(src: vs.VideoNode, mode: str = 'rectangle', planes: Optional[Union[int, Sequence[int]]] = None, sw: int = 1, sh: int = 1) -> vs.VideoNode:
+    '''
+    Calls std.Minimum multiple times in order to shrink the mask from the desired width and height.
+
+    Parameters:
+        src: Clip to process.
+
+        mode: "rectangle", "ellipse" or "losange". Ellipses are actually combinations of rectangles and losanges and look more like octogons.
+            Losanges are truncated (not scaled) when sw and sh are not equal.
+
+        planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
+
+        sw: Shrinking shape width. 0 is allowed.
+
+        sh: Shrinking shape height. 0 is allowed.
+    '''
     if not isinstance(src, vs.VideoNode):
         raise vs.Error('mt_inpand_multi: this is not a clip')
 
