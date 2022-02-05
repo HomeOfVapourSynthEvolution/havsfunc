@@ -6089,12 +6089,16 @@ def Weave(clip: vs.VideoNode, tff: Optional[bool] = None) -> vs.VideoNode:
 
 
 def ContraSharpening(
-    denoised: vs.VideoNode, original: vs.VideoNode, radius: Optional[int] = None, rep: int = 13, planes: Optional[Union[int, Sequence[int]]] = None
+    denoised: vs.VideoNode, original: vs.VideoNode, radius: Optional[int] = None, rep: int = 1, planes: Optional[Union[int, Sequence[int]]] = None
 ) -> vs.VideoNode:
     '''
     contra-sharpening: sharpen the denoised clip, but don't add more to any pixel than what was removed previously.
 
     Parameters:
+        denoised: Denoised clip to sharpen.
+
+        original: Original clip before denoising.
+
         radius: Spatial radius for contra-sharpening.
 
         rep: Mode of repair to limit the difference.
