@@ -6270,28 +6270,24 @@ def sbrV(c: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]
     return core.std.MakeDiff(c, RG11DD, planes=planes)
 
 
-########################################
-## cretindesalpes' functions:
-
-# Converts luma (and chroma) to PC levels, and optionally allows tweaking for pumping up the darks. (for the clip to be fed to motion search only)
-# By courtesy of cretindesalpes. (http://forum.doom9.org/showthread.php?p=1548318#post1548318)
-def DitherLumaRebuild(src, s0=2.0, c=0.0625, chroma=True):
+def DitherLumaRebuild(src: vs.VideoNode, s0: float = 2.0, c: float = 0.0625, chroma: bool = True) -> vs.VideoNode:
+    '''Converts luma (and chroma) to PC levels, and optionally allows tweaking for pumping up the darks. (for the clip to be fed to motion search only)'''
     if not isinstance(src, vs.VideoNode):
         raise vs.Error('DitherLumaRebuild: this is not a clip')
 
     if src.format.color_family == vs.RGB:
         raise vs.Error('DitherLumaRebuild: RGB format is not supported')
 
-    isGray = (src.format.color_family == vs.GRAY)
-    isInteger = (src.format.sample_type == vs.INTEGER)
+    is_gray = src.format.color_family == vs.GRAY
+    is_integer = src.format.sample_type == vs.INTEGER
 
-    shift = src.format.bits_per_sample - 8
-    neutral = 128 << shift if isInteger else 0.0
+    bits = get_depth(src)
+    neutral = 1 << (bits - 1)
 
     k = (s0 - 1) * c
-    t = f'x {16 << shift if isInteger else 16 / 255} - {219 << shift if isInteger else 219 / 255} / 0 max 1 min'
-    e = f'{k} {1 + c} {(1 + c) * c} {t} {c} + / - * {t} 1 {k} - * + {256 << shift if isInteger else 256 / 255} *'
-    return src.std.Expr(expr=[e] if isGray else [e, f'x {neutral} - 128 * 112 / {neutral} +' if chroma else ''])
+    t = f'x {scale_value(16, 8, bits)} - {scale_value(219, 8, bits)} / 0 max 1 min' if is_integer else 'x 0 max 1 min'
+    e = f'{k} {1 + c} {(1 + c) * c} {t} {c} + / - * {t} 1 {k} - * + ' + (f'{scale_value(256, 8, bits)} *' if is_integer else '')
+    return src.std.Expr(expr=e if is_gray else [e, f'x {neutral} - 128 * 112 / {neutral} +' if chroma and is_integer else ''])
 
 
 #=============================================================================
