@@ -6184,15 +6184,17 @@ def MinBlur(clp: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[
     return core.std.Expr([clp, RG11, RG4], expr=['x y - x z - * 0 < x x y - abs x z - abs < y z ? ?' if i in planes else '' for i in plane_range])
 
 
-# make a highpass on a blur's difference (well, kind of that)
-def sbr(c, r=1, planes=None):
+def sbr(c: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
+    '''make a highpass on a blur's difference (well, kind of that)'''
     if not isinstance(c, vs.VideoNode):
         raise vs.Error('sbr: this is not a clip')
 
-    neutral = 1 << (c.format.bits_per_sample - 1) if c.format.sample_type == vs.INTEGER else 0.0
+    neutral = 1 << (get_depth(c) - 1) if c.format.sample_type == vs.INTEGER else 0.0
+
+    plane_range = range(c.format.num_planes)
 
     if planes is None:
-        planes = list(range(c.format.num_planes))
+        planes = list(plane_range)
     elif isinstance(planes, int):
         planes = [planes]
 
@@ -6213,21 +6215,27 @@ def sbr(c, r=1, planes=None):
     elif r == 2:
         RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
     else:
-        RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
+        RG11DS = (
+            RG11D.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
+        )
 
-    expr = f'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'
-    RG11DD = core.std.Expr([RG11D, RG11DS], expr=[expr if i in planes else '' for i in range(c.format.num_planes)])
+    RG11DD = core.std.Expr(
+        [RG11D, RG11DS],
+        expr=[f'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?' if i in planes else '' for i in plane_range],
+    )
     return core.std.MakeDiff(c, RG11DD, planes=planes)
 
 
-def sbrV(c, r=1, planes=None):
+def sbrV(c: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
     if not isinstance(c, vs.VideoNode):
         raise vs.Error('sbrV: this is not a clip')
 
-    neutral = 1 << (c.format.bits_per_sample - 1) if c.format.sample_type == vs.INTEGER else 0.0
+    neutral = 1 << (get_depth(c) - 1) if c.format.sample_type == vs.INTEGER else 0.0
+
+    plane_range = range(c.format.num_planes)
 
     if planes is None:
-        planes = list(range(c.format.num_planes))
+        planes = list(plane_range)
     elif isinstance(planes, int):
         planes = [planes]
 
@@ -6239,7 +6247,11 @@ def sbrV(c, r=1, planes=None):
     elif r == 2:
         RG11 = c.std.Convolution(matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
     else:
-        RG11 = c.std.Convolution(matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
+        RG11 = (
+            c.std.Convolution(matrix=matrix1, planes=planes, mode='v')
+            .std.Convolution(matrix=matrix2, planes=planes, mode='v')
+            .std.Convolution(matrix=matrix2, planes=planes, mode='v')
+        )
 
     RG11D = core.std.MakeDiff(c, RG11, planes=planes)
 
@@ -6248,10 +6260,16 @@ def sbrV(c, r=1, planes=None):
     elif r == 2:
         RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
     else:
-        RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
+        RG11DS = (
+            RG11D.std.Convolution(matrix=matrix1, planes=planes, mode='v')
+            .std.Convolution(matrix=matrix2, planes=planes, mode='v')
+            .std.Convolution(matrix=matrix2, planes=planes, mode='v')
+        )
 
-    expr = f'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?'
-    RG11DD = core.std.Expr([RG11D, RG11DS], expr=[expr if i in planes else '' for i in range(c.format.num_planes)])
+    RG11DD = core.std.Expr(
+        [RG11D, RG11DS],
+        expr=[f'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?' if i in planes else '' for i in plane_range],
+    )
     return core.std.MakeDiff(c, RG11DD, planes=planes)
 
 
