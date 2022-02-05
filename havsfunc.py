@@ -6089,7 +6089,7 @@ def Weave(clip: vs.VideoNode, tff: Optional[bool] = None) -> vs.VideoNode:
 
 
 def ContraSharpening(
-    denoised: vs.VideoNode, original: vs.VideoNode, radius: Optional[int] = None, rep: int = 1, planes: Optional[Union[int, Sequence[int]]] = None
+    denoised: vs.VideoNode, original: vs.VideoNode, radius: int = 1, rep: int = 1, planes: Optional[Union[int, Sequence[int]]] = None
 ) -> vs.VideoNode:
     '''
     contra-sharpening: sharpen the denoised clip, but don't add more to any pixel than what was removed previously.
@@ -6120,9 +6120,6 @@ def ContraSharpening(
     elif isinstance(planes, int):
         planes = [planes]
 
-    if radius is None:
-        radius = 2 if denoised.width > 1024 or denoised.height > 576 else 1
-
     matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
     matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
@@ -6143,7 +6140,7 @@ def ContraSharpening(
     ssDD = core.std.Expr(
         [ssDD, ssD], expr=[f'x {neutral} - abs y {neutral} - abs < x y ?' if i in planes else '' for i in plane_range]
     )  # abs(diff) after limiting may not be bigger than before
-    return core.std.MergeDiff(denoised, ssDD, planes=planes)  # apply the limited difference. (sharpening is just inverse blurring)
+    return core.std.MergeDiff(denoised, ssDD, planes=planes)  # apply the limited difference (sharpening is just inverse blurring)
 
 
 def MinBlur(clp: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
