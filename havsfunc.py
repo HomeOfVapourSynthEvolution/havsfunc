@@ -6092,7 +6092,7 @@ def Weave(clip: vs.VideoNode, tff: Optional[bool] = None) -> vs.VideoNode:
 
     if tff is None:
         with clip.get_frame(0) as f:
-            if f.props.get('_FieldBased') not in [1, 2]:
+            if f.props.get('_Field') not in [1, 2]:
                 raise vs.Error('Weave: tff was not specified and field order could not be determined from frame properties')
 
     return clip.std.DoubleWeave(tff=tff)[::2]
