@@ -1073,8 +1073,8 @@ def HQDeringmod(
         return core.std.MaskedMerge(input, limitclp, ringmask, planes=planes, first_plane=True)
 
 
-# Globals
 QTGMC_globals = {}
+
 
 def QTGMC(
     Input: vs.VideoNode,
@@ -1155,8 +1155,8 @@ def QTGMC(
     Precise: Optional[bool] = None,
     Tuning: str = 'None',
     ShowSettings: bool = False,
-    GlobalNames: str = "QTGMC",
-    PrevGlobals: str = "Replace",
+    GlobalNames: str = 'QTGMC',
+    PrevGlobals: str = 'Replace',
     TFF: Optional[bool] = None,
     nnedi3_args: Mapping[str, Any] = {},
     eedi3_args: Mapping[str, Any] = {},
@@ -1378,15 +1378,16 @@ def QTGMC(
 
         ShowSettings: Display all the current parameter values - useful to find preset defaults.
 
-        GlobalNames: Expose motion vectors and other intermediate clips to the calling script through global variables. By default they begin with the prefix "QTGMC_".
-            The available clips are:
-            Backward motion vectors                 bVec1, bVec2, bVec3 (temporal radius 1 to 3)
-            Forward motion vectors                  fVec1, fVec2, fVec3
-            Filtered clip used for motion analysis  srchClip
-            MVTools "super" clip for filtered clip  srchSuper
+        GlobalNames: The name used to expose intermediate clips to calling script. QTGMC now exposes its motion vectors and other intermediate clips to the
+            calling script through global variables. These globals are uniquely named. By default they begin with the prefix "QTGMC_". The available clips are:
+                Backward motion vectors                 bVec1, bVec2, bVec3 (temporal radius 1 to 3)
+                Forward motion vectors                  fVec1, fVec2, fVec3
+                Filtered clip used for motion analysis  srchClip
+                MVTools "super" clip for filtered clip  srchSuper
+            Not all these clips are necessarily created - it depends on your QTGMC settings.
             Clips can be accessed from other scripts with havsfunc.QTGMC_globals['Prefix_Name']
 
-        PrevGlobals: Reuse existing globals for this run and don't recalculate motion vectors.
+        PrevGlobals: What to do with global variables from earlier QTGMC call that match above name. Either "Replace", or "Reuse" (for a speed-up).
             Set PrevGlobals="Reuse" to reuse existing similar named globals for this run & not recalculate motion vectors etc. This will improve performance.
             Set PrevGlobals="Replace" to overwrite similar named globals from a previous run. This is the default and easiest option for most use cases.
 
@@ -1467,10 +1468,6 @@ def QTGMC(
     # Tunings only affect blocksize in this version
     bs = [16, 16, 32][tNum]
     bs2 = 32
-
-    # If reusing existing globals put them back afterwards - simplifies logic later
-    ReplaceGlobals = PrevGlobals.lower() == "replace" or PrevGlobals.lower() == "reuse"
-    ReuseGlobals = PrevGlobals.lower() == "reuse"
 
     # fmt: off
     #                                                 Very                                                        Very      Super     Ultra
@@ -1622,6 +1619,9 @@ def QTGMC(
         ShutterBlur = 0
 
     # Miscellaneous
+    PrevGlobals = PrevGlobals.lower()
+    ReplaceGlobals = PrevGlobals in ['replace', 'reuse']  # If reusing existing globals put them back afterwards - simplifies logic later
+    ReuseGlobals = PrevGlobals == 'reuse'
     if InputType < 2:
         ProgSADMask = 0.0
 
@@ -1661,26 +1661,18 @@ def QTGMC(
     else:
         bobbed = clip.std.Convolution(matrix=[1, 2, 1], mode='v')
 
-    # Globals
-    srchClip = None
-    srchSuper = None
-    bVec1 = None
-    fVec1 = None
-    bVec2 = None
-    fVec2 = None
-    bVec3 = None
-    fVec3 = None
-
-    # If required, get any existing global clips with a matching "GlobalNames" setting.
+    # If required, get any existing global clips with a matching "GlobalNames" setting. Unmatched values get None
     if ReuseGlobals:
-        srchClip = QTGMC_GetUserGlobal("srchClip", GlobalNames)
-        srchSuper = QTGMC_GetUserGlobal("srchSuper", GlobalNames)
-        bVec1 = QTGMC_GetUserGlobal("bVec1", GlobalNames)
-        fVec1 = QTGMC_GetUserGlobal("fVec1", GlobalNames)
-        bVec2 = QTGMC_GetUserGlobal("bVec2", GlobalNames)
-        fVec2 = QTGMC_GetUserGlobal("fVec2", GlobalNames)
-        bVec3 = QTGMC_GetUserGlobal("bVec3", GlobalNames)
-        fVec3 = QTGMC_GetUserGlobal("fVec3", GlobalNames)
+        srchClip = QTGMC_GetUserGlobal(GlobalNames, 'srchClip')
+        srchSuper = QTGMC_GetUserGlobal(GlobalNames, 'srchSuper')
+        bVec1 = QTGMC_GetUserGlobal(GlobalNames, 'bVec1')
+        fVec1 = QTGMC_GetUserGlobal(GlobalNames, 'fVec1')
+        bVec2 = QTGMC_GetUserGlobal(GlobalNames, 'bVec2')
+        fVec2 = QTGMC_GetUserGlobal(GlobalNames, 'fVec2')
+        bVec3 = QTGMC_GetUserGlobal(GlobalNames, 'bVec3')
+        fVec3 = QTGMC_GetUserGlobal(GlobalNames, 'fVec3')
+    else:
+        srchClip = srchSuper = bVec1 = fVec1 = bVec2 = fVec2 = bVec3 = fVec3 = None
 
     luma_threshold = scale_value(255, 8, bits)
 
@@ -1694,14 +1686,17 @@ def QTGMC(
     # The bobbed clip will shimmer due to being derived from alternating fields. Temporally smooth over the neighboring frames using a binomial kernel. Binomial
     # kernels give equal weight to even and odd frames and hence average away the shimmer. The two kernels used are [1 2 1] and [1 4 6 4 1] for radius 1 and 2.
     # These kernels are approximately Gaussian kernels, which work well as a prefilter before motion analysis (hence the original name for this script)
-    # Create linear weightings of neighbors first                              -2    -1    0     1     2
-    if TR0 > 0:
-        ts1 = bobbed.focus2.TemporalSoften2(1, luma_threshold, CMts, 28, 2)  # 0.00  0.33  0.33  0.33  0.00
-    if TR0 > 1:
-        ts2 = bobbed.focus2.TemporalSoften2(2, luma_threshold, CMts, 28, 2)  # 0.20  0.20  0.20  0.20  0.20
+    # Create linear weightings of neighbors first                                  -2    -1    0     1     2
+    if not isinstance(srchClip, vs.VideoNode):
+        if TR0 > 0:
+            ts1 = bobbed.focus2.TemporalSoften2(1, luma_threshold, CMts, 28, 2)  # 0.00  0.33  0.33  0.33  0.00
+        if TR0 > 1:
+            ts2 = bobbed.focus2.TemporalSoften2(2, luma_threshold, CMts, 28, 2)  # 0.20  0.20  0.20  0.20  0.20
 
     # Combine linear weightings to give binomial weightings - TR0=0: (1), TR0=1: (1:2:1), TR0=2: (1:4:6:4:1)
-    if TR0 <= 0:
+    if isinstance(srchClip, vs.VideoNode):
+        binomial0 = None
+    elif TR0 <= 0:
         binomial0 = bobbed
     elif TR0 == 1:
         binomial0 = core.std.Merge(ts1, bobbed, weight=0.25 if ChromaMotion or is_gray else [0.25, 0])
@@ -1711,7 +1706,7 @@ def QTGMC(
         )
 
     # Remove areas of difference between temporal blurred motion search clip and bob that are not due to bob-shimmer - removes general motion blur
-    if Rep0 <= 0:
+    if isinstance(srchClip, vs.VideoNode) or Rep0 <= 0:
         repair0 = binomial0
     else:
         repair0 = QTGMC_KeepOnlyBobShimmerFixes(binomial0, bobbed, Rep0, RepChroma and ChromaMotion)
@@ -1720,7 +1715,7 @@ def QTGMC(
 
     # Blur image and soften edges to assist in motion matching of edge blocks. Blocks are matched by SAD (sum of absolute differences between blocks), but even
     # a slight change in an edge from frame to frame will give a high SAD due to the higher contrast of edges
-    if not ReuseGlobals:
+    if not isinstance(srchClip, vs.VideoNode):
         if SrchClipPP == 1:
             spatialBlur = repair0.resize.Bilinear(w // 2, h // 2).std.Convolution(matrix=matrix, planes=CMplanes).resize.Bilinear(w, h)
         elif SrchClipPP >= 2:
@@ -1765,37 +1760,46 @@ def QTGMC(
     )
 
     # Calculate forward and backward motion vectors from motion search clip
-    if not ReuseGlobals:
-        if maxTR > 0:
+    if maxTR > 0:
+        if not isinstance(srchSuper, vs.VideoNode):
             srchSuper = DitherLumaRebuild(srchClip, chroma=ChromaMotion).mv.Super(sharp=SubPelInterp, chroma=ChromaMotion, **super_args)
+        if not isinstance(bVec1, vs.VideoNode):
             bVec1 = srchSuper.mv.Analyse(isb=True, delta=1, **analyse_args)
-            fVec1 = srchSuper.mv.Analyse(isb=False, delta=1, **analyse_args)
             if RefineMotion:
                 bVec1 = core.mv.Recalculate(srchSuper, bVec1, **recalculate_args)
+        if not isinstance(fVec1, vs.VideoNode):
+            fVec1 = srchSuper.mv.Analyse(isb=False, delta=1, **analyse_args)
+            if RefineMotion:
                 fVec1 = core.mv.Recalculate(srchSuper, fVec1, **recalculate_args)
-        if maxTR > 1:
+    if maxTR > 1:
+        if not isinstance(bVec2, vs.VideoNode):
             bVec2 = srchSuper.mv.Analyse(isb=True, delta=2, **analyse_args)
-            fVec2 = srchSuper.mv.Analyse(isb=False, delta=2, **analyse_args)
             if RefineMotion:
                 bVec2 = core.mv.Recalculate(srchSuper, bVec2, **recalculate_args)
+        if not isinstance(fVec2, vs.VideoNode):
+            fVec2 = srchSuper.mv.Analyse(isb=False, delta=2, **analyse_args)
+            if RefineMotion:
                 fVec2 = core.mv.Recalculate(srchSuper, fVec2, **recalculate_args)
-        if maxTR > 2:
+    if maxTR > 2:
+        if not isinstance(bVec3, vs.VideoNode):
             bVec3 = srchSuper.mv.Analyse(isb=True, delta=3, **analyse_args)
-            fVec3 = srchSuper.mv.Analyse(isb=False, delta=3, **analyse_args)
             if RefineMotion:
                 bVec3 = core.mv.Recalculate(srchSuper, bVec3, **recalculate_args)
+        if not isinstance(fVec3, vs.VideoNode):
+            fVec3 = srchSuper.mv.Analyse(isb=False, delta=3, **analyse_args)
+            if RefineMotion:
                 fVec3 = core.mv.Recalculate(srchSuper, fVec3, **recalculate_args)
 
     # Expose search clip, motion search super clip and motion vectors to calling script through globals
     if ReplaceGlobals:
-        QTGMC_SetUserGlobal("srchClip", srchClip, GlobalNames)
-        QTGMC_SetUserGlobal("srchSuper", srchSuper, GlobalNames)
-        QTGMC_SetUserGlobal("bVec1", bVec1, GlobalNames)
-        QTGMC_SetUserGlobal("fVec1", fVec1, GlobalNames)
-        QTGMC_SetUserGlobal("bVec2", bVec2, GlobalNames)
-        QTGMC_SetUserGlobal("fVec2", fVec2, GlobalNames)
-        QTGMC_SetUserGlobal("bVec3", bVec3, GlobalNames)
-        QTGMC_SetUserGlobal("fVec3", fVec3, GlobalNames)
+        QTGMC_SetUserGlobal(GlobalNames, 'srchClip', srchClip)
+        QTGMC_SetUserGlobal(GlobalNames, 'srchSuper', srchSuper)
+        QTGMC_SetUserGlobal(GlobalNames, 'bVec1', bVec1)
+        QTGMC_SetUserGlobal(GlobalNames, 'fVec1', fVec1)
+        QTGMC_SetUserGlobal(GlobalNames, 'bVec2', bVec2)
+        QTGMC_SetUserGlobal(GlobalNames, 'fVec2', fVec2)
+        QTGMC_SetUserGlobal(GlobalNames, 'bVec3', bVec3)
+        QTGMC_SetUserGlobal(GlobalNames, 'fVec3', fVec3)
 
     # ---------------------------------------
     # Noise Processing
@@ -2209,7 +2213,7 @@ def QTGMC(
             + f'{MatchPreset2=} | {MatchEdi2=} | {MatchTR2=} | {MatchEnhance=} | {Lossless=} | {NoiseProcess=} | {Denoiser=} | {FftThreads=} | {DenoiseMC=} | '
             + f'{NoiseTR=} | {Sigma=} | {ChromaNoise=} | {ShowNoise=} | {GrainRestore=} | {NoiseRestore=} | {NoiseDeint=} | {StabilizeNoise=} | {InputType=} | '
             + f'{ProgSADMask=} | {FPSDivisor=} | {ShutterBlur=} | {ShutterAngleSrc=} | {ShutterAngleOut=} | {SBlurLimit=} | {Border=} | {Precise=} | '
-            + f'{Preset=} | {Tuning=}'
+            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=}'
         )
         return output.text.Text(text=text)
 
@@ -2566,27 +2570,16 @@ def QTGMC_ApplySourceMatch(
     return core.std.MergeDiff(match1Shp, match3)
 
 
-def QTGMC_SetUserGlobal(Name: str, Value: str, Prefix: str = 'QTGMC') -> Any:
-    '''
-    Set global variable called "Prefix_Name" to "Value".
-    Ignore if global already exists unless Replace=true, in which case the global is overwritten.
-    '''
+def QTGMC_SetUserGlobal(Prefix: str, Name: str, Value: Union[vs.VideoNode, None]) -> None:
+    '''Set global variable called "Prefix_Name" to "Value".'''
     global QTGMC_globals
-
-    global_name = f'{Prefix}_{Name}'
-
-    QTGMC_globals[global_name] = Value
+    QTGMC_globals[f'{Prefix}_{Name}'] = Value
 
 
-def QTGMC_GetUserGlobal(Name: str, Prefix: str = 'QTGMC') -> Any:
-    '''
-    Return value of global variable called "Prefix_Name".
-    '''
+def QTGMC_GetUserGlobal(Prefix: str, Name: str) -> Union[vs.VideoNode, None]:
+    '''Return value of global variable called "Prefix_Name". Returns None if it doesn't exist'''
     global QTGMC_globals
-
-    global_name = f'{Prefix}_{Name}'
-
-    return QTGMC_globals.get(global_name)
+    return QTGMC_globals.get(f'{Prefix}_{Name}')
 
 
 def smartfademod(clip: vs.VideoNode, threshold: float = 0.4, show: bool = False, tff: Optional[bool] = None) -> vs.VideoNode:
