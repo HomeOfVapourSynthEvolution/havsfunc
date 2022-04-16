@@ -1073,6 +1073,9 @@ def HQDeringmod(
         return core.std.MaskedMerge(input, limitclp, ringmask, planes=planes, first_plane=True)
 
 
+# Globals
+QTGMC_globals = {}
+
 def QTGMC(
     Input: vs.VideoNode,
     Preset: str = 'Slower',
@@ -1152,6 +1155,8 @@ def QTGMC(
     Precise: Optional[bool] = None,
     Tuning: str = 'None',
     ShowSettings: bool = False,
+    GlobalNames: str = "QTGMC",
+    PrevGlobals: str = "Replace",
     TFF: Optional[bool] = None,
     nnedi3_args: Mapping[str, Any] = {},
     eedi3_args: Mapping[str, Any] = {},
@@ -1373,6 +1378,18 @@ def QTGMC(
 
         ShowSettings: Display all the current parameter values - useful to find preset defaults.
 
+        GlobalNames: Expose motion vectors and other intermediate clips to the calling script through global variables. By default they begin with the prefix "QTGMC_".
+            The available clips are:
+            Backward motion vectors                 bVec1, bVec2, bVec3 (temporal radius 1 to 3)
+            Forward motion vectors                  fVec1, fVec2, fVec3
+            Filtered clip used for motion analysis  srchClip
+            MVTools "super" clip for filtered clip  srchSuper
+            Clips can be accessed from other scripts with havsfunc.QTGMC_globals['Prefix_Name']
+
+        PrevGlobals: Reuse existing globals for this run and don't recalculate motion vectors.
+            Set PrevGlobals="Reuse" to reuse existing similar named globals for this run & not recalculate motion vectors etc. This will improve performance.
+            Set PrevGlobals="Replace" to overwrite similar named globals from a previous run. This is the default and easiest option for most use cases.
+
         TFF: Since VapourSynth only has a weak notion of field order internally, TFF may have to be set. Setting TFF to true means top field first and false
             means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over TFF.
 
@@ -1450,6 +1467,10 @@ def QTGMC(
     # Tunings only affect blocksize in this version
     bs = [16, 16, 32][tNum]
     bs2 = 32
+
+    # If reusing existing globals put them back afterwards - simplifies logic later
+    ReplaceGlobals = PrevGlobals.lower() == "replace" or PrevGlobals.lower() == "reuse"
+    ReuseGlobals = PrevGlobals.lower() == "reuse"
 
     # fmt: off
     #                                                 Very                                                        Very      Super     Ultra
@@ -1640,6 +1661,27 @@ def QTGMC(
     else:
         bobbed = clip.std.Convolution(matrix=[1, 2, 1], mode='v')
 
+    # Globals
+    srchClip = None
+    srchSuper = None
+    bVec1 = None
+    fVec1 = None
+    bVec2 = None
+    fVec2 = None
+    bVec3 = None
+    fVec3 = None
+
+    # If required, get any existing global clips with a matching "GlobalNames" setting.
+    if ReuseGlobals:
+        srchClip = QTGMC_GetUserGlobal("srchClip", GlobalNames)
+        srchSuper = QTGMC_GetUserGlobal("srchSuper", GlobalNames)
+        bVec1 = QTGMC_GetUserGlobal("bVec1", GlobalNames)
+        fVec1 = QTGMC_GetUserGlobal("fVec1", GlobalNames)
+        bVec2 = QTGMC_GetUserGlobal("bVec2", GlobalNames)
+        fVec2 = QTGMC_GetUserGlobal("fVec2", GlobalNames)
+        bVec3 = QTGMC_GetUserGlobal("bVec3", GlobalNames)
+        fVec3 = QTGMC_GetUserGlobal("fVec3", GlobalNames)
+
     luma_threshold = scale_value(255, 8, bits)
 
     if ChromaMotion and not is_gray:
@@ -1678,20 +1720,21 @@ def QTGMC(
 
     # Blur image and soften edges to assist in motion matching of edge blocks. Blocks are matched by SAD (sum of absolute differences between blocks), but even
     # a slight change in an edge from frame to frame will give a high SAD due to the higher contrast of edges
-    if SrchClipPP == 1:
-        spatialBlur = repair0.resize.Bilinear(w // 2, h // 2).std.Convolution(matrix=matrix, planes=CMplanes).resize.Bilinear(w, h)
-    elif SrchClipPP >= 2:
-        spatialBlur = Resize(repair0.std.Convolution(matrix=matrix, planes=CMplanes), w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=2, dmode=1)
-        spatialBlur = core.std.Merge(spatialBlur, repair0, weight=0.1 if ChromaMotion or is_gray else [0.1, 0])
-    if SrchClipPP <= 0:
-        srchClip = repair0
-    elif SrchClipPP < 3:
-        srchClip = spatialBlur
-    else:
-        expr = 'x {i3} + y < x {i3} + x {i3} - y > x {i3} - y ? ?'.format(i3=scale_value(3, 8, bits))
-        tweaked = core.std.Expr([repair0, bobbed], expr=expr if ChromaMotion or is_gray else [expr, ''])
-        expr = 'x {i7} + y < x {i2} + x {i7} - y > x {i2} - x 51 * y 49 * + 100 / ? ?'.format(i7=scale_value(7, 8, bits), i2=scale_value(2, 8, bits))
-        srchClip = core.std.Expr([spatialBlur, tweaked], expr=expr if ChromaMotion or is_gray else [expr, ''])
+    if not ReuseGlobals:
+        if SrchClipPP == 1:
+            spatialBlur = repair0.resize.Bilinear(w // 2, h // 2).std.Convolution(matrix=matrix, planes=CMplanes).resize.Bilinear(w, h)
+        elif SrchClipPP >= 2:
+            spatialBlur = Resize(repair0.std.Convolution(matrix=matrix, planes=CMplanes), w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=2, dmode=1)
+            spatialBlur = core.std.Merge(spatialBlur, repair0, weight=0.1 if ChromaMotion or is_gray else [0.1, 0])
+        if SrchClipPP <= 0:
+            srchClip = repair0
+        elif SrchClipPP < 3:
+            srchClip = spatialBlur
+        else:
+            expr = 'x {i3} + y < x {i3} + x {i3} - y > x {i3} - y ? ?'.format(i3=scale_value(3, 8, bits))
+            tweaked = core.std.Expr([repair0, bobbed], expr=expr if ChromaMotion or is_gray else [expr, ''])
+            expr = 'x {i7} + y < x {i2} + x {i7} - y > x {i2} - x 51 * y 49 * + 100 / ? ?'.format(i7=scale_value(7, 8, bits), i2=scale_value(2, 8, bits))
+            srchClip = core.std.Expr([spatialBlur, tweaked], expr=expr if ChromaMotion or is_gray else [expr, ''])
 
     super_args = dict(pel=SubPel, hpad=hpad, vpad=vpad)
     analyse_args = dict(
@@ -1722,25 +1765,37 @@ def QTGMC(
     )
 
     # Calculate forward and backward motion vectors from motion search clip
-    if maxTR > 0:
-        srchSuper = DitherLumaRebuild(srchClip, chroma=ChromaMotion).mv.Super(sharp=SubPelInterp, chroma=ChromaMotion, **super_args)
-        bVec1 = srchSuper.mv.Analyse(isb=True, delta=1, **analyse_args)
-        fVec1 = srchSuper.mv.Analyse(isb=False, delta=1, **analyse_args)
-        if RefineMotion:
-            bVec1 = core.mv.Recalculate(srchSuper, bVec1, **recalculate_args)
-            fVec1 = core.mv.Recalculate(srchSuper, fVec1, **recalculate_args)
-    if maxTR > 1:
-        bVec2 = srchSuper.mv.Analyse(isb=True, delta=2, **analyse_args)
-        fVec2 = srchSuper.mv.Analyse(isb=False, delta=2, **analyse_args)
-        if RefineMotion:
-            bVec2 = core.mv.Recalculate(srchSuper, bVec2, **recalculate_args)
-            fVec2 = core.mv.Recalculate(srchSuper, fVec2, **recalculate_args)
-    if maxTR > 2:
-        bVec3 = srchSuper.mv.Analyse(isb=True, delta=3, **analyse_args)
-        fVec3 = srchSuper.mv.Analyse(isb=False, delta=3, **analyse_args)
-        if RefineMotion:
-            bVec3 = core.mv.Recalculate(srchSuper, bVec3, **recalculate_args)
-            fVec3 = core.mv.Recalculate(srchSuper, fVec3, **recalculate_args)
+    if not ReuseGlobals:
+        if maxTR > 0:
+            srchSuper = DitherLumaRebuild(srchClip, chroma=ChromaMotion).mv.Super(sharp=SubPelInterp, chroma=ChromaMotion, **super_args)
+            bVec1 = srchSuper.mv.Analyse(isb=True, delta=1, **analyse_args)
+            fVec1 = srchSuper.mv.Analyse(isb=False, delta=1, **analyse_args)
+            if RefineMotion:
+                bVec1 = core.mv.Recalculate(srchSuper, bVec1, **recalculate_args)
+                fVec1 = core.mv.Recalculate(srchSuper, fVec1, **recalculate_args)
+        if maxTR > 1:
+            bVec2 = srchSuper.mv.Analyse(isb=True, delta=2, **analyse_args)
+            fVec2 = srchSuper.mv.Analyse(isb=False, delta=2, **analyse_args)
+            if RefineMotion:
+                bVec2 = core.mv.Recalculate(srchSuper, bVec2, **recalculate_args)
+                fVec2 = core.mv.Recalculate(srchSuper, fVec2, **recalculate_args)
+        if maxTR > 2:
+            bVec3 = srchSuper.mv.Analyse(isb=True, delta=3, **analyse_args)
+            fVec3 = srchSuper.mv.Analyse(isb=False, delta=3, **analyse_args)
+            if RefineMotion:
+                bVec3 = core.mv.Recalculate(srchSuper, bVec3, **recalculate_args)
+                fVec3 = core.mv.Recalculate(srchSuper, fVec3, **recalculate_args)
+
+    # Expose search clip, motion search super clip and motion vectors to calling script through globals
+    if ReplaceGlobals:
+        QTGMC_SetUserGlobal("srchClip", srchClip, GlobalNames)
+        QTGMC_SetUserGlobal("srchSuper", srchSuper, GlobalNames)
+        QTGMC_SetUserGlobal("bVec1", bVec1, GlobalNames)
+        QTGMC_SetUserGlobal("fVec1", fVec1, GlobalNames)
+        QTGMC_SetUserGlobal("bVec2", bVec2, GlobalNames)
+        QTGMC_SetUserGlobal("fVec2", fVec2, GlobalNames)
+        QTGMC_SetUserGlobal("bVec3", bVec3, GlobalNames)
+        QTGMC_SetUserGlobal("fVec3", fVec3, GlobalNames)
 
     # ---------------------------------------
     # Noise Processing
@@ -2509,6 +2564,29 @@ def QTGMC_ApplySourceMatch(
 
     # Apply difference calculated in source-match refinement
     return core.std.MergeDiff(match1Shp, match3)
+
+
+def QTGMC_SetUserGlobal(Name: str, Value: str, Prefix: str = 'QTGMC') -> Any:
+    '''
+    Set global variable called "Prefix_Name" to "Value".
+    Ignore if global already exists unless Replace=true, in which case the global is overwritten.
+    '''
+    global QTGMC_globals
+
+    global_name = f'{Prefix}_{Name}'
+
+    QTGMC_globals[global_name] = Value
+
+
+def QTGMC_GetUserGlobal(Name: str, Prefix: str = 'QTGMC') -> Any:
+    '''
+    Return value of global variable called "Prefix_Name".
+    '''
+    global QTGMC_globals
+
+    global_name = f'{Prefix}_{Name}'
+
+    return QTGMC_globals.get(global_name)
 
 
 def smartfademod(clip: vs.VideoNode, threshold: float = 0.4, show: bool = False, tff: Optional[bool] = None) -> vs.VideoNode:
