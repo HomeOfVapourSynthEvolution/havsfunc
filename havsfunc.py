@@ -1157,6 +1157,7 @@ def QTGMC(
     ShowSettings: bool = False,
     GlobalNames: str = 'QTGMC',
     PrevGlobals: str = 'Replace',
+    ESearchP: bool = False,
     TFF: Optional[bool] = None,
     nnedi3_args: Mapping[str, Any] = {},
     eedi3_args: Mapping[str, Any] = {},
@@ -1391,6 +1392,8 @@ def QTGMC(
             Set PrevGlobals="Reuse" to reuse existing similar named globals for this run & not recalculate motion vectors etc. This will improve performance.
             Set PrevGlobals="Replace" to overwrite similar named globals from a previous run. This is the default and easiest option for most use cases.
 
+        ESearchP: Enables the use of higher values for wider motion search depending on preset.
+
         TFF: Since VapourSynth only has a weak notion of field order internally, TFF may have to be set. Setting TFF to true means top field first and false
             means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over TFF.
 
@@ -1496,6 +1499,12 @@ def QTGMC(
     ChromaMotion = fallback(ChromaMotion, [ True,     True,     True,     False,    False,    False,    False,    False,    False,    False,    False  ][pNum])
     Precise = fallback(Precise,           [ True,     True,     False,    False,    False,    False,    False,    False,    False,    False,    False  ][pNum])
     ProgSADMask = fallback(ProgSADMask,   [ 10.0,     10.0,     10.0,     10.0,     10.0,     0.0,      0.0,      0.0,      0.0,      0.0,      0.0    ][pNum])
+
+    if ESearchP and Search in [4, 5]:
+        if pNum < 4:
+            SearchParam = 24
+        elif pNum < 8:
+            SearchParam = 16
 
     # Noise presets                             Slower      Slow       Medium     Fast      Faster
     Denoiser = fallback(Denoiser,             ['dfttest',  'dfttest', 'dfttest', 'fft3df', 'fft3df'][npNum]).lower()
