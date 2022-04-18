@@ -1157,6 +1157,8 @@ def QTGMC(
     ShowSettings: bool = False,
     GlobalNames: str = 'QTGMC',
     PrevGlobals: str = 'Replace',
+    Str: float = 2.0,
+    Amp: float = 0.0625,
     TFF: Optional[bool] = None,
     nnedi3_args: Mapping[str, Any] = {},
     eedi3_args: Mapping[str, Any] = {},
@@ -1390,6 +1392,13 @@ def QTGMC(
         PrevGlobals: What to do with global variables from earlier QTGMC call that match above name. Either "Replace", or "Reuse" (for a speed-up).
             Set PrevGlobals="Reuse" to reuse existing similar named globals for this run & not recalculate motion vectors etc. This will improve performance.
             Set PrevGlobals="Replace" to overwrite similar named globals from a previous run. This is the default and easiest option for most use cases.
+
+        Str: Gamma correction for "super" clip. With this parameter you control the strength of the brightening of the prefilter clip,
+            good for when problems with dark areas arise. Using this internally instead of externally creates less quantization artifacts,
+            since it's done in the same stage as the TV->PC range conversion.
+
+        Amp: Used for "super" clip when Str <> 1.0. This defines the amplitude of the brightening in the luma range,
+            for example by using 1.0 all the luma range will be used and the brightening will find its peak at luma value 128 in the original.
 
         TFF: Since VapourSynth only has a weak notion of field order internally, TFF may have to be set. Setting TFF to true means top field first and false
             means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over TFF.
@@ -1762,7 +1771,7 @@ def QTGMC(
     # Calculate forward and backward motion vectors from motion search clip
     if maxTR > 0:
         if not isinstance(srchSuper, vs.VideoNode):
-            srchSuper = DitherLumaRebuild(srchClip, chroma=ChromaMotion).mv.Super(sharp=SubPelInterp, chroma=ChromaMotion, **super_args)
+            srchSuper = DitherLumaRebuild(srchClip, s0=Str, c=Amp, chroma=ChromaMotion).mv.Super(sharp=SubPelInterp, chroma=ChromaMotion, **super_args)
         if not isinstance(bVec1, vs.VideoNode):
             bVec1 = srchSuper.mv.Analyse(isb=True, delta=1, **analyse_args)
             if RefineMotion:
