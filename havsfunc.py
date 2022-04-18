@@ -1157,6 +1157,7 @@ def QTGMC(
     ShowSettings: bool = False,
     GlobalNames: str = 'QTGMC',
     PrevGlobals: str = 'Replace',
+    FastMA: bool = False,
     TFF: Optional[bool] = None,
     nnedi3_args: Mapping[str, Any] = {},
     eedi3_args: Mapping[str, Any] = {},
@@ -1390,6 +1391,8 @@ def QTGMC(
         PrevGlobals: What to do with global variables from earlier QTGMC call that match above name. Either "Replace", or "Reuse" (for a speed-up).
             Set PrevGlobals="Reuse" to reuse existing similar named globals for this run & not recalculate motion vectors etc. This will improve performance.
             Set PrevGlobals="Replace" to overwrite similar named globals from a previous run. This is the default and easiest option for most use cases.
+
+        FastMA: Use 8-bit for faster motion analysis when using high bit depth inputs.
 
         TFF: Since VapourSynth only has a weak notion of field order internally, TFF may have to be set. Setting TFF to true means top field first and false
             means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over TFF.
@@ -1730,6 +1733,8 @@ def QTGMC(
             tweaked = core.std.Expr([repair0, bobbed], expr=expr if ChromaMotion or is_gray else [expr, ''])
             expr = 'x {i7} + y < x {i2} + x {i7} - y > x {i2} - x 51 * y 49 * + 100 / ? ?'.format(i7=scale_value(7, 8, bits), i2=scale_value(2, 8, bits))
             srchClip = core.std.Expr([spatialBlur, tweaked], expr=expr if ChromaMotion or is_gray else [expr, ''])
+        if FastMA and bits > 8:
+            srchClip = srchClip.fmtc.bitdepth(bits=8, dmode=1)
 
     super_args = dict(pel=SubPel, hpad=hpad, vpad=vpad)
     analyse_args = dict(
