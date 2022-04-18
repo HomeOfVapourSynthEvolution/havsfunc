@@ -1157,6 +1157,7 @@ def QTGMC(
     ShowSettings: bool = False,
     GlobalNames: str = 'QTGMC',
     PrevGlobals: str = 'Replace',
+    ForceTR: int = 0,
     TFF: Optional[bool] = None,
     nnedi3_args: Mapping[str, Any] = {},
     eedi3_args: Mapping[str, Any] = {},
@@ -1390,6 +1391,8 @@ def QTGMC(
         PrevGlobals: What to do with global variables from earlier QTGMC call that match above name. Either "Replace", or "Reuse" (for a speed-up).
             Set PrevGlobals="Reuse" to reuse existing similar named globals for this run & not recalculate motion vectors etc. This will improve performance.
             Set PrevGlobals="Replace" to overwrite similar named globals from a previous run. This is the default and easiest option for most use cases.
+
+        ForceTR: Ensure globally exposed motion vectors are calculated to this radius even if not needed by QTGMC.
 
         TFF: Since VapourSynth only has a weak notion of field order internally, TFF may have to be set. Setting TFF to true means top field first and false
             means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over TFF.
@@ -1629,6 +1632,7 @@ def QTGMC(
     maxTR = max(SLRad if temporalSL else 0, MatchTR2, TR1, TR2, NoiseTR)
     if (ProgSADMask > 0 or StabilizeNoise or ShutterBlur > 0) and maxTR < 1:
         maxTR = 1
+    maxTR = max(ForceTR, maxTR)
 
     # ---------------------------------------
     # Pre-Processing
@@ -2213,7 +2217,7 @@ def QTGMC(
             + f'{MatchPreset2=} | {MatchEdi2=} | {MatchTR2=} | {MatchEnhance=} | {Lossless=} | {NoiseProcess=} | {Denoiser=} | {FftThreads=} | {DenoiseMC=} | '
             + f'{NoiseTR=} | {Sigma=} | {ChromaNoise=} | {ShowNoise=} | {GrainRestore=} | {NoiseRestore=} | {NoiseDeint=} | {StabilizeNoise=} | {InputType=} | '
             + f'{ProgSADMask=} | {FPSDivisor=} | {ShutterBlur=} | {ShutterAngleSrc=} | {ShutterAngleOut=} | {SBlurLimit=} | {Border=} | {Precise=} | '
-            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=}'
+            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=} | {ForceTR=}'
         )
         return output.text.Text(text=text)
 
