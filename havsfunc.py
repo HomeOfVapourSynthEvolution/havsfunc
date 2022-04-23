@@ -1161,6 +1161,7 @@ def QTGMC(
     Str: float = 2.0,
     Amp: float = 0.0625,
     FastMA: bool = False,
+    ESearchP: bool = False,
     TFF: Optional[bool] = None,
     nnedi3_args: Mapping[str, Any] = {},
     eedi3_args: Mapping[str, Any] = {},
@@ -1405,6 +1406,8 @@ def QTGMC(
 
         FastMA: Use 8-bit for faster motion analysis when using high bit depth input.
 
+        ESearchP: Use wider search range for hex and umh search method.
+
         TFF: Since VapourSynth only has a weak notion of field order internally, TFF may have to be set. Setting TFF to true means top field first and false
             means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over TFF.
 
@@ -1510,6 +1513,12 @@ def QTGMC(
     ChromaMotion = fallback(ChromaMotion, [ True,     True,     True,     False,    False,    False,    False,    False,    False,    False,    False  ][pNum])
     Precise = fallback(Precise,           [ True,     True,     False,    False,    False,    False,    False,    False,    False,    False,    False  ][pNum])
     ProgSADMask = fallback(ProgSADMask,   [ 10.0,     10.0,     10.0,     10.0,     10.0,     0.0,      0.0,      0.0,      0.0,      0.0,      0.0    ][pNum])
+
+    if ESearchP and Search in [4, 5]:
+        if pNum < 4:
+            SearchParam = 24
+        elif pNum < 8:
+            SearchParam = 16
 
     # Noise presets                             Slower      Slow       Medium     Fast      Faster
     Denoiser = fallback(Denoiser,             ['dfttest',  'dfttest', 'dfttest', 'fft3df', 'fft3df'][npNum]).lower()
@@ -2231,7 +2240,7 @@ def QTGMC(
             + f'{MatchPreset2=} | {MatchEdi2=} | {MatchTR2=} | {MatchEnhance=} | {Lossless=} | {NoiseProcess=} | {Denoiser=} | {FftThreads=} | {DenoiseMC=} | '
             + f'{NoiseTR=} | {Sigma=} | {ChromaNoise=} | {ShowNoise=} | {GrainRestore=} | {NoiseRestore=} | {NoiseDeint=} | {StabilizeNoise=} | {InputType=} | '
             + f'{ProgSADMask=} | {FPSDivisor=} | {ShutterBlur=} | {ShutterAngleSrc=} | {ShutterAngleOut=} | {SBlurLimit=} | {Border=} | {Precise=} | '
-            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=} | {ForceTR=} | {Str=} | {Amp=} | {FastMA=}'
+            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=} | {ForceTR=} | {Str=} | {Amp=} | {FastMA=} | {ESearchP=}'
         )
         return output.text.Text(text=text)
 
