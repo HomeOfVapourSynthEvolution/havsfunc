@@ -1158,6 +1158,8 @@ def QTGMC(
     GlobalNames: str = 'QTGMC',
     PrevGlobals: str = 'Replace',
     ForceTR: int = 0,
+    Str: float = 2.0,
+    Amp: float = 0.0625,
     TFF: Optional[bool] = None,
     nnedi3_args: Mapping[str, Any] = {},
     eedi3_args: Mapping[str, Any] = {},
@@ -1393,6 +1395,12 @@ def QTGMC(
             Set PrevGlobals="Replace" to overwrite similar named globals from a previous run. This is the default and easiest option for most use cases.
 
         ForceTR: Ensure globally exposed motion vectors are calculated to this radius even if not needed by QTGMC.
+
+        Str: With this parameter you control the strength of the brightening of the prefilter clip for motion analysis.
+            This is good when problems with dark areas arise.
+
+        Amp: Use this together with Str (active when Str is different from 1.0). This defines the amplitude of the brightening in the luma range,
+            for example by using 1.0 all the luma range will be used and the brightening will find its peak at luma value 128 in the original.
 
         TFF: Since VapourSynth only has a weak notion of field order internally, TFF may have to be set. Setting TFF to true means top field first and false
             means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over TFF.
@@ -1766,7 +1774,7 @@ def QTGMC(
     # Calculate forward and backward motion vectors from motion search clip
     if maxTR > 0:
         if not isinstance(srchSuper, vs.VideoNode):
-            srchSuper = DitherLumaRebuild(srchClip, chroma=ChromaMotion).mv.Super(sharp=SubPelInterp, chroma=ChromaMotion, **super_args)
+            srchSuper = DitherLumaRebuild(srchClip, s0=Str, c=Amp, chroma=ChromaMotion).mv.Super(sharp=SubPelInterp, chroma=ChromaMotion, **super_args)
         if not isinstance(bVec1, vs.VideoNode):
             bVec1 = srchSuper.mv.Analyse(isb=True, delta=1, **analyse_args)
             if RefineMotion:
@@ -2217,7 +2225,7 @@ def QTGMC(
             + f'{MatchPreset2=} | {MatchEdi2=} | {MatchTR2=} | {MatchEnhance=} | {Lossless=} | {NoiseProcess=} | {Denoiser=} | {FftThreads=} | {DenoiseMC=} | '
             + f'{NoiseTR=} | {Sigma=} | {ChromaNoise=} | {ShowNoise=} | {GrainRestore=} | {NoiseRestore=} | {NoiseDeint=} | {StabilizeNoise=} | {InputType=} | '
             + f'{ProgSADMask=} | {FPSDivisor=} | {ShutterBlur=} | {ShutterAngleSrc=} | {ShutterAngleOut=} | {SBlurLimit=} | {Border=} | {Precise=} | '
-            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=} | {ForceTR=}'
+            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=} | {ForceTR=} | {Str=} | {Amp=}'
         )
         return output.text.Text(text=text)
 
