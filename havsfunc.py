@@ -1160,6 +1160,7 @@ def QTGMC(
     ForceTR: int = 0,
     Str: float = 2.0,
     Amp: float = 0.0625,
+    FastMA: bool = False,
     TFF: Optional[bool] = None,
     nnedi3_args: Mapping[str, Any] = {},
     eedi3_args: Mapping[str, Any] = {},
@@ -1401,6 +1402,8 @@ def QTGMC(
 
         Amp: Use this together with Str (active when Str is different from 1.0). This defines the amplitude of the brightening in the luma range,
             for example by using 1.0 all the luma range will be used and the brightening will find its peak at luma value 128 in the original.
+
+        FastMA: Use 8-bit for faster motion analysis when using high bit depth input.
 
         TFF: Since VapourSynth only has a weak notion of field order internally, TFF may have to be set. Setting TFF to true means top field first and false
             means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over TFF.
@@ -1742,6 +1745,9 @@ def QTGMC(
             tweaked = core.std.Expr([repair0, bobbed], expr=expr if ChromaMotion or is_gray else [expr, ''])
             expr = 'x {i7} + y < x {i2} + x {i7} - y > x {i2} - x 51 * y 49 * + 100 / ? ?'.format(i7=scale_value(7, 8, bits), i2=scale_value(2, 8, bits))
             srchClip = core.std.Expr([spatialBlur, tweaked], expr=expr if ChromaMotion or is_gray else [expr, ''])
+        srchClip = DitherLumaRebuild(srchClip, s0=Str, c=Amp, chroma=ChromaMotion)
+        if bits > 8 and FastMA:
+            srchClip = depth(srchClip, 8, dither_type=Dither.NONE)
 
     super_args = dict(pel=SubPel, hpad=hpad, vpad=vpad)
     analyse_args = dict(
@@ -1774,7 +1780,7 @@ def QTGMC(
     # Calculate forward and backward motion vectors from motion search clip
     if maxTR > 0:
         if not isinstance(srchSuper, vs.VideoNode):
-            srchSuper = DitherLumaRebuild(srchClip, s0=Str, c=Amp, chroma=ChromaMotion).mv.Super(sharp=SubPelInterp, chroma=ChromaMotion, **super_args)
+            srchSuper = srchClip.mv.Super(sharp=SubPelInterp, chroma=ChromaMotion, **super_args)
         if not isinstance(bVec1, vs.VideoNode):
             bVec1 = srchSuper.mv.Analyse(isb=True, delta=1, **analyse_args)
             if RefineMotion:
@@ -2225,7 +2231,7 @@ def QTGMC(
             + f'{MatchPreset2=} | {MatchEdi2=} | {MatchTR2=} | {MatchEnhance=} | {Lossless=} | {NoiseProcess=} | {Denoiser=} | {FftThreads=} | {DenoiseMC=} | '
             + f'{NoiseTR=} | {Sigma=} | {ChromaNoise=} | {ShowNoise=} | {GrainRestore=} | {NoiseRestore=} | {NoiseDeint=} | {StabilizeNoise=} | {InputType=} | '
             + f'{ProgSADMask=} | {FPSDivisor=} | {ShutterBlur=} | {ShutterAngleSrc=} | {ShutterAngleOut=} | {SBlurLimit=} | {Border=} | {Precise=} | '
-            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=} | {ForceTR=} | {Str=} | {Amp=}'
+            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=} | {ForceTR=} | {Str=} | {Amp=} | {FastMA=}'
         )
         return output.text.Text(text=text)
 
