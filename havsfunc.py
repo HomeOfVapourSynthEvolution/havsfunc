@@ -1116,7 +1116,6 @@ def QTGMC(
     PLevel: Optional[int] = None,
     GlobalMotion: bool = True,
     DCT: int = 0,
-    RefineMotion: bool = False,
     ThSAD1: int = 640,
     ThSAD2: int = 256,
     ThSCD1: int = 180,
@@ -1162,6 +1161,7 @@ def QTGMC(
     Amp: float = 0.0625,
     FastMA: bool = False,
     ESearchP: bool = False,
+    RefineMotion: bool = False,
     TFF: Optional[bool] = None,
     nnedi3_args: Mapping[str, Any] = {},
     eedi3_args: Mapping[str, Any] = {},
@@ -1279,9 +1279,6 @@ def QTGMC(
         GlobalMotion: Whether to estimate camera motion to assist in selecting block motion vectors.
 
         DCT: Modes to use DCT (frequency analysis) or SATD as part of the block matching process - see MVTools2 documentation for choices.
-
-        RefineMotion: Refines and recalculates motion data of previously estimated motion vectors with new parameters set (e.g. lesser block size).
-            The two-stage method may be also useful for more stable (robust) motion estimation.
 
         ThSAD1: SAD threshold for block match on shimmer-removing temporal smooth (TR1). Increase to reduce bob-shimmer more (may smear/blur).
 
@@ -1407,6 +1404,9 @@ def QTGMC(
         FastMA: Use 8-bit for faster motion analysis when using high bit depth input.
 
         ESearchP: Use wider search range for hex and umh search method.
+
+        RefineMotion: Refines and recalculates motion data of previously estimated motion vectors with new parameters set (e.g. lesser block size).
+            The two-stage method may be also useful for more stable (robust) motion estimation.
 
         TFF: Since VapourSynth only has a weak notion of field order internally, TFF may have to be set. Setting TFF to true means top field first and false
             means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over TFF.
@@ -2240,7 +2240,7 @@ def QTGMC(
             + f'{MatchPreset2=} | {MatchEdi2=} | {MatchTR2=} | {MatchEnhance=} | {Lossless=} | {NoiseProcess=} | {Denoiser=} | {FftThreads=} | {DenoiseMC=} | '
             + f'{NoiseTR=} | {Sigma=} | {ChromaNoise=} | {ShowNoise=} | {GrainRestore=} | {NoiseRestore=} | {NoiseDeint=} | {StabilizeNoise=} | {InputType=} | '
             + f'{ProgSADMask=} | {FPSDivisor=} | {ShutterBlur=} | {ShutterAngleSrc=} | {ShutterAngleOut=} | {SBlurLimit=} | {Border=} | {Precise=} | '
-            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=} | {ForceTR=} | {Str=} | {Amp=} | {FastMA=} | {ESearchP=}'
+            + f'{Preset=} | {Tuning=} | {GlobalNames=} | {PrevGlobals=} | {ForceTR=} | {Str=} | {Amp=} | {FastMA=} | {ESearchP=} | {RefineMotion=}'
         )
         return output.text.Text(text=text)
 
