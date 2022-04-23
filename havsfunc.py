@@ -68,7 +68,7 @@ from typing import Any, Optional, Union
 
 import mvsfunc as mvf
 import vapoursynth as vs
-from vsutil import Dither, depth, fallback, get_depth, get_y, join, plane, scale_value
+from vsutil import Dither, depth, fallback, get_depth, get_y, join, plane, scale_value, get_peak_value
 
 core = vs.core
 
@@ -4364,25 +4364,41 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
         return input
 
 
-# Dampen the grain just a little, to keep the original look
-#
-# Parameters:
-#  limit (int)    - The spatial part won't change a pixel more than this. Default is 3
-#  bias (int)     - The percentage of the spatial filter that will apply. Default is 24
-#  RGmode (int)   - The spatial filter is RemoveGrain, this is its mode. Default is 4
-#  tthr (int)     - Temporal threshold for fluxsmooth. Can be set "a good bit bigger" than usually. Default is 12
-#  tlimit (int)   - The temporal filter won't change a pixel more than this. Default is 3
-#  tbias (int)    - The percentage of the temporal filter that will apply. Default is 49
-#  back (int)     - After all changes have been calculated, reduce all pixel changes by this value (shift "back" towards original value). Default is 1
-#  planes (int[]) - Whether to process the corresponding plane. The other planes will be passed through unchanged.
-def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=1, planes=None):
-    if not isinstance(clp, vs.VideoNode):
+def STPresso(clip: vs.VideoNode,
+             limit: int = 3,
+             bias: int = 24,
+             RGmode: int = 4,
+             tthr: int = 12,
+             tlimit: int = 3,
+             tbias: int = 49,
+             back: int = 1,
+             prefilter: Optional[vs.VideoNode] = None,
+             planes: Optional[Union[int, Sequence[int]]] = None
+             ) -> vs.VideoNode:
+    """Dampen the grain just a little, to keep the original look
+
+    :param clip:        Input clip
+    :param limit:       The spatial part won't change a pixel more than this. Default is 3
+    :param bias:        The percentage of the spatial filter that will apply. Default is 24
+    :param RGmode:      The spatial filter is RemoveGrain, this is its mode. Default is 4
+    :param tthr:        Temporal threshold for fluxsmooth. Can be set "a good bit bigger" than usually. Default is 12
+    :param tlimit:      The temporal filter won't change a pixel more than this. Default is 3
+    :param tbias:       The percentage of the temporal filter that will apply. Default is 49
+    :param back:        After all changes have been calculated, reduce all pixel changes by this value (shift "back" towards original value). Default is 1
+    :param prefilter:   User-specified filter to be used instead of rgvs. Handle planes yourself.
+    :param planes:      Whether to process the corresponding plane. The other planes will be passed through unchanged.
+
+    Returns:
+        vs.VideoNode: Dampened clip
+    """
+
+    if not isinstance(clip, vs.VideoNode):
         raise vs.Error('STPresso: this is not a clip')
 
-    peak = (1 << clp.format.bits_per_sample) - 1
+    peak = get_peak_value(clip)
 
     if planes is None:
-        planes = list(range(clp.format.num_planes))
+        planes = list(range(clip.format.num_planes))
     elif isinstance(planes, int):
         planes = [planes]
 
@@ -4394,6 +4410,8 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
     LIM = cround(limit * 100 / bias - 1) if limit > 0 else scale(100 / bias, peak)
     TLIM = cround(tlimit * 100 / tbias - 1) if tlimit > 0 else scale(100 / tbias, peak)
 
+    mvtools = dict(truemotion=False, delta=1, blksize=16, overlap=8)
+
     if limit < 0:
         expr = f'x y - abs {LIM} < x x 1 x y - dup abs / * - ?'
     else:
@@ -4403,23 +4421,43 @@ def STPresso(clp, limit=3, bias=24, RGmode=4, tthr=12, tlimit=3, tbias=49, back=
     else:
         texpr = f'x y - abs {scale(1, peak)} < x x {TLIM} + y < x {tlimit} + x {TLIM} - y > x {tlimit} - x {100 - tbias} * y {tbias} * + 100 / ? ? ?'
 
-    if RGmode == 4:
-        bzz = clp.std.Median(planes=planes)
-    elif RGmode in [11, 12]:
-        bzz = clp.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
-    elif RGmode == 19:
-        bzz = clp.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1], planes=planes)
-    elif RGmode == 20:
-        bzz = clp.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1], planes=planes)
+    if prefilter:
+        bzz = prefilter(clip)
     else:
-        bzz = clp.rgvs.RemoveGrain(mode=[RGmode if i in planes else 0 for i in range(clp.format.num_planes)])
-    last = core.std.Expr([clp, bzz], expr=[expr if i in planes else '' for i in range(clp.format.num_planes)])
+        if RGmode == 4:
+            bzz = clip.std.Median(planes=planes)
+        elif RGmode in [11, 12]:
+            bzz = clip.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1], planes=planes)
+        elif RGmode == 19:
+            bzz = clip.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1], planes=planes)
+        elif RGmode == 20:
+            bzz = clip.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1], planes=planes)
+        else:
+            bzz = clip.rgvs.RemoveGrain(mode=RGmode)
+
+    last = core.std.Expr([clip, bzz], expr=[expr if i in planes else '' for i in range(clip.format.num_planes)])
+
     if tthr > 0:
-        last = core.std.Expr([last, core.std.MakeDiff(last, core.std.MakeDiff(bzz, bzz.flux.SmoothT(temporal_threshold=tthr, planes=planes), planes=planes), planes=planes)],
-                             expr=[texpr if i in planes else '' for i in range(clp.format.num_planes)])
+        mvSuper = core.mv.Super(bzz)
+        bv1 = core.mv.Analyse(mvSuper, isb=True, **mvtools)
+        fv1 = core.mv.Analyse(mvSuper, isb=False, **mvtools)
+
+        bc1 = core.mv.Compensate(bzz, super=mvSuper, vectors=bv1)
+        fc1 = core.mv.Compensate(bzz, super=mvSuper, vectors=fv1)
+
+        interleave = core.std.Interleave([bc1, bzz, fc1])
+        smooth = core.flux.SmoothT(interleave, temporal_threshold=tthr, planes=planes)
+        smooth = core.std.SelectEvery(smooth, cycle=3, offsets=1)
+
+        diff = core.std.MakeDiff(bzz, smooth, planes=planes)
+        diff = core.std.MakeDiff(last, diff, planes=planes)
+        last = core.std.Expr(
+            [last, diff], expr=[texpr if i in planes else '' for i in range(clip.format.num_planes)])
+
     if back > 0:
         expr = f'x {back} + y < x {back} + x {back} - y > x {back} - y ? ?'
-        last = core.std.Expr([last, clp], expr=[expr if i in planes else '' for i in range(clp.format.num_planes)])
+        last = core.std.Expr([last, clip], expr=[expr if i in planes else '' for i in range(clip.format.num_planes)])
+
     return last
 
 
