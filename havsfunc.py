@@ -704,7 +704,7 @@ def FineDehalo(
     else:
         shr_med = strong
 
-    # Substracts masks and amplifies the difference to be sure we get 255 on the areas to be processed
+    # Subtracts masks and amplifies the difference to be sure we get 255 on the areas to be processed
     outside = core.std.Expr([large, shr_med], expr='x y - 2 *')
     if is_float:
         outside = outside.std.Limiter()
@@ -1183,7 +1183,7 @@ def QTGMC(
 
         TR0: Temporal binomial smoothing radius used to create motion search clip. In general 2=quality, 1=speed, 0=don't use.
 
-        TR1: Temporal binomial smoothing radius used on interpolated clip for inital output. In general 2=quality, 1=speed, 0=don't use.
+        TR1: Temporal binomial smoothing radius used on interpolated clip for initial output. In general 2=quality, 1=speed, 0=don't use.
 
         TR2: Temporal linear smoothing radius used for final stablization / denoising. Increase for smoother output.
 
@@ -1272,7 +1272,7 @@ def QTGMC(
         LSAD: How much to reduce need for vector coherence (i.e. Lambda above) if prediction of motion vector from neighbors is poor,
             typically in areas of complex motion. This value is scaled in MVTools (unlike Lambda).
 
-        PNew: Penalty for choosing a new motion vector for a block over an existing one - avoids chosing new vectors for minor gain.
+        PNew: Penalty for choosing a new motion vector for a block over an existing one - avoids choosing new vectors for minor gain.
 
         PLevel: Mode for scaling lambda across different sub-pixel levels - see MVTools2 documentation for choices.
 
@@ -1528,7 +1528,7 @@ def QTGMC(
     StabilizeNoise = fallback(StabilizeNoise, [ True,       True,      True,      False,    False  ][npNum])
     # fmt: on
 
-    # The basic source-match step corrects and re-runs the interpolation of the input clip. So it initialy uses same interpolation settings as the main preset
+    # The basic source-match step corrects and re-runs the interpolation of the input clip. So it initially uses same interpolation settings as the main preset
     MatchNNSize = NNSize
     MatchNNeurons = NNeurons
     MatchEdiMaxD = EdiMaxD
@@ -2046,7 +2046,7 @@ def QTGMC(
             vresharp = vresharp1
         resharp = core.std.Expr([lossed1, vresharp.std.Convolution(matrix=matrix)], expr=f'x x y - {sharpAdj} * +')
 
-    # Slightly thin down 1-pixel high horizontal edges that have been widened into neigboring field lines by the interpolator
+    # Slightly thin down 1-pixel high horizontal edges that have been widened into neighboring field lines by the interpolator
     SVThinSc = SVThin * 6.0
     if SVThin > 0:
         expr = f'y x - {SVThinSc} * {neutral} +'
@@ -5064,7 +5064,7 @@ def FixRowBrightnessProtect2(c, row, adj_val, prot_val=16):
 ###
 ### Mfactor [default: 2]
 ### --------------------
-### The higher, the more precise but the less maxdiff alowed:
+### The higher, the more precise but the less maxdiff allowed:
 ### maxdiff=128/Mfactor for Smode1&-1 and maxdiff=255/Mfactor for Smode2&-2
 ###
 ### RGmode [default: 12]
