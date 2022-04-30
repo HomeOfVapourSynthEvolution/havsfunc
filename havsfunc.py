@@ -1326,7 +1326,7 @@ def QTGMC(
 
         NoisePreset: Automatic setting for quality of noise processing. Choices: "Slower", "Slow", "Medium", "Fast", and "Faster".
 
-        Denoiser: Select denoiser to use for noise bypass / denoising. Select from "dfttest", "fft3dfilter" or "knlmeanscl".
+        Denoiser: Select denoiser to use for noise bypass / denoising. Select from "bm3d", "dfttest", "fft3dfilter" or "knlmeanscl".
             Unknown value selects "fft3dfilter".
 
         FftThreads: Number of threads to use if using "fft3dfilter" for Denoiser.
@@ -1864,7 +1864,9 @@ def QTGMC(
                     core.mv.Compensate(fullClip, fullSuper, bVec2, thscd1=ThSCD1, thscd2=ThSCD2),
                 ]
             )
-        if Denoiser == 'dfttest':
+        if Denoiser == 'bm3d':
+            dnWindow = mvf.BM3D(noiseWindow, radius1=NoiseTR, sigma=[Sigma if plane in CNplanes else 0 for plane in range(3)])
+        elif Denoiser == 'dfttest':
             dnWindow = noiseWindow.dfttest.DFTTest(sigma=Sigma * 4, tbsize=noiseTD, planes=CNplanes)
         elif Denoiser in ['knlm', 'knlmeanscl']:
             if ChromaNoise and not is_gray:
