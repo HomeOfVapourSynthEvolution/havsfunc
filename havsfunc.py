@@ -6268,27 +6268,33 @@ def ContraSharpening(
     elif isinstance(planes, int):
         planes = [planes]
 
+    pad = 2 if radius < 3 else 4
+    denoised = Padding(denoised, pad, pad, pad, pad)
+    original = Padding(original, pad, pad, pad, pad)
+
     matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
     matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
-    s = MinBlur(denoised, radius, planes)  # damp down remaining spots of the denoised clip
-    allD = core.std.MakeDiff(original, denoised, planes=planes)  # the difference achieved by the denoising
+    # damp down remaining spots of the denoised clip
+    s = MinBlur(denoised, radius, planes)
+    # the difference achieved by the denoising
+    allD = core.std.MakeDiff(original, denoised, planes=planes)
 
-    if radius <= 1:
-        RG11 = s.std.Convolution(matrix=matrix1, planes=planes)
-    elif radius == 2:
-        RG11 = s.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
-    else:
-        RG11 = s.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
+    RG11 = s.std.Convolution(matrix=matrix1, planes=planes)
+    if radius >= 2:
+        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes)
+    if radius >= 3:
+        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes)
 
-    ssD = core.std.MakeDiff(s, RG11, planes=planes)  # the difference of a simple kernel blur
-    ssDD = core.rgvs.Repair(
-        ssD, allD, mode=[rep if i in planes else 0 for i in plane_range]
-    )  # limit the difference to the max of what the denoising removed locally
-    ssDD = core.std.Expr(
-        [ssDD, ssD], expr=[f'x {neutral} - abs y {neutral} - abs < x y ?' if i in planes else '' for i in plane_range]
-    )  # abs(diff) after limiting may not be bigger than before
-    return core.std.MergeDiff(denoised, ssDD, planes=planes)  # apply the limited difference (sharpening is just inverse blurring)
+    # the difference of a simple kernel blur
+    ssD = core.std.MakeDiff(s, RG11, planes=planes)
+    # limit the difference to the max of what the denoising removed locally
+    ssDD = core.rgvs.Repair(ssD, allD, mode=[rep if i in planes else 0 for i in plane_range])
+    # abs(diff) after limiting may not be bigger than before
+    ssDD = core.std.Expr([ssDD, ssD], expr=[f'x {neutral} - abs y {neutral} - abs < x y ?' if i in planes else '' for i in plane_range])
+    # apply the limited difference (sharpening is just inverse blurring)
+    last = core.std.MergeDiff(denoised, ssDD, planes=planes)
+    return last.std.Crop(pad, pad, pad, pad)
 
 
 def MinBlur(clp: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
