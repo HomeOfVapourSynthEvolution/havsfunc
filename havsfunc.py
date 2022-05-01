@@ -6252,6 +6252,7 @@ def ContraSharpening(
         rep: Mode of repair to limit the difference.
 
         planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
+            By default only luma plane is processed for non-RGB formats.
     '''
     if not (isinstance(denoised, vs.VideoNode) and isinstance(original, vs.VideoNode)):
         raise vs.Error('ContraSharpening: this is not a clip')
@@ -6264,7 +6265,7 @@ def ContraSharpening(
     plane_range = range(denoised.format.num_planes)
 
     if planes is None:
-        planes = list(plane_range)
+        planes = [0] if denoised.format.color_family != vs.RGB else [0, 1, 2]
     elif isinstance(planes, int):
         planes = [planes]
 
