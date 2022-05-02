@@ -45,6 +45,7 @@ Utility functions:
     AverageFrames
     AvsPrewitt
     ChangeFPS
+    Gauss
     mt_clamp
     KNLMeansCL
     Overlay
@@ -1735,7 +1736,7 @@ def QTGMC(
         if SrchClipPP == 1:
             spatialBlur = repair0.resize.Bilinear(w // 2, h // 2).std.Convolution(matrix=matrix, planes=CMplanes).resize.Bilinear(w, h)
         elif SrchClipPP >= 2:
-            spatialBlur = Resize(repair0.std.Convolution(matrix=matrix, planes=CMplanes), w, h, sw=w + epsilon, sh=h + epsilon, kernel='gauss', a1=2, dmode=1)
+            spatialBlur = Gauss(repair0.std.Convolution(matrix=matrix, planes=CMplanes), p=2.35)
             spatialBlur = core.std.Merge(spatialBlur, repair0, weight=0.1 if ChromaMotion or is_gray else [0.1, 0])
         if SrchClipPP <= 0:
             srchClip = repair0
@@ -2056,20 +2057,7 @@ def QTGMC(
     if Sbb not in [1, 3]:
         backBlend1 = thin
     else:
-        backBlend1 = core.std.MakeDiff(
-            thin,
-            Resize(
-                core.std.MakeDiff(thin, lossed1, planes=0).std.Convolution(matrix=matrix, planes=0),
-                w,
-                h,
-                sw=w + epsilon,
-                sh=h + epsilon,
-                kernel='gauss',
-                a1=5,
-                dmode=1,
-            ),
-            planes=0,
-        )
+        backBlend1 = core.std.MakeDiff(thin, Gauss(core.std.MakeDiff(thin, lossed1, planes=0).std.Convolution(matrix=matrix, planes=0), p=5), planes=0)
 
     # Limit over-sharpening by clamping to neighboring (spatial or temporal) min/max values in original
     # Occurs here (before final temporal smooth) if SLMode == 1,2. This location will restrict sharpness more, but any artefacts introduced will be smoothed
@@ -2088,18 +2076,7 @@ def QTGMC(
         backBlend2 = sharpLimit1
     else:
         backBlend2 = core.std.MakeDiff(
-            sharpLimit1,
-            Resize(
-                core.std.MakeDiff(sharpLimit1, lossed1, planes=0).std.Convolution(matrix=matrix, planes=0),
-                w,
-                h,
-                sw=w + epsilon,
-                sh=h + epsilon,
-                kernel='gauss',
-                a1=5,
-                dmode=1,
-            ),
-            planes=0,
+            sharpLimit1, Gauss(core.std.MakeDiff(sharpLimit1, lossed1, planes=0).std.Convolution(matrix=matrix, planes=0), p=5), planes=0
         )
 
     # Add back any extracted noise, prior to final temporal smooth - this will restore detail that was removed as "noise" without restoring the noise itself
@@ -5890,6 +5867,44 @@ def ChangeFPS(clip: vs.VideoNode, fpsnum: int, fpsden: int = 1) -> vs.VideoNode:
 
     attribute_clip = clip.std.BlankClip(length=math.floor(len(clip) * factor), fpsnum=fpsnum, fpsden=fpsden)
     return attribute_clip.std.FrameEval(eval=frame_adjuster)
+
+
+def Gauss(clip: vs.VideoNode, p: Optional[float] = None, sigma: Optional[float] = None, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
+    if not isinstance(clip, vs.VideoNode):
+        raise vs.Error('Gauss: this is not a clip')
+
+    if p is None and sigma is None:
+        raise vs.Error('Gauss: must have p or sigma')
+
+    if p is not None and not 0.385 <= p <= 64.921:
+        raise vs.Error('Gauss: p must be between 0.385 and 64.921 (inclusive)')
+
+    if sigma is not None and not 0.334 <= sigma <= 4.333:
+        raise vs.Error('Gauss: sigma must be between 0.334 and 4.333 (inclusive)')
+
+    if sigma is None and p is not None:
+        # Translate AviSynth parameter to standard parameter.
+        sigma = math.sqrt(1.0 / (2.0 * (p / 10.0) * math.log(2)))
+
+    # 6 * sigma + 1 rule-of-thumb.
+    taps = int(math.ceil(sigma * 6 + 1))
+    if not taps % 2:
+        taps += 1
+
+    # Gaussian kernel.
+    kernel = []
+    for x in range(int(math.floor(taps / 2))):
+        kernel.append(1.0 / (math.sqrt(2.0 * math.pi) * sigma) * math.exp(-(x * x) / (2 * sigma * sigma)))
+
+    # Renormalize to -1023...1023.
+    for i in range(1, len(kernel)):
+        kernel[i] *= 1023 / kernel[0]
+    kernel[0] = 1023
+
+    # Symmetry.
+    kernel = kernel[::-1] + kernel[1:]
+
+    return clip.std.Convolution(matrix=kernel, planes=planes, mode='hv')
 
 
 def mt_clamp(
