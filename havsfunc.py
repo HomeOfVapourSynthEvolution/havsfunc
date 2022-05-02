@@ -44,7 +44,6 @@ Main functions:
 Utility functions:
     AverageFrames
     AvsPrewitt
-    Bob
     ChangeFPS
     mt_clamp
     KNLMeansCL
@@ -1679,7 +1678,7 @@ def QTGMC(
 
     # Bob the input as a starting point for motion search clip
     if InputType <= 0:
-        bobbed = Bob(clip, 0, 0.5, TFF)
+        bobbed = clip.resize.Bob(tff=TFF, filter_param_a=0, filter_param_b=0.5)
     elif InputType == 1:
         bobbed = clip
     else:
@@ -1829,7 +1828,7 @@ def QTGMC(
         if InputType > 0:
             fullClip = clip
         else:
-            fullClip = Bob(clip, 0, 1, TFF)
+            fullClip = clip.resize.Bob(tff=TFF, filter_param_a=0, filter_param_b=1)
     if NoiseTR > 0:
         fullSuper = fullClip.mv.Super(levels=1, chroma=ChromaNoise, **super_args)  # TEST chroma OK?
 
@@ -1890,7 +1889,7 @@ def QTGMC(
             if InputType > 0:
                 deintNoise = noise
             elif NoiseDeint == 'bob':
-                deintNoise = Bob(noise, 0, 0.5, TFF)
+                deintNoise = noise.resize.Bob(tff=TFF, filter_param_a=0, filter_param_b=0.5)
             elif NoiseDeint == 'generate':
                 deintNoise = QTGMC_Generate2ndFieldNoise(noise, denoised, ChromaNoise, TFF)
             else:
@@ -2285,14 +2284,14 @@ def QTGMC_Interpolate(
     elif EdiMode == 'bwdif':
         interp = Input.bwdif.Bwdif(field=field)
     else:
-        interp = fallback(Fallback, Bob(Input, 0, 0.5, TFF))
+        interp = fallback(Fallback, Input.resize.Bob(tff=TFF, filter_param_a=0, filter_param_b=0.5))
 
     if ChromaEdi == 'nnedi3':
         interpuv = nnedi3(Input, planes=[1, 2], nsize=4, nns=0, qual=1)
     elif ChromaEdi == 'bwdif':
         interpuv = Input.bwdif.Bwdif(field=field)
     elif ChromaEdi == 'bob':
-        interpuv = Bob(Input, 0, 0.5, TFF)
+        interpuv = Input.resize.Bob(tff=TFF, filter_param_a=0, filter_param_b=0.5)
     else:
         return interp
 
@@ -2989,7 +2988,7 @@ def dec_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=Fals
     if srcbob:
         last = src
     elif draft:
-        last = Bob(src, tff=tff)
+        last = src.resize.Bob(tff=tff, filter_param_a=1 / 3, filter_param_b=1 / 3)
     else:
         last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff, opencl=opencl, device=device)
 
@@ -3027,7 +3026,7 @@ def ivtc_txt30mc(src, frame_ref, draft=False, tff=None, opencl=False, device=Non
     overlap = blksize // 2
 
     if draft:
-        last = Bob(src, tff=tff)
+        last = src.resize.Bob(tff=tff, filter_param_a=1 / 3, filter_param_b=1 / 3)
     else:
         last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff, opencl=opencl, device=device)
 
@@ -3095,7 +3094,7 @@ def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=Fal
     if srcbob:
         last = src
     elif draft:
-        last = Bob(src, tff=tff)
+        last = src.resize.Bob(tff=tff, filter_param_a=1 / 3, filter_param_b=1 / 3)
     else:
         last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff, opencl=opencl, device=device)
 
@@ -5876,23 +5875,6 @@ def AvsPrewitt(clip: vs.VideoNode, planes: Optional[Union[int, Sequence[int]]] =
         ],
         expr=['x y max z max a max' if i in planes else '' for i in plane_range],
     )
-
-
-def Bob(clip: vs.VideoNode, b: float = 1 / 3, c: float = 1 / 3, tff: Optional[bool] = None) -> vs.VideoNode:
-    if not isinstance(clip, vs.VideoNode):
-        raise vs.Error('Bob: this is not a clip')
-
-    if tff is None:
-        with clip.get_frame(0) as f:
-            if f.props.get('_FieldBased') not in [1, 2]:
-                raise vs.Error('Bob: tff was not specified and field order could not be determined from frame properties')
-
-    bits = get_depth(clip)
-    clip = clip.std.SeparateFields(tff=tff).fmtc.resample(scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0)
-
-    if get_depth(clip) != bits:
-        clip = clip.fmtc.bitdepth(bits=bits, dmode=1)
-    return clip
 
 
 def ChangeFPS(clip: vs.VideoNode, fpsnum: int, fpsden: int = 1) -> vs.VideoNode:
