@@ -18,7 +18,6 @@
 - [EEDI3](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3)
 - [FFT3DFilter](https://github.com/myrsloik/VapourSynth-FFT3DFilter)
 - [FluxSmooth](https://github.com/dubhater/vapoursynth-fluxsmooth)
-- [fmtconv](https://github.com/EleonoreMizo/fmtconv)
 - [Hqdn3d](https://github.com/Hinterwaeldlers/vapoursynth-hqdn3d)
 - [KNLMeansCL](https://github.com/Khanattila/KNLMeansCL)
 - [MiscFilters](https://github.com/vapoursynth/vs-miscfilters-obsolete)

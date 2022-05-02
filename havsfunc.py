@@ -50,7 +50,6 @@ Utility functions:
     KNLMeansCL
     Overlay
     Padding
-    Resize
     SCDetect
     Weave
     ContraSharpening
@@ -6134,58 +6133,6 @@ def Padding(clip: vs.VideoNode, left: int = 0, right: int = 0, top: int = 0, bot
     height = clip.height + top + bottom
 
     return clip.resize.Point(width, height, src_left=-left, src_top=-top, src_width=width, src_height=height)
-
-
-def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None, a1=None, a2=None, invks=None, invkstaps=None, css=None, planes=None,
-           center=None, cplace=None, cplaces=None, cplaced=None, interlaced=None, interlacedd=None, tff=None, tffd=None, flt=None, noring=False,
-           bits=None, fulls=None, fulld=None, dmode=None, ampo=None, ampn=None, dyn=None, staticnoise=None, patsize=None):
-    if not isinstance(src, vs.VideoNode):
-        raise vs.Error('Resize: this is not a clip')
-
-    if bits is None:
-        bits = src.format.bits_per_sample
-
-    sr_h = w / src.width
-    sr_v = h / src.height
-    sr_up = max(sr_h, sr_v)
-    sr_dw = 1 / min(sr_h, sr_v)
-    sr = max(sr_up, sr_dw)
-
-    # Depending on the scale ratio, we may blend or totally disable the ringing cancellation
-    thr = 2.5
-    nrb = thr < sr < thr + 1
-    nrf = sr < thr + 1 and noring
-
-    main = src.fmtc.resample(w, h, sx, sy, sw, sh, kernel=kernel, taps=taps, a1=a1, a2=a2, invks=invks, invkstaps=invkstaps, css=css, planes=planes, center=center,
-                             cplace=cplace, cplaces=cplaces, cplaced=cplaced, interlaced=interlaced, interlacedd=interlacedd, tff=tff, tffd=tffd, flt=flt)
-
-    if nrf:
-        nrng = src.fmtc.resample(w, h, sx, sy, sw, sh, kernel='gauss', taps=taps, a1=100, invks=invks, invkstaps=invkstaps, css=css, planes=planes, center=center,
-                                 cplace=cplace, cplaces=cplaces, cplaced=cplaced, interlaced=interlaced, interlacedd=interlacedd, tff=tff, tffd=tffd, flt=flt)
-
-        last = core.rgvs.Repair(main, nrng, mode=[1])
-        if nrb:
-            nr = sr - thr
-            last = core.std.Merge(last, main, [nr])
-    else:
-        last = main
-
-    if last.format.bits_per_sample == bits and fulls is None and fulld is None and dmode is None and ampo is None and ampn is None and dyn is None and staticnoise is None and patsize is None:
-        return last
-    else:
-        planes2 = []
-        if planes is None:
-            for i in range(last.format.num_planes):
-                planes2.append(i)
-        else:
-            if not isinstance(planes, list):
-                planes = [planes]
-            while len(planes) < last.format.num_planes:
-                planes.append(planes[len(planes) - 1])
-            for i in range(last.format.num_planes):
-                if planes[i] != 1:
-                    planes2.append(i)
-        return last.fmtc.bitdepth(bits=bits, planes=planes2, fulls=fulls, fulld=fulld, dmode=dmode, ampo=ampo, ampn=ampn, dyn=dyn, staticnoise=staticnoise, patsize=patsize)
 
 
 def SCDetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
