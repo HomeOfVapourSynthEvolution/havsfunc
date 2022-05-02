@@ -30,7 +30,6 @@ Main functions:
     SMDegrain
     STPresso
     bbmod
-    SigmoidInverse, SigmoidDirect
     GrainFactory3
     InterFrame
     FixColumnBrightness, FixRowBrightness
@@ -4490,39 +4489,6 @@ def bbmod(c, cTop, cBottom, cLeft, cRight, thresh=128, blur=999):
     if cRight > 0:
         c = btb(c, cRight)
     return c.std.Transpose().std.FlipHorizontal()
-
-
-# Apply the inverse sigmoid curve to a clip in linear luminance
-def SigmoidInverse(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
-    if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
-        raise vs.Error('SigmoidInverse: this is not a 16-bit clip')
-
-    if thr < 0 or thr > 1:
-        raise vs.Error('SigmoidInverse: thr must be between 0.0 and 1.0 (inclusive)')
-
-    if cont <= 0:
-        raise vs.Error('SigmoidInverse: cont must be greater than 0.0')
-
-    x0 = 1 / (1 + math.exp(cont * thr))
-    x1m0 = 1 / (1 + math.exp(cont * (thr - 1))) - x0
-    expr = f'{thr} 1 x 65536 / {x1m0} * {x0} + 0.000001 max / 1 - 0.000001 max log {cont} / - 65536 *'
-    return src.std.Expr(expr=[expr if i in planes else '' for i in range(src.format.num_planes)])
-
-# Convert back a clip to linear luminance
-def SigmoidDirect(src, thr=0.5, cont=6.5, planes=[0, 1, 2]):
-    if not isinstance(src, vs.VideoNode) or src.format.bits_per_sample != 16:
-        raise vs.Error('SigmoidDirect: this is not a 16-bit clip')
-
-    if thr < 0 or thr > 1:
-        raise vs.Error('SigmoidDirect: thr must be between 0.0 and 1.0 (inclusive)')
-
-    if cont <= 0:
-        raise vs.Error('SigmoidDirect: cont must be greater than 0.0')
-
-    x0 = 1 / (1 + math.exp(cont * thr))
-    x1m0 = 1 / (1 + math.exp(cont * (thr - 1))) - x0
-    expr = f'1 1 {cont} {thr} x 65536 / - * exp + / {x0} - {x1m0} / 65536 *'
-    return src.std.Expr(expr=[expr if i in planes else '' for i in range(src.format.num_planes)])
 
 
 # Parameters:
