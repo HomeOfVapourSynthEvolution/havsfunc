@@ -1657,7 +1657,6 @@ def QTGMC(
 
     w = Input.width
     h = Input.height
-    epsilon = 1e-6
 
     # Reverse "field" dominance for progressive repair mode 3 (only difference from mode 2)
     if InputType >= 3:
