@@ -6141,14 +6141,10 @@ def Padding(clip: vs.VideoNode, left: int = 0, right: int = 0, top: int = 0, bot
     if left < 0 or right < 0 or top < 0 or bottom < 0:
         raise vs.Error('Padding: border size to pad must not be negative')
 
-    return clip.resize.Point(
-        clip.width + left + right,
-        clip.height + top + bottom,
-        src_left=-left,
-        src_top=-top,
-        src_width=clip.width + left + right,
-        src_height=clip.height + top + bottom,
-    )
+    width = clip.width + left + right
+    height = clip.height + top + bottom
+
+    return clip.resize.Point(width, height, src_left=-left, src_top=-top, src_width=width, src_height=height)
 
 
 def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None, a1=None, a2=None, invks=None, invkstaps=None, css=None, planes=None,
@@ -6215,7 +6211,7 @@ def SCDetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
 
     sc = clip
     if clip.format.color_family == vs.RGB:
-        sc = clip.resize.Bicubic(format=vs.GRAY8, matrix_s='709')
+        sc = clip.resize.Point(format=vs.GRAY8, matrix_s='709')
 
     sc = sc.misc.SCDetect(threshold=threshold)
     if clip.format.color_family == vs.RGB:
@@ -6252,7 +6248,7 @@ def ContraSharpening(
         rep: Mode of repair to limit the difference.
 
         planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
-            By default only luma plane is processed for non-RGB formats.
+            By default only luma plane will be processed for non-RGB formats.
     '''
     if not (isinstance(denoised, vs.VideoNode) and isinstance(original, vs.VideoNode)):
         raise vs.Error('ContraSharpening: this is not a clip')
@@ -6353,23 +6349,19 @@ def sbr(c: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]]
     matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
     matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
-    if r <= 1:
-        RG11 = c.std.Convolution(matrix=matrix1, planes=planes)
-    elif r == 2:
-        RG11 = c.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
-    else:
-        RG11 = c.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
+    RG11 = c.std.Convolution(matrix=matrix1, planes=planes)
+    if r >= 2:
+        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes)
+    if r >= 3:
+        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes)
 
     RG11D = core.std.MakeDiff(c, RG11, planes=planes)
 
-    if r <= 1:
-        RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes)
-    elif r == 2:
-        RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
-    else:
-        RG11DS = (
-            RG11D.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
-        )
+    RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes)
+    if r >= 2:
+        RG11DS = RG11DS.std.Convolution(matrix=matrix2, planes=planes)
+    if r >= 3:
+        RG11DS = RG11DS.std.Convolution(matrix=matrix2, planes=planes)
 
     RG11DD = core.std.Expr(
         [RG11D, RG11DS],
@@ -6394,29 +6386,19 @@ def sbrV(c: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]
     matrix1 = [1, 2, 1]
     matrix2 = [1, 4, 6, 4, 1]
 
-    if r <= 1:
-        RG11 = c.std.Convolution(matrix=matrix1, planes=planes, mode='v')
-    elif r == 2:
-        RG11 = c.std.Convolution(matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
-    else:
-        RG11 = (
-            c.std.Convolution(matrix=matrix1, planes=planes, mode='v')
-            .std.Convolution(matrix=matrix2, planes=planes, mode='v')
-            .std.Convolution(matrix=matrix2, planes=planes, mode='v')
-        )
+    RG11 = c.std.Convolution(matrix=matrix1, planes=planes, mode='v')
+    if r >= 2:
+        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes, mode='v')
+    if r >= 3:
+        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes, mode='v')
 
     RG11D = core.std.MakeDiff(c, RG11, planes=planes)
 
-    if r <= 1:
-        RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes, mode='v')
-    elif r == 2:
-        RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes, mode='v').std.Convolution(matrix=matrix2, planes=planes, mode='v')
-    else:
-        RG11DS = (
-            RG11D.std.Convolution(matrix=matrix1, planes=planes, mode='v')
-            .std.Convolution(matrix=matrix2, planes=planes, mode='v')
-            .std.Convolution(matrix=matrix2, planes=planes, mode='v')
-        )
+    RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes, mode='v')
+    if r >= 2:
+        RG11DS = RG11DS.std.Convolution(matrix=matrix2, planes=planes, mode='v')
+    if r >= 3:
+        RG11DS = RG11DS.std.Convolution(matrix=matrix2, planes=planes, mode='v')
 
     RG11DD = core.std.Expr(
         [RG11D, RG11DS],
