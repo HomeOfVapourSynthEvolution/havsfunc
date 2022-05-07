@@ -59,6 +59,8 @@ Utility functions:
     mt_inflate_multi, mt_deflate_multi
 """
 
+from __future__ import annotations
+
 import math
 from functools import partial
 from typing import Any, Mapping, Optional, Sequence, Union
