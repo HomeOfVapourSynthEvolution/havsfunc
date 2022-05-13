@@ -2690,8 +2690,8 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         sourceTrim1 = source.std.Trim(first=1)
         sourceTrim2 = source.std.Trim(first=2)
 
-        unblend1 = core.std.Expr([sourceDuplicate, source], expr=['x -1 * y 2 * +'])
-        unblend2 = core.std.Expr([sourceTrim1, sourceTrim2], expr=['x 2 * y -1 * +'])
+        unblend1 = core.std.Expr([sourceDuplicate, source], expr=['y 2 * x -'])
+        unblend2 = core.std.Expr([sourceTrim1, sourceTrim2], expr=['x 2 * y -'])
 
         qmask1 = core.std.MakeDiff(unblend1.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1], planes=[0]), unblend1, planes=[0])
         qmask2 = core.std.MakeDiff(unblend2.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1], planes=[0]), unblend2, planes=[0])
@@ -2705,7 +2705,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
 
         omode = omode.lower()
         if omode == 'pp0':
-            fin = core.std.Expr([sourceDuplicate, source, sourceTrim1, sourceTrim2], expr=['x -0.5 * y + z + a -0.5 * +'])
+            fin = core.std.Expr([sourceDuplicate, source, sourceTrim1, sourceTrim2], expr=['y x 2 / - z a 2 / - +'])
         elif omode == 'pp1':
             fin = core.std.MaskedMerge(unblend1, unblend2, dmask.std.Convolution(matrix=matrix, planes=[0]).std.Expr(expr=['', repr(neutral)]))
         elif omode == 'pp2':
