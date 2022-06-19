@@ -4226,9 +4226,9 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
     if pelclip:
         import nnedi3_resample as nnrs
         cshift = 0.25 if pel == 2 else 0.375
-        pclip = nnrs.nnedi3_resample(pref, w * pel, h * pel, src_left=cshift, src_top=cshift, nns=4)
+        pclip = nnrs.nnedi3_resample(pref, w * pel, h * pel, src_left=cshift, src_top=cshift, nns=4, mode='znedi3')
         if not GlobalR:
-            pclip2 = nnrs.nnedi3_resample(inputP, w * pel, h * pel, src_left=cshift, src_top=cshift, nns=4)
+            pclip2 = nnrs.nnedi3_resample(inputP, w * pel, h * pel, src_left=cshift, src_top=cshift, nns=4, mode='znedi3')
 
     # Motion vectors search
     global bv6, bv4, bv3, bv2, bv1, fv1, fv2, fv3, fv4, fv6
