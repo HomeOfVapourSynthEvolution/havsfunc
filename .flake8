@@ -1,0 +1,7 @@
+[flake8]
+count = True
+ignore = C408, D100, D107, D301, E226, E265, E266, E741, W503
+max-line-length = 120
+exclude = stubs/*
+show-source = True
+statistics = True
