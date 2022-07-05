@@ -8,7 +8,7 @@ install_requires = Path("requirements.txt").read_text()
 
 package_name = "havsfunc"
 
-exec(Path(f'{package_name}/_metadata.py').read_text(), meta := dict[str, str]())
+exec(Path(f'{package_name}/_metadata.py').read_text(), meta := {})
 
 setuptools.setup(
     name=package_name,
