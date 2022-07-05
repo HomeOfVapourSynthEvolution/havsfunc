@@ -2669,9 +2669,9 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         dclip = dclip.resize.Bicubic(format=vs.YUV420P8)
     dclip = dclip.resize.Point(dclip.width if srad == 4 else int(dclip.width / 2 / srad + 4) * 4, dclip.height if srad == 4 else int(dclip.height / 2 / srad + 4) * 4).std.Trim(first=2)
     if mode < 0:
-        dclip = core.std.StackVertical([core.std.StackHorizontal([mvf.GetPlane(dclip, 1), mvf.GetPlane(dclip, 2)]), mvf.GetPlane(dclip, 0)])
+        dclip = core.std.StackVertical([core.std.StackHorizontal([plane(dclip, 1), plane(dclip, 2)]), plane(dclip, 0)])
     else:
-        dclip = mvf.GetPlane(dclip, 0)
+        dclip = plane(dclip, 0)
     if bom:
         dclip = dclip.std.Expr(expr=['x 0.5 * 64 +'])
 
@@ -3153,8 +3153,8 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
 
     if not chroma and dlg.format.color_family != vs.GRAY:
         dlg_orig = dlg
-        dlg = mvf.GetPlane(dlg, 0)
-        src = mvf.GetPlane(src, 0)
+        dlg = plane(dlg, 0)
+        src = plane(src, 0)
     else:
         dlg_orig = None
 
@@ -3197,7 +3197,7 @@ def Vinverse(clp, sstr=2.7, amnt=255, chroma=True, scl=0.25):
 
     if not chroma and clp.format.color_family != vs.GRAY:
         clp_orig = clp
-        clp = mvf.GetPlane(clp, 0)
+        clp = plane(clp, 0)
     else:
         clp_orig = None
 
@@ -3231,7 +3231,7 @@ def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True, scl=0.25):
 
     if not chroma and clp.format.color_family != vs.GRAY:
         clp_orig = clp
-        clp = mvf.GetPlane(clp, 0)
+        clp = plane(clp, 0)
     else:
         clp_orig = None
 
@@ -3324,13 +3324,13 @@ def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=
     input_minus = input.std.DuplicateFrames(frames=[0])
     input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
 
-    input_y = mvf.GetPlane(input, 0)
-    input_minus_y = mvf.GetPlane(input_minus, 0)
-    input_minus_u = mvf.GetPlane(input_minus, 1)
-    input_minus_v = mvf.GetPlane(input_minus, 2)
-    input_plus_y = mvf.GetPlane(input_plus, 0)
-    input_plus_u = mvf.GetPlane(input_plus, 1)
-    input_plus_v = mvf.GetPlane(input_plus, 2)
+    input_y = plane(input, 0)
+    input_minus_y = plane(input_minus, 0)
+    input_minus_u = plane(input_minus, 1)
+    input_minus_v = plane(input_minus, 2)
+    input_plus_y = plane(input_plus, 0)
+    input_plus_u = plane(input_plus, 1)
+    input_plus_v = plane(input_plus, 2)
 
     average_y = core.std.Expr([input_minus_y, input_plus_y], expr=[f'x y - abs {ythresh} < x y + 2 / 0 ?'])
     average_u = core.std.Expr([input_minus_u, input_plus_u], expr=[f'x y - abs {cthresh} < {peak} 0 ?'])
@@ -3415,14 +3415,14 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
     input_minus = input.std.DuplicateFrames(frames=[0])
     input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
 
-    input_u = mvf.GetPlane(input, 1)
-    input_v = mvf.GetPlane(input, 2)
-    input_minus_y = mvf.GetPlane(input_minus, 0)
-    input_minus_u = mvf.GetPlane(input_minus, 1)
-    input_minus_v = mvf.GetPlane(input_minus, 2)
-    input_plus_y = mvf.GetPlane(input_plus, 0)
-    input_plus_u = mvf.GetPlane(input_plus, 1)
-    input_plus_v = mvf.GetPlane(input_plus, 2)
+    input_u = plane(input, 1)
+    input_v = plane(input, 2)
+    input_minus_y = plane(input_minus, 0)
+    input_minus_u = plane(input_minus, 1)
+    input_minus_v = plane(input_minus, 2)
+    input_plus_y = plane(input_plus, 0)
+    input_plus_u = plane(input_plus, 1)
+    input_plus_v = plane(input_plus, 2)
 
     average_y = core.std.Expr([input_minus_y, input_plus_y], expr=[f'x y - abs {ythresh} < {peak} 0 ?']).resize.Bilinear(input_u.width, input_u.height)
     average_u = core.std.Expr([input_minus_u, input_plus_u], expr=[f'x y - abs {cthresh} < x y + 2 / 0 ?'])
@@ -3571,7 +3571,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     elif adapt <= -1:
         return stable
     else:
-        input_y = mvf.GetPlane(input, 0)
+        input_y = plane(input, 0)
         if adapt == 0:
             Lmask = input_y.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
         elif adapt >= 255:
@@ -4059,15 +4059,15 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
 
     ### EDGECLEANING
     if edgeclean:
-        mP = AvsPrewitt(mvf.GetPlane(smP, 0))
+        mP = AvsPrewitt(plane(smP, 0))
         mS = mt_expand_multi(mP, sw=ECrad, sh=ECrad).std.Inflate()
         mD = core.std.Expr([mS, mP.std.Inflate()], expr=[f'x y - {ECthr} <= 0 x y - ?']).std.Inflate().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
         smP = core.std.MaskedMerge(smP, DeHalo_alpha(smP.dfttest.DFTTest(tbsize=1, planes=planes), darkstr=0), mD, planes=planes)
 
     ### STABILIZING
     if stabilize:
-        # mM = core.std.Merge(mvf.GetPlane(SAD_f1m, 0), mvf.GetPlane(SAD_b1m, 0)).std.Lut(function=lambda x: min(cround(x ** 1.6), peak))
-        mE = AvsPrewitt(mvf.GetPlane(smP, 0)).std.Lut(function=lambda x: min(cround(x ** 1.8), peak)).std.Median().std.Inflate()
+        # mM = core.std.Merge(plane(SAD_f1m, 0), plane(SAD_b1m, 0)).std.Lut(function=lambda x: min(cround(x ** 1.6), peak))
+        mE = AvsPrewitt(plane(smP, 0)).std.Lut(function=lambda x: min(cround(x ** 1.8), peak)).std.Median().std.Inflate()
         # mF = core.std.Expr([mM, mE], expr=['x y max']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
         mF = mE.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
         TTc = smP.ttmpsm.TTempSmooth(maxr=maxr, mdiff=[255], strength=TTstr, planes=planes)
@@ -4206,7 +4206,7 @@ def SMDegrain(input, tr=2, thSAD=300, thSADC=None, RefineMotion=False, contrasha
             expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale(16, peak), j=scale(75, peak), peak=peak)
             pref = core.std.MaskedMerge(inputP.dfttest.DFTTest(tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0], planes=planes),
                                         inputP,
-                                        mvf.GetPlane(inputP, 0).std.Expr(expr=[expr]),
+                                        plane(inputP, 0).std.Expr(expr=[expr]),
                                         planes=planes)
         elif prefilter >= 4:
             if chroma:
@@ -4528,7 +4528,7 @@ def GrainFactory3(clp, g1str=7.0, g2str=5.0, g3str=3.0, g1shrp=60, g2shrp=66, g3
 
     if clp.format.color_family != vs.GRAY:
         clp_orig = clp
-        clp = mvf.GetPlane(clp, 0)
+        clp = plane(clp, 0)
     else:
         clp_orig = None
 
@@ -4742,7 +4742,7 @@ def FixColumnBrightness(c, column, input_low, input_high, output_low, output_hig
 
     if c.format.color_family != vs.GRAY:
         c_orig = c
-        c = mvf.GetPlane(c, 0)
+        c = plane(c, 0)
     else:
         c_orig = None
 
@@ -4771,7 +4771,7 @@ def FixRowBrightness(c, row, input_low, input_high, output_low, output_high):
 
     if c.format.color_family != vs.GRAY:
         c_orig = c
-        c = mvf.GetPlane(c, 0)
+        c = plane(c, 0)
     else:
         c_orig = None
 
@@ -4800,7 +4800,7 @@ def FixColumnBrightnessProtect(c, column, input_low, input_high, output_low, out
 
     if c.format.color_family != vs.GRAY:
         c_orig = c
-        c = mvf.GetPlane(c, 0)
+        c = plane(c, 0)
     else:
         c_orig = None
 
@@ -4830,7 +4830,7 @@ def FixRowBrightnessProtect(c, row, input_low, input_high, output_low, output_hi
 
     if c.format.color_family != vs.GRAY:
         c_orig = c
-        c = mvf.GetPlane(c, 0)
+        c = plane(c, 0)
     else:
         c_orig = None
 
@@ -4869,7 +4869,7 @@ def FixColumnBrightnessProtect2(c, column, adj_val, prot_val=16):
 
     if c.format.color_family != vs.GRAY:
         c_orig = c
-        c = mvf.GetPlane(c, 0)
+        c = plane(c, 0)
     else:
         c_orig = None
 
@@ -4896,7 +4896,7 @@ def FixRowBrightnessProtect2(c, row, adj_val, prot_val=16):
 
     if c.format.color_family != vs.GRAY:
         c_orig = c
-        c = mvf.GetPlane(c, 0)
+        c = plane(c, 0)
     else:
         c_orig = None
 
@@ -5035,7 +5035,7 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
 
     if chroma <= 0 and not isGray:
         input_orig = input
-        input = mvf.GetPlane(input, 0)
+        input = plane(input, 0)
     else:
         input_orig = None
 
@@ -5194,7 +5194,7 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
 
     if c.format.color_family != vs.GRAY:
         c_orig = c
-        c = mvf.GetPlane(c, 0)
+        c = plane(c, 0)
     else:
         c_orig = None
 
@@ -5250,7 +5250,7 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
 
     if input.format.color_family != vs.GRAY:
         input_orig = input
-        input = mvf.GetPlane(input, 0)
+        input = plane(input, 0)
     else:
         input_orig = None
 
@@ -5667,7 +5667,7 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
 
     if not isGray:
         tmp_orig = tmp
-        tmp = mvf.GetPlane(tmp, 0)
+        tmp = plane(tmp, 0)
 
     if preblur <= -1:
         pre = tmp
