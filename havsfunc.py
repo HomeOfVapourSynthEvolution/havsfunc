@@ -67,7 +67,7 @@ from typing import Any, Mapping, Optional, Sequence, Union
 
 import mvsfunc as mvf
 import vapoursynth as vs
-from vsutil import Dither, depth, fallback, get_depth, get_y, join, plane, scale_value
+from vsutil import Dither, depth, fallback, get_depth, get_y, join, plane, scale_value, split
 
 core = vs.core
 
@@ -3325,12 +3325,8 @@ def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=
     input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
 
     input_y = plane(input, 0)
-    input_minus_y = plane(input_minus, 0)
-    input_minus_u = plane(input_minus, 1)
-    input_minus_v = plane(input_minus, 2)
-    input_plus_y = plane(input_plus, 0)
-    input_plus_u = plane(input_plus, 1)
-    input_plus_v = plane(input_plus, 2)
+    input_minus_y, input_minus_u, input_minus_v = split(input_minus)
+    input_plus_y, input_plus_u, input_plus_v = split(input_plus)
 
     average_y = core.std.Expr([input_minus_y, input_plus_y], expr=[f'x y - abs {ythresh} < x y + 2 / 0 ?'])
     average_u = core.std.Expr([input_minus_u, input_plus_u], expr=[f'x y - abs {cthresh} < {peak} 0 ?'])
@@ -3417,12 +3413,8 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
 
     input_u = plane(input, 1)
     input_v = plane(input, 2)
-    input_minus_y = plane(input_minus, 0)
-    input_minus_u = plane(input_minus, 1)
-    input_minus_v = plane(input_minus, 2)
-    input_plus_y = plane(input_plus, 0)
-    input_plus_u = plane(input_plus, 1)
-    input_plus_v = plane(input_plus, 2)
+    input_minus_y, input_minus_u, input_minus_v = split(input_minus)
+    input_plus_y, input_plus_u, input_plus_v = split(input_plus)
 
     average_y = core.std.Expr([input_minus_y, input_plus_y], expr=[f'x y - abs {ythresh} < {peak} 0 ?']).resize.Bilinear(input_u.width, input_u.height)
     average_u = core.std.Expr([input_minus_u, input_plus_u], expr=[f'x y - abs {cthresh} < x y + 2 / 0 ?'])
