@@ -1,6 +1,6 @@
 """Holy's ported AviSynth functions for VapourSynth"""
 
-__version__ = '33'
+__version__ = '34'
 
 __author__ = 'HolyWu <holywu@gmail.com>'
 __maintainer__ = __author__
