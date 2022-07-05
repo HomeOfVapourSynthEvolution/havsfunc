@@ -31,8 +31,6 @@ setuptools.setup(
         "Source Code": 'https://github.com/HomeOfVapourSynthEvolution/havsfunc',
     },
     classifiers=[
-        "License :: OSI Approved :: The Unlicense (Unlicense)",
-
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3 :: Only",
         "License :: OSI Approved :: The Unlicense (Unlicense)",
