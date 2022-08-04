@@ -9,6 +9,7 @@
 ## Dependent plugins
 - [AddGrain](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain)
 - [BM3D](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D)
+- [Bwdif](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Bwdif)
 - [CAS](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS)
 - [CTMF](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF)
 - [DCTFilter](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter)
