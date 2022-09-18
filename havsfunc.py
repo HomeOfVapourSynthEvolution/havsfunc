@@ -60,6 +60,7 @@ Utility functions:
 """
 
 from __future__ import annotations
+import importlib
 
 import math
 from functools import partial
@@ -904,6 +905,7 @@ def HQDeringmod(
     darkthr: Optional[float] = None,
     planes: Union[int, Sequence[int]] = 0,
     show: bool = False,
+    cuda: bool = False,
 ) -> vs.VideoNode:
     '''
     HQDering mod v1.8
@@ -951,6 +953,8 @@ def HQDeringmod(
         planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
 
         show: Whether to output mask clip instead of filtered clip.
+
+        cuda: Whether to enable CUDA functionality (for dfttest2).
     '''
     from mvsfunc import LimitFilter
 
@@ -993,9 +997,25 @@ def HQDeringmod(
     # Kernel: Smoothing
     if smoothed is None:
         if nrmode <= 0:
-            smoothed = input.dfttest.DFTTest(
-                sbsize=sbsize, sosize=sosize, tbsize=1, slocation=[0.0, sigma2, 0.05, sigma, 0.5, sigma, 0.75, sigma2, 1.0, 0.0], planes=planes
-            )
+            try:
+                dfttest2 = importlib.import_module('dfttest2')
+            except ModuleNotFoundError:
+                dfttest2 = None
+            # Currently the CPU backend only supports `sbsize == 16`
+            use_dfttest2 = dfttest2 and (cuda or sbsize == 16)
+            if use_dfttest2:
+                if sbsize == 16:
+                    # NVRTC is faster than cuFFT but only supports `sbsize == 16`
+                    backend = dfttest2.Backend.NVRTC if cuda else dfttest2.Backend.CPU
+                else:
+                    backend = dfttest2.Backend.cuFFT
+                smoothed = dfttest2.DFTTest(
+                    input, sbsize=sbsize, sosize=sosize, tbsize=1, slocation=[0.0, sigma2, 0.05, sigma, 0.5, sigma, 0.75, sigma2, 1.0, 0.0], planes=planes, backend=backend
+                )
+            else:
+                smoothed = input.dfttest.DFTTest(
+                    sbsize=sbsize, sosize=sosize, tbsize=1, slocation=[0.0, sigma2, 0.05, sigma, 0.5, sigma, 0.75, sigma2, 1.0, 0.0], planes=planes
+                )
         else:
             smoothed = MinBlur(input, nrmode, planes)
 
