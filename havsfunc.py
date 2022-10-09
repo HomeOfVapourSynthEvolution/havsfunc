@@ -3384,7 +3384,7 @@ def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=
 #####################################################
 #                                                   #
 # LUTDeRainbow, a derainbowing script by Scintilla  #
-# Last updated 10/3/08                              #
+# Last updated 2022-10-08                           #
 #                                                   #
 #####################################################
 #
@@ -3423,8 +3423,12 @@ def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=
 #
 ###################
 def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False):
-    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 10:
-        raise vs.Error('LUTDeRainbow: This is not an 8-10 bit YUV clip')
+    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 16:
+        raise vs.Error('LUTDeRainbow: This is not an 8-16 bit YUV clip')
+
+    # Since LUT2 can't handle clips with more than 10 bits, we default to using
+    # Expr and MaskedMerge to handle the same logic for higher bit depths.
+    useExpr = input.format.bits_per_sample > 10
 
     shift = input.format.bits_per_sample - 8
     peak = (1 << input.format.bits_per_sample) - 1
@@ -3450,11 +3454,19 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
 
     umask = average_u.std.Binarize(threshold=21 << shift)
     vmask = average_v.std.Binarize(threshold=21 << shift)
-    themask = core.std.Lut2(umask, vmask, function=lambda x, y: x & y)
-    if y:
-        umask = core.std.Lut2(umask, average_y, function=lambda x, y: x & y)
-        vmask = core.std.Lut2(vmask, average_y, function=lambda x, y: x & y)
-        themask = core.std.Lut2(themask, average_y, function=lambda x, y: x & y)
+
+    if useExpr:
+        themask = core.std.Expr([umask, vmask], expr=[f'x y +'])
+        if y:
+            umask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, umask)
+            vmask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, vmask)
+            themask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, themask)
+    else:
+        themask = core.std.Lut2(umask, vmask, function=lambda x, y: x & y)
+        if y:
+            umask = core.std.Lut2(umask, average_y, function=lambda x, y: x & y)
+            vmask = core.std.Lut2(vmask, average_y, function=lambda x, y: x & y)
+            themask = core.std.Lut2(themask, average_y, function=lambda x, y: x & y)
 
     fixed_u = core.std.Merge(average_u, input_u)
     fixed_v = core.std.Merge(average_v, input_v)
