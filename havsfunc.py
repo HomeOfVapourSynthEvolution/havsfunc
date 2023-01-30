@@ -893,7 +893,7 @@ def HQDeringmod(
     incedge: bool = False,
     mthr: int = 60,
     minp: int = 1,
-    nrmode: Optional[int] = None,
+    nrmode: Optional[int] = 0,
     sigma: float = 128.0,
     sigma2: Optional[float] = None,
     sbsize: Optional[int] = None,
