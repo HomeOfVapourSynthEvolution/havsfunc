@@ -51,7 +51,6 @@ import math
 from functools import partial
 from typing import Any, Mapping, Optional, Sequence, Union
 
-import mvsfunc as mvf
 import vapoursynth as vs
 from vsutil import Dither, depth, fallback, get_depth, get_y, join, plane, scale_value
 
@@ -1226,6 +1225,7 @@ def QTGMC(
                 ]
             )
         if Denoiser == 'bm3d':
+            import mvsfunc as mvf
             dnWindow = mvf.BM3D(noiseWindow, radius1=NoiseTR, sigma=[Sigma if plane in CNplanes else 0 for plane in range(3)])
         elif Denoiser == 'dfttest':
             dnWindow = noiseWindow.dfttest.DFTTest(sigma=Sigma * 4, tbsize=noiseTD, planes=CNplanes)
