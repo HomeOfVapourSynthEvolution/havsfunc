@@ -12,8 +12,6 @@ Main functions:
     smartfademod
     srestore
     logoNR
-    Vinverse
-    Vinverse2
     LUTDeCrawl
     LUTDeRainbow
     Stab
@@ -2422,77 +2420,12 @@ def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
     return clp_nr
 
 
-# Vinverse: a small, but effective function against (residual) combing, by Didée
-# sstr: strength of contra sharpening
-# amnt: change no pixel by more than this (default=255: unrestricted)
-# chroma: chroma mode, True=process chroma, False=pass chroma through
-# scl: scale factor for vshrpD*vblurD < 0
-def Vinverse(clp, sstr=2.7, amnt=255, chroma=True, scl=0.25):
-    if not isinstance(clp, vs.VideoNode):
-        raise vs.Error('Vinverse: this is not a clip')
-
-    if clp.format.sample_type == vs.INTEGER:
-        neutral = 1 << (clp.format.bits_per_sample - 1)
-        peak = (1 << clp.format.bits_per_sample) - 1
-    else:
-        neutral = 0.0
-        peak = 1.0
-
-    if not chroma and clp.format.color_family != vs.GRAY:
-        clp_orig = clp
-        clp = mvf.GetPlane(clp, 0)
-    else:
-        clp_orig = None
-
-    vblur = clp.std.Convolution(matrix=[50, 99, 50], mode='v')
-    vblurD = core.std.MakeDiff(clp, vblur)
-    vshrp = core.std.Expr([vblur, vblur.std.Convolution(matrix=[1, 4, 6, 4, 1], mode='v')], expr=[f'x x y - {sstr} * +'])
-    vshrpD = core.std.MakeDiff(vshrp, vblur)
-    expr = f'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - {scl} * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'
-    vlimD = core.std.Expr([vshrpD, vblurD], expr=[expr])
-    last = core.std.MergeDiff(vblur, vlimD)
-    if amnt <= 0:
-        return clp
-    elif amnt < 255:
-        last = core.std.Expr([clp, last], expr=['x {AMN} + y < x {AMN} + x {AMN} - y > x {AMN} - y ? ?'.format(AMN=scale(amnt, peak))])
-
-    if clp_orig is not None:
-        last = core.std.ShufflePlanes([last, clp_orig], planes=[0, 1, 2], colorfamily=clp_orig.format.color_family)
-    return last
+def Vinverse(*args, **kwargs):
+    raise vs.Error("havsfunc.Vinverse outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
 
 
-def Vinverse2(clp, sstr=2.7, amnt=255, chroma=True, scl=0.25):
-    if not isinstance(clp, vs.VideoNode):
-        raise vs.Error('Vinverse2: this is not a clip')
-
-    if clp.format.sample_type == vs.INTEGER:
-        neutral = 1 << (clp.format.bits_per_sample - 1)
-        peak = (1 << clp.format.bits_per_sample) - 1
-    else:
-        neutral = 0.0
-        peak = 1.0
-
-    if not chroma and clp.format.color_family != vs.GRAY:
-        clp_orig = clp
-        clp = mvf.GetPlane(clp, 0)
-    else:
-        clp_orig = None
-
-    vblur = sbrV(clp)
-    vblurD = core.std.MakeDiff(clp, vblur)
-    vshrp = core.std.Expr([vblur, vblur.std.Convolution(matrix=[1, 2, 1], mode='v')], expr=[f'x x y - {sstr} * +'])
-    vshrpD = core.std.MakeDiff(vshrp, vblur)
-    expr = f'x {neutral} - y {neutral} - * 0 < x {neutral} - abs y {neutral} - abs < x y ? {neutral} - {scl} * {neutral} + x {neutral} - abs y {neutral} - abs < x y ? ?'
-    vlimD = core.std.Expr([vshrpD, vblurD], expr=[expr])
-    last = core.std.MergeDiff(vblur, vlimD)
-    if amnt <= 0:
-        return clp
-    elif amnt < 255:
-        last = core.std.Expr([clp, last], expr=['x {AMN} + y < x {AMN} + x {AMN} - y > x {AMN} - y ? ?'.format(AMN=scale(amnt, peak))])
-
-    if clp_orig is not None:
-        last = core.std.ShufflePlanes([last, clp_orig], planes=[0, 1, 2], colorfamily=clp_orig.format.color_family)
-    return last
+def Vinverse2(*args, **kwargs):
+    raise vs.Error("havsfunc.Vinverse2 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
 
 
 ########################################################
