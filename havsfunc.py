@@ -8,7 +8,6 @@ Main functions:
     santiag
     FixChromaBleedingMod
     Deblock_QED
-    YAHR
     HQDeringmod
     QTGMC
     smartfademod
@@ -446,41 +445,8 @@ def FineDehalo2(*args, **kwargs):
     raise vs.Error("havsfunc.FineDehalo2 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
 
 
-def YAHR(clp: vs.VideoNode, blur: int = 2, depth: int = 32) -> vs.VideoNode:
-    '''
-    Y'et A'nother H'alo R'educing script
-
-    Parameters:
-        clp: Clip to process.
-
-        blur: "blur" parameter of AWarpSharp2.
-
-        depth: "depth" parameter of AWarpSharp2.
-    '''
-    if not isinstance(clp, vs.VideoNode):
-        raise vs.Error('YAHR: this is not a clip')
-
-    if clp.format.color_family == vs.RGB:
-        raise vs.Error('YAHR: RGB format is not supported')
-
-    if clp.format.color_family != vs.GRAY:
-        clp_orig = clp
-        clp = get_y(clp)
-    else:
-        clp_orig = None
-
-    b1 = MinBlur(clp, 2).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    b1D = core.std.MakeDiff(clp, b1)
-    w1 = Padding(clp, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.Crop(6, 6, 6, 6)
-    w1b1 = MinBlur(w1, 2).std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    w1b1D = core.std.MakeDiff(w1, w1b1)
-    DD = core.rgvs.Repair(b1D, w1b1D, mode=13)
-    DD2 = core.std.MakeDiff(b1D, DD)
-    last = core.std.MakeDiff(clp, DD2)
-
-    if clp_orig is not None:
-        last = core.std.ShufflePlanes([last, clp_orig], planes=[0, 1, 2], colorfamily=clp_orig.format.color_family)
-    return last
+def YAHR(*args, **kwargs):
+    raise vs.Error("havsfunc.YAHR outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
 
 
 def HQDeringmod(
