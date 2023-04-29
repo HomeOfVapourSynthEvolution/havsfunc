@@ -11,9 +11,6 @@ Main functions:
     QTGMC
     smartfademod
     srestore
-    dec_txt60mc
-    ivtc_txt30mc
-    ivtc_txt60mc
     logoNR
     Vinverse
     Vinverse2
@@ -2325,150 +2322,16 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     return ChangeFPS(last.std.Cache(make_linear=True), source.fps_num * numr, source.fps_den * denm)
 
 
-# frame_ref = start of AABCD pattern
-def dec_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=False, device=None):
-    if not isinstance(src, vs.VideoNode):
-        raise vs.Error('dec_txt60mc: this is not a clip')
-
-    if not (srcbob or isinstance(tff, bool)):
-        raise vs.Error("dec_txt60mc: 'tff' must be set when srcbob=False. Setting tff to true means top field first and false means bottom field first")
-
-    field_ref = frame_ref if srcbob else frame_ref * 2
-    field_ref %= 5
-    invpos = (5 - field_ref) % 5
-    pel = 1 if draft else 2
-    blksize = 16 if src.width > 1024 or src.height > 576 else 8
-    overlap = blksize // 2
-
-    if srcbob:
-        last = src
-    elif draft:
-        last = src.resize.Bob(tff=tff, filter_param_a=1 / 3, filter_param_b=1 / 3)
-    else:
-        last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff, opencl=opencl, device=device)
-
-    clean = last.std.SelectEvery(cycle=5, offsets=[4 - invpos])
-    if invpos > 2:
-        jitter = core.std.AssumeFPS(last.std.Trim(length=1) * 2 + last.std.SelectEvery(cycle=5, offsets=[6 - invpos, 7 - invpos]), fpsnum=24000, fpsden=1001)
-    elif invpos > 1:
-        jitter = core.std.AssumeFPS(last.std.Trim(length=1) + last.std.SelectEvery(cycle=5, offsets=[2 - invpos, 6 - invpos]), fpsnum=24000, fpsden=1001)
-    else:
-        jitter = last.std.SelectEvery(cycle=5, offsets=[1 - invpos, 2 - invpos])
-    jsup_pre = DitherLumaRebuild(jitter, s0=1).mv.Super(pel=pel)
-    jsup = jitter.mv.Super(pel=pel, levels=1)
-    vect_f = jsup_pre.mv.Analyse(blksize=blksize, isb=False, delta=1, overlap=overlap)
-    vect_b = jsup_pre.mv.Analyse(blksize=blksize, isb=True, delta=1, overlap=overlap)
-    comp = core.mv.FlowInter(jitter, jsup, vect_b, vect_f)
-    fixed = comp[::2]
-    last = core.std.Interleave([fixed, clean])
-    return last.std.Trim(first=invpos // 3)
+def dec_txt60mc(*args, **kwargs):
+    raise vs.Error("havsfunc.dec_txt60mc outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
 
 
-# 30pテロ部を24pに変換して返す
-def ivtc_txt30mc(src, frame_ref, draft=False, tff=None, opencl=False, device=None):
-    if not isinstance(src, vs.VideoNode):
-        raise vs.Error('ivtc_txt30mc: this is not a clip')
-
-    if not isinstance(tff, bool):
-        raise vs.Error("ivtc_txt30mc: 'tff' must be set. Setting tff to true means top field first and false means bottom field first")
-
-    frame_ref %= 5
-    offset = [0, 0, -1, 1, 1][frame_ref]
-    pattern = [0, 1, 0, 0, 1][frame_ref]
-    direction = [-1, -1, 1, 1, 1][frame_ref]
-    pel = 1 if draft else 2
-    blksize = 16 if src.width > 1024 or src.height > 576 else 8
-    overlap = blksize // 2
-
-    if draft:
-        last = src.resize.Bob(tff=tff, filter_param_a=1 / 3, filter_param_b=1 / 3)
-    else:
-        last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff, opencl=opencl, device=device)
-
-    if pattern == 0:
-        if offset == -1:
-            c1 = core.std.AssumeFPS(last.std.Trim(length=1) + last.std.SelectEvery(cycle=10, offsets=[2 + offset, 7 + offset, 5 + offset, 10 + offset]), fpsnum=24000, fpsden=1001)
-        else:
-            c1 = last.std.SelectEvery(cycle=10, offsets=[offset, 2 + offset, 7 + offset, 5 + offset])
-        if offset == 1:
-            part1 = last.std.SelectEvery(cycle=10, offsets=[4])
-            part2 = last.std.SelectEvery(cycle=10, offsets=[5])
-            part3 = last.std.Trim(first=10).std.SelectEvery(cycle=10, offsets=[0])
-            part4 = last.std.SelectEvery(cycle=10, offsets=[9])
-            c2 = core.std.Interleave([part1, part2, part3, part4])
-        else:
-            c2 = last.std.SelectEvery(cycle=10, offsets=[3 + offset, 4 + offset, 9 + offset, 8 + offset])
-    else:
-        if offset == 1:
-            part1 = last.std.SelectEvery(cycle=10, offsets=[3])
-            part2 = last.std.SelectEvery(cycle=10, offsets=[5])
-            part3 = last.std.Trim(first=10).std.SelectEvery(cycle=10, offsets=[0])
-            part4 = last.std.SelectEvery(cycle=10, offsets=[8])
-            c1 = core.std.Interleave([part1, part2, part3, part4])
-        else:
-            c1 = last.std.SelectEvery(cycle=10, offsets=[2 + offset, 4 + offset, 9 + offset, 7 + offset])
-        if offset == -1:
-            c2 = core.std.AssumeFPS(last.std.Trim(length=1) + last.std.SelectEvery(cycle=10, offsets=[1 + offset, 6 + offset, 5 + offset, 10 + offset]), fpsnum=24000, fpsden=1001)
-        else:
-            c2 = last.std.SelectEvery(cycle=10, offsets=[offset, 1 + offset, 6 + offset, 5 + offset])
-
-    super1_pre = DitherLumaRebuild(c1, s0=1).mv.Super(pel=pel)
-    super1 = c1.mv.Super(pel=pel, levels=1)
-    vect_f1 = super1_pre.mv.Analyse(blksize=blksize, isb=False, delta=1, overlap=overlap)
-    vect_b1 = super1_pre.mv.Analyse(blksize=blksize, isb=True, delta=1, overlap=overlap)
-    fix1 = core.mv.FlowInter(c1, super1, vect_b1, vect_f1, time=50 + direction * 25).std.SelectEvery(cycle=4, offsets=[0, 2])
-
-    super2_pre = DitherLumaRebuild(c2, s0=1).mv.Super(pel=pel)
-    super2 = c2.mv.Super(pel=pel, levels=1)
-    vect_f2 = super2_pre.mv.Analyse(blksize=blksize, isb=False, delta=1, overlap=overlap)
-    vect_b2 = super2_pre.mv.Analyse(blksize=blksize, isb=True, delta=1, overlap=overlap)
-    fix2 = core.mv.FlowInter(c2, super2, vect_b2, vect_f2).std.SelectEvery(cycle=4, offsets=[0, 2])
-
-    if pattern == 0:
-        return core.std.Interleave([fix1, fix2])
-    else:
-        return core.std.Interleave([fix2, fix1])
+def ivtc_txt30mc(*args, **kwargs):
+    raise vs.Error("havsfunc.ivtc_txt30mc outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
 
 
-# Version 1.1
-# frame_ref = start of clean-combed-combed-clean-clean pattern
-def ivtc_txt60mc(src, frame_ref, srcbob=False, draft=False, tff=None, opencl=False, device=None):
-    if not isinstance(src, vs.VideoNode):
-        raise vs.Error('ivtc_txt60mc: this is not a clip')
-
-    if not (srcbob or isinstance(tff, bool)):
-        raise vs.Error("ivtc_txt60mc: 'tff' must be set when srcbob=False. Setting tff to true means top field first and false means bottom field first")
-
-    field_ref = frame_ref if srcbob else frame_ref * 2
-    field_ref %= 5
-    invpos = (5 - field_ref) % 5
-    pel = 1 if draft else 2
-    blksize = 16 if src.width > 1024 or src.height > 576 else 8
-    overlap = blksize // 2
-
-    if srcbob:
-        last = src
-    elif draft:
-        last = src.resize.Bob(tff=tff, filter_param_a=1 / 3, filter_param_b=1 / 3)
-    else:
-        last = QTGMC(src, TR0=1, TR1=1, TR2=1, SourceMatch=3, Lossless=2, TFF=tff, opencl=opencl, device=device)
-
-    if invpos > 1:
-        clean = core.std.AssumeFPS(last.std.Trim(length=1) + last.std.SelectEvery(cycle=5, offsets=[6 - invpos]), fpsnum=12000, fpsden=1001)
-    else:
-        clean = last.std.SelectEvery(cycle=5, offsets=[1 - invpos])
-    if invpos > 3:
-        jitter = core.std.AssumeFPS(last.std.Trim(length=1) + last.std.SelectEvery(cycle=5, offsets=[4 - invpos, 8 - invpos]), fpsnum=24000, fpsden=1001)
-    else:
-        jitter = last.std.SelectEvery(cycle=5, offsets=[3 - invpos, 4 - invpos])
-    jsup_pre = DitherLumaRebuild(jitter, s0=1).mv.Super(pel=pel)
-    jsup = jitter.mv.Super(pel=pel, levels=1)
-    vect_f = jsup_pre.mv.Analyse(blksize=blksize, isb=False, delta=1, overlap=overlap)
-    vect_b = jsup_pre.mv.Analyse(blksize=blksize, isb=True, delta=1, overlap=overlap)
-    comp = core.mv.FlowInter(jitter, jsup, vect_b, vect_f)
-    fixed = comp[::2]
-    last = core.std.Interleave([clean, fixed])
-    return last.std.Trim(first=invpos // 2)
+def ivtc_txt60mc(*args, **kwargs):
+    raise vs.Error("havsfunc.ivtc_txt60mc outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
 
 
 #################################################
