@@ -438,38 +438,8 @@ def FineDehalo(*args, **kwargs):
     raise vs.Error("havsfunc.FineDehalo outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
 
 
-def FineDehalo_contrasharp(dehaloed: vs.VideoNode, src: vs.VideoNode, level: float) -> vs.VideoNode:
-    '''level == 1.0 : normal contrasharp'''
-    if not (isinstance(dehaloed, vs.VideoNode) and isinstance(src, vs.VideoNode)):
-        raise vs.Error('FineDehalo_contrasharp: this is not a clip')
-
-    if dehaloed.format.color_family == vs.RGB:
-        raise vs.Error('FineDehalo_contrasharp: RGB format is not supported')
-
-    if dehaloed.format.id != src.format.id:
-        raise vs.Error('FineDehalo_contrasharp: clips must have the same format')
-
-    neutral = 1 << (get_depth(dehaloed) - 1) if dehaloed.format.sample_type == vs.INTEGER else 0.0
-
-    if dehaloed.format.color_family != vs.GRAY:
-        dehaloed_orig = dehaloed
-        dehaloed = get_y(dehaloed)
-        src = get_y(src)
-    else:
-        dehaloed_orig = None
-
-    bb = dehaloed.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    bb2 = core.rgvs.Repair(bb, core.rgvs.Repair(bb, bb.ctmf.CTMF(radius=2), mode=1), mode=1)
-    xd = core.std.MakeDiff(bb, bb2)
-    xd = xd.std.Expr(expr=f'x {neutral} - 2.49 * {level} * {neutral} +')
-    xdd = core.std.Expr(
-        [xd, core.std.MakeDiff(src, dehaloed)], expr=f'x {neutral} - y {neutral} - * 0 < {neutral} x {neutral} - abs y {neutral} - abs < x y ? ?'
-    )
-    last = core.std.MergeDiff(dehaloed, xdd)
-
-    if dehaloed_orig is not None:
-        last = core.std.ShufflePlanes([last, dehaloed_orig], planes=[0, 1, 2], colorfamily=dehaloed_orig.format.color_family)
-    return last
+def FineDehalo_contrasharp(*args, **kwargs):
+    raise vs.Error("havsfunc.FineDehalo_contrasharp outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
 
 
 def FineDehalo2(*args, **kwargs):
