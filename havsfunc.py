@@ -8,7 +8,6 @@ Main functions:
     santiag
     FixChromaBleedingMod
     Deblock_QED
-    EdgeCleaner
     FineDehalo, FineDehalo2
     YAHR
     HQDeringmod
@@ -432,70 +431,8 @@ def DeHalo_alpha(*args, **kwargs):
     raise vs.Error("havsfunc.DeHalo_alpha outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
 
 
-def EdgeCleaner(c: vs.VideoNode, strength: int = 10, rep: bool = True, rmode: int = 17, smode: int = 0, hot: bool = False) -> vs.VideoNode:
-    '''
-    EdgeCleaner v1.04
-    A simple edge cleaning and weak dehaloing function.
-
-    Parameters:
-        c: Clip to process.
-
-        strength: Specifies edge denoising strength.
-
-        rep: Activates Repair for the aWarpSharped clip.
-
-        rmode: Specifies the Repair mode.
-            1 is very mild and good for halos,
-            16 and 18 are good for edge structure preserval on strong settings but keep more halos and edge noise,
-            17 is similar to 16 but keeps much less haloing, other modes are not recommended.
-
-        smode: Specifies what method will be used for finding small particles, ie stars. 0 is disabled, 1 uses RemoveGrain.
-
-        hot: Specifies whether removal of hot pixels should take place.
-    '''
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('EdgeCleaner: this is not a clip')
-
-    if c.format.color_family == vs.RGB:
-        raise vs.Error('EdgeCleaner: RGB format is not supported')
-
-    bits = get_depth(c)
-    peak = (1 << bits) - 1
-
-    if c.format.color_family != vs.GRAY:
-        c_orig = c
-        c = get_y(c)
-    else:
-        c_orig = None
-
-    if smode > 0:
-        strength += 4
-
-    main = Padding(c, 6, 6, 6, 6).warp.AWarpSharp2(blur=1, depth=cround(strength / 2)).std.Crop(6, 6, 6, 6)
-    if rep:
-        main = core.rgvs.Repair(main, c, mode=rmode)
-
-    mask = (
-        AvsPrewitt(c)
-        .std.Expr(expr=f'x {scale_value(4, 8, bits)} < 0 x {scale_value(32, 8, bits)} > {peak} x ? ?')
-        .std.InvertMask()
-        .std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-    )
-
-    final = core.std.MaskedMerge(c, main, mask)
-    if hot:
-        final = core.rgvs.Repair(final, c, mode=2)
-    if smode > 0:
-        clean = c.rgvs.RemoveGrain(mode=17)
-        diff = core.std.MakeDiff(c, clean)
-        mask = AvsPrewitt(diff.std.Levels(min_in=scale_value(40, 8, bits), max_in=scale_value(168, 8, bits), gamma=0.35).rgvs.RemoveGrain(mode=7)).std.Expr(
-            expr=f'x {scale_value(4, 8, bits)} < 0 x {scale_value(16, 8, bits)} > {peak} x ? ?'
-        )
-        final = core.std.MaskedMerge(final, c, mask)
-
-    if c_orig is not None:
-        final = core.std.ShufflePlanes([final, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
-    return final
+def EdgeCleaner(*args, **kwargs):
+    raise vs.Error("havsfunc.EdgeCleaner outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
 
 
 def FineDehalo(
