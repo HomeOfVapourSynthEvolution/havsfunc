@@ -21,9 +21,6 @@ Main functions:
     STPresso
     GrainFactory3
     InterFrame
-    FixColumnBrightness, FixRowBrightness
-    FixColumnBrightnessProtect, FixRowBrightnessProtect
-    FixColumnBrightnessProtect2, FixRowBrightnessProtect2
     SmoothLevels
     FastLineDarkenMOD
     Toon
@@ -3859,183 +3856,28 @@ def InterFrame(Input, Preset='Medium', Tuning='Film', NewNum=None, NewDen=1, GPU
         return InterFrameProcess(Input)
 
 
-# column is the column you want to work on.
-def FixColumnBrightness(c, column, input_low, input_high, output_low, output_high):
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('FixColumnBrightness: this is not a clip')
-
-    if c.format.color_family == vs.RGB:
-        raise vs.Error('FixColumnBrightness: RGB format is not supported')
-
-    peak = (1 << c.format.bits_per_sample) - 1
-
-    if c.format.color_family != vs.GRAY:
-        c_orig = c
-        c = mvf.GetPlane(c, 0)
-    else:
-        c_orig = None
-
-    input_low = scale(input_low, peak)
-    input_high = scale(input_high, peak)
-    output_low = scale(output_low, peak)
-    output_high = scale(output_high, peak)
-
-    last = SmoothLevels(c, input_low, 1, input_high, output_low, output_high, Smode=0)
-    last = last.std.CropAbs(width=1, height=c.height, left=column)
-    last = Overlay(c, last, x=column)
-    if c_orig is not None:
-        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
-    return last
+def FixColumnBrightness(*args, **kwargs):
+    raise vs.Error("havsfunc.FixColumnBrightness outdated. Use https://github.com/OpusGang/awsmfunc instead.")
 
 
-# row is the row you want to work on.
-def FixRowBrightness(c, row, input_low, input_high, output_low, output_high):
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('FixRowBrightness: this is not a clip')
-
-    if c.format.color_family == vs.RGB:
-        raise vs.Error('FixRowBrightness: RGB format is not supported')
-
-    peak = (1 << c.format.bits_per_sample) - 1
-
-    if c.format.color_family != vs.GRAY:
-        c_orig = c
-        c = mvf.GetPlane(c, 0)
-    else:
-        c_orig = None
-
-    input_low = scale(input_low, peak)
-    input_high = scale(input_high, peak)
-    output_low = scale(output_low, peak)
-    output_high = scale(output_high, peak)
-
-    last = SmoothLevels(c, input_low, 1, input_high, output_low, output_high, Smode=0)
-    last = last.std.CropAbs(width=c.width, height=1, top=row)
-    last = Overlay(c, last, y=row)
-    if c_orig is not None:
-        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
-    return last
+def FixRowBrightness(*args, **kwargs):
+    raise vs.Error("havsfunc.FixRowBrightness outdated. Use https://github.com/OpusGang/awsmfunc instead.")
 
 
-# protect_value determines which pixels wouldn't be affected by the filter. Increasing the value, you protect the pixels with lower luma.
-def FixColumnBrightnessProtect(c, column, input_low, input_high, output_low, output_high, protect_value=20):
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('FixColumnBrightnessProtect: this is not a clip')
-
-    if c.format.color_family == vs.RGB:
-        raise vs.Error('FixColumnBrightnessProtect: RGB format is not supported')
-
-    peak = (1 << c.format.bits_per_sample) - 1
-
-    if c.format.color_family != vs.GRAY:
-        c_orig = c
-        c = mvf.GetPlane(c, 0)
-    else:
-        c_orig = None
-
-    input_low = scale(255 - input_low, peak)
-    input_high = scale(255 - input_high, peak)
-    output_low = scale(255 - output_low, peak)
-    output_high = scale(255 - output_high, peak)
-    protect_value = scale(protect_value, peak)
-
-    last = SmoothLevels(c.std.Invert(), input_low, 1, input_high, output_low, output_high, protect=protect_value, Smode=0).std.Invert()
-    last = last.std.CropAbs(width=1, height=c.height, left=column)
-    last = Overlay(c, last, x=column)
-    if c_orig is not None:
-        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
-    return last
+def FixColumnBrightnessProtect(*args, **kwargs):
+    raise vs.Error("havsfunc.FixColumnBrightnessProtect outdated. Use https://github.com/OpusGang/awsmfunc instead.")
 
 
-def FixRowBrightnessProtect(c, row, input_low, input_high, output_low, output_high, protect_value=20):
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('FixRowBrightnessProtect: this is not a clip')
-
-    if c.format.color_family == vs.RGB:
-        raise vs.Error('FixRowBrightnessProtect: RGB format is not supported')
-
-    shift = c.format.bits_per_sample - 8
-    peak = (1 << c.format.bits_per_sample) - 1
-
-    if c.format.color_family != vs.GRAY:
-        c_orig = c
-        c = mvf.GetPlane(c, 0)
-    else:
-        c_orig = None
-
-    input_low = scale(255 - input_low, peak)
-    input_high = scale(255 - input_high, peak)
-    output_low = scale(255 - output_low, peak)
-    output_high = scale(255 - output_high, peak)
-    protect_value = scale(protect_value, peak)
-
-    last = SmoothLevels(c.std.Invert(), input_low, 1, input_high, output_low, output_high, protect=protect_value, Smode=0).std.Invert()
-    last = last.std.CropAbs(width=c.width, height=1, top=row)
-    last = Overlay(c, last, y=row)
-    if c_orig is not None:
-        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
-    return last
+def FixRowBrightnessProtect(*args, **kwargs):
+    raise vs.Error("havsfunc.FixRowBrightnessProtect outdated. Use https://github.com/OpusGang/awsmfunc instead.")
 
 
-# adj_val should be a number x where -100 < x < 100. This parameter decides
-# how much the brightness should be affected. Numbers below 0 will make it darker
-# and number above 0 will make it brighter.
-#
-# prot_val is the protect value. This is what makes it behave differently than the
-# normal FixBrightness. Any luma above (255-prot_val) will not be affected which is
-# the basic idea of the protect script.
-def FixColumnBrightnessProtect2(c, column, adj_val, prot_val=16):
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('FixColumnBrightnessProtect2: this is not a clip')
-
-    if c.format.color_family == vs.RGB:
-        raise vs.Error('FixColumnBrightnessProtect2: RGB format is not supported')
-
-    if not (-100 < adj_val < 100):
-        raise vs.Error('FixColumnBrightnessProtect2: adj_val must be greater than -100 and less than 100')
-
-    peak = (1 << c.format.bits_per_sample) - 1
-
-    if c.format.color_family != vs.GRAY:
-        c_orig = c
-        c = mvf.GetPlane(c, 0)
-    else:
-        c_orig = None
-
-    expr = f'x {scale(16, peak)} - {100 - adj_val} / 100 * {scale(16, peak)} + x {scale(255 - prot_val, peak)} - -10 / 0 max 1 min * x x {scale(245 - prot_val, peak)} - 10 / 0 max 1 min * +'
-    last = c.std.Expr(expr=[expr])
-    last = last.std.CropAbs(width=1, height=c.height, left=column)
-    last = Overlay(c, last, x=column)
-    if c_orig is not None:
-        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
-    return last
+def FixColumnBrightnessProtect2(*args, **kwargs):
+    raise vs.Error("havsfunc.FixColumnBrightnessProtect2 outdated. Use https://github.com/OpusGang/awsmfunc instead.")
 
 
-def FixRowBrightnessProtect2(c, row, adj_val, prot_val=16):
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('FixRowBrightnessProtect2: this is not a clip')
-
-    if c.format.color_family == vs.RGB:
-        raise vs.Error('FixRowBrightnessProtect2: RGB format is not supported')
-
-    if not (-100 < adj_val < 100):
-        raise vs.Error('FixRowBrightnessProtect2: adj_val must be greater than -100 and less than 100')
-
-    peak = (1 << c.format.bits_per_sample) - 1
-
-    if c.format.color_family != vs.GRAY:
-        c_orig = c
-        c = mvf.GetPlane(c, 0)
-    else:
-        c_orig = None
-
-    expr = f'x {scale(16, peak)} - {100 - adj_val} / 100 * {scale(16, peak)} + x {scale(255 - prot_val, peak)} - -10 / 0 max 1 min * x x {scale(245 - prot_val, peak)} - 10 / 0 max 1 min * +'
-    last = c.std.Expr(expr=[expr])
-    last = last.std.CropAbs(width=c.width, height=1, top=row)
-    last = Overlay(c, last, y=row)
-    if c_orig is not None:
-        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
-    return last
+def FixRowBrightnessProtect2(*args, **kwargs):
+    raise vs.Error("havsfunc.FixRowBrightnessProtect2 outdated. Use https://github.com/OpusGang/awsmfunc instead.")
 
 
 #########################################################################################
