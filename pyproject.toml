@@ -1,3 +1,27 @@
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "havsfunc"
+version = "33"
+description = "Holy's ported AviSynth functions for VapourSynth"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "HolyWu", email = "holywu@gmail.com"}]
+keywords = ["havsfunc", "VapourSynth"]
+classifiers = [
+  "License :: OSI Approved :: The Unlicense (Unlicense)",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Multimedia :: Video"
+]
+dependencies = [
+  "VapourSynth>=60",
+  "vsutil"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/HomeOfVapourSynthEvolution/havsfunc"
+"Bug Tracker" = "https://github.com/HomeOfVapourSynthEvolution/havsfunc/issues"
