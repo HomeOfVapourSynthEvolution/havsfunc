@@ -51,10 +51,7 @@ import math
 from functools import partial
 from typing import Any, Mapping, Optional, Sequence, Union
 
-import vapoursynth as vs
-from vsutil import Dither, depth, fallback, get_depth, get_y, join, plane, scale_value
-
-core = vs.core
+from vstools import DitherType, core, depth, fallback, get_depth, join, plane, scale_value, vs
 
 
 def daa(
@@ -1116,7 +1113,7 @@ def QTGMC(
             srchClip = core.std.Expr([spatialBlur, tweaked], expr=expr if ChromaMotion or is_gray else [expr, ''])
         srchClip = DitherLumaRebuild(srchClip, s0=Str, c=Amp, chroma=ChromaMotion)
         if bits > 8 and FastMA:
-            srchClip = depth(srchClip, 8, dither_type=Dither.NONE)
+            srchClip = depth(srchClip, 8, dither_type=DitherType.NONE)
 
     super_args = dict(pel=SubPel, hpad=hpad, vpad=vpad)
     analyse_args = dict(
@@ -5200,7 +5197,7 @@ def MinBlur(clp: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[
         RG11 = clp.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
         if get_depth(clp) == 16:
             s16 = clp
-            RG4 = depth(clp, 12, dither_type=Dither.NONE).ctmf.CTMF(radius=3, planes=planes)
+            RG4 = depth(clp, 12, dither_type=DitherType.NONE).ctmf.CTMF(radius=3, planes=planes)
             RG4 = LimitFilter(s16, depth(RG4, 16), thr=0.0625, elast=2, planes=planes)
         else:
             RG4 = clp.ctmf.CTMF(radius=3, planes=planes)

@@ -4,7 +4,7 @@
 - [adjust](https://github.com/dubhater/vapoursynth-adjust)
 - [mvsfunc](https://github.com/HomeOfVapourSynthEvolution/mvsfunc)
 - [nnedi3_resample](https://github.com/HomeOfVapourSynthEvolution/nnedi3_resample)
-- [vsutil](https://github.com/Irrational-Encoding-Wizardry/vsutil)
+- [vstools](https://github.com/Irrational-Encoding-Wizardry/vs-tools)
 
 ## Dependent plugins
 - [AddGrain](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain)

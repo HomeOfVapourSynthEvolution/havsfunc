@@ -19,7 +19,7 @@ classifiers = [
 ]
 dependencies = [
   "VapourSynth>=60",
-  "vsutil"
+  "vstools>=2.0.6"
 ]
 
 [project.urls]
