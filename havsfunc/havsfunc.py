@@ -1,50 +1,3 @@
-"""
-Holy's ported AviSynth functions for VapourSynth.
-
-Main functions:
-    daa
-    daa3mod
-    mcdaa3
-    santiag
-    FixChromaBleedingMod
-    Deblock_QED
-    QTGMC
-    smartfademod
-    srestore
-    logoNR
-    LUTDeCrawl
-    LUTDeRainbow
-    Stab
-    GrainStabilizeMC
-    MCTemporalDenoise
-    SMDegrain
-    STPresso
-    GrainFactory3
-    InterFrame
-    SmoothLevels
-    FastLineDarkenMOD
-    Toon
-    LSFmod
-
-Utility functions:
-    AverageFrames
-    AvsPrewitt
-    ChangeFPS
-    Gauss
-    mt_clamp
-    KNLMeansCL
-    Overlay
-    Padding
-    SCDetect
-    Weave
-    ContraSharpening
-    MinBlur
-    sbr, sbrV
-    DitherLumaRebuild
-    mt_expand_multi, mt_inpand_multi
-    mt_inflate_multi, mt_deflate_multi
-"""
-
 from __future__ import annotations
 
 import math
@@ -54,6 +7,33 @@ from typing import Any, Mapping, Optional, Sequence, Union
 from vsrgtools import repair
 from vsrgtools.util import mean_matrix, wmean_matrix
 from vstools import DitherType, PlanesT, check_variable, core, depth, fallback, get_depth, join, plane, scale_value, vs
+
+__all__ = [
+    "daa",
+    "daa3mod",
+    "mcdaa3",
+    "santiag",
+    "FixChromaBleedingMod",
+    "Deblock_QED",
+    "QTGMC",
+    "smartfademod",
+    "srestore",
+    "logoNR",
+    "LUTDeCrawl",
+    "LUTDeRainbow",
+    "Stab",
+    "GSMC",
+    "MCTemporalDenoise",
+    "SMDegrain",
+    "STPresso",
+    "GrainFactory3",
+    "InterFrame",
+    "SmoothLevels",
+    "FastLineDarkenMOD",
+    "Toon",
+    "LSFmod",
+    "Overlay",
+]
 
 
 def daa(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **kwargs: Any) -> vs.VideoNode:
