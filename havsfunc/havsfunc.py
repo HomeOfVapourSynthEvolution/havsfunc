@@ -51,43 +51,36 @@ import math
 from functools import partial
 from typing import Any, Mapping, Optional, Sequence, Union
 
-from vstools import DitherType, core, depth, fallback, get_depth, join, plane, scale_value, vs
+from vsrgtools import repair
+from vsrgtools.util import mean_matrix, wmean_matrix
+from vstools import DitherType, PlanesT, check_variable, core, depth, fallback, get_depth, join, plane, scale_value, vs
 
 
-def daa(
-    c: vs.VideoNode,
-    nsize: Optional[int] = None,
-    nns: Optional[int] = None,
-    qual: Optional[int] = None,
-    pscrn: Optional[int] = None,
-    int16_prescreener: Optional[bool] = None,
-    int16_predictor: Optional[bool] = None,
-    exp: Optional[int] = None,
-    opencl: bool = False,
-    device: Optional[int] = None,
-) -> vs.VideoNode:
-    '''
+def daa(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **kwargs: Any) -> vs.VideoNode:
+    """
     Anti-aliasing with contra-sharpening by Didée.
 
-    It averages two independent interpolations, where each interpolation set works between odd-distanced pixels.
-    This on its own provides sufficient amount of blurring. Enough blurring that the script uses a contra-sharpening step to counteract the blurring.
-    '''
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('daa: this is not a clip')
+    It averages two independent interpolations, where each interpolation set works between odd-distanced pixels. This on
+    its own provides sufficient amount of blurring. Enough blurring that the script uses a contra-sharpening step to
+    counteract the blurring.
+
+    :param clip:    Clip to process.
+    :param opencl:  Whether to use OpenCL version of NNEDI3.
+    :param device:  Device ordinal of OpenCL device.
+    """
+    assert check_variable(clip, daa)
 
     if opencl:
-        nnedi3 = partial(core.nnedi3cl.NNEDI3CL, nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, device=device)
+        nnedi3 = partial(core.nnedi3cl.NNEDI3CL, device=device)
     else:
-        nnedi3 = partial(
-            core.znedi3.nnedi3, nsize=nsize, nns=nns, qual=qual, pscrn=pscrn, int16_prescreener=int16_prescreener, int16_predictor=int16_predictor, exp=exp
-        )
+        nnedi3 = core.znedi3.nnedi3
 
-    nn = nnedi3(c, field=3)
-    dbl = core.std.Merge(nn[::2], nn[1::2])
-    dblD = core.std.MakeDiff(c, dbl)
-    shrpD = core.std.MakeDiff(dbl, dbl.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1] if c.width > 1100 else [1, 2, 1, 2, 4, 2, 1, 2, 1]))
-    DD = core.rgvs.Repair(shrpD, dblD, mode=13)
-    return core.std.MergeDiff(dbl, DD)
+    nn = nnedi3(clip, field=3, **kwargs)
+    dbl = nn[::2].std.Merge(nn[1::2])
+    dblD = clip.std.MakeDiff(dbl)
+    shrpD = dbl.std.MakeDiff(dbl.std.Convolution(matrix=mean_matrix if clip.width > 1100 else wmean_matrix))
+    DD = repair(shrpD, dblD, 13)
+    return dbl.std.MergeDiff(DD)
 
 
 def daa3mod(
