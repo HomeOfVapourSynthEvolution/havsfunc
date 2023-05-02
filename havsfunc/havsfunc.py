@@ -18,7 +18,6 @@ __all__ = [
     "QTGMC",
     "smartfademod",
     "srestore",
-    "logoNR",
     "LUTDeCrawl",
     "LUTDeRainbow",
     "Stab",
@@ -2295,94 +2294,6 @@ def ivtc_txt30mc(*args, **kwargs):
 
 def ivtc_txt60mc(*args, **kwargs):
     raise vs.Error("havsfunc.ivtc_txt60mc outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
-
-
-#################################################
-###                                           ###
-###                  logoNR                   ###
-###                                           ###
-###      by 06_taro - astrataro@gmail.com     ###
-###                                           ###
-###            v0.1 - 22 March 2012           ###
-###                                           ###
-#################################################
-###
-### Post-denoise filter of EraseLogo.
-### Only process logo areas in logo frames, even if l/t/r/b are not set. Non-logo areas are left untouched.
-###
-###
-### +---------+
-### |  USAGE  |
-### +---------+
-###
-### dlg [clip]
-### ------------------
-###    Clip after delogo.
-###
-### src [clip]
-### ------------------
-###    Clip before delogo.
-###
-### chroma [bool, default: True]
-### ------------------
-###    Process chroma plane or not.
-###
-### l/t/r/b [int, default: 0]
-### ------------------
-###    left/top/right/bottom pixels to be cropped for logo area.
-###    Have the same restriction as Crop, e.g., no odd value for YV12.
-###    logoNR only filters the logo areas in logo frames, no matter l/t/r/b are set or not.
-###    So if you have other heavy filters running in a pipeline and don't care much about the speed of logoNR,
-###    it is safe to left these values unset.
-###    Setting these values only makes logoNR run faster, with rarely noticeable difference in result,
-###    unless you set wrong values and the logo is not covered in your cropped target area.
-###
-### d/a/s/h [int, default: 1/2/2/3]
-### ------------------
-###    The same parameters of KNLMeansCL.
-###
-### +----------------+
-### |  REQUIREMENTS  |
-### +----------------+
-###
-### -> KNLMeansCL
-### -> RGVS
-def logoNR(dlg, src, chroma=True, l=0, t=0, r=0, b=0, d=1, a=2, s=2, h=3):
-    if not (isinstance(dlg, vs.VideoNode) and isinstance(src, vs.VideoNode)):
-        raise vs.Error('logoNR: this is not a clip')
-
-    if dlg.format.id != src.format.id:
-        raise vs.Error('logoNR: clips must have the same format')
-
-    if dlg.format.color_family == vs.GRAY:
-        chroma = False
-
-    if not chroma and dlg.format.color_family != vs.GRAY:
-        dlg_orig = dlg
-        dlg = plane(dlg, 0)
-        src = plane(src, 0)
-    else:
-        dlg_orig = None
-
-    b_crop = (l != 0) or (t != 0) or (r != 0) or (b != 0)
-    if b_crop:
-        src = src.std.Crop(left=l, right=r, top=t, bottom=b)
-        last = dlg.std.Crop(left=l, right=r, top=t, bottom=b)
-    else:
-        last = dlg
-
-    if chroma:
-        clp_nr = KNLMeansCL(last, d=d, a=a, s=s, h=h)
-    else:
-        clp_nr = last.knlm.KNLMeansCL(d=d, a=a, s=s, h=h)
-    logoM = mt_expand_multi(core.std.Expr([last, src], expr=['x y - abs 16 *']), mode='losange', sw=3, sh=3).std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1]).std.Deflate()
-    clp_nr = core.std.MaskedMerge(last, clp_nr, logoM)
-    if b_crop:
-        clp_nr = Overlay(dlg, clp_nr, x=l, y=t)
-
-    if dlg_orig is not None:
-        clp_nr = core.std.ShufflePlanes([clp_nr, dlg_orig], planes=[0, 1, 2], colorfamily=dlg_orig.format.color_family)
-    return clp_nr
 
 
 def Vinverse(*args, **kwargs):
