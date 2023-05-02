@@ -4633,66 +4633,8 @@ def Weave(clip: vs.VideoNode, tff: Optional[bool] = None) -> vs.VideoNode:
     return clip.std.DoubleWeave(tff=tff)[::2]
 
 
-def ContraSharpening(
-    denoised: vs.VideoNode, original: vs.VideoNode, radius: int = 1, rep: int = 1, planes: Optional[Union[int, Sequence[int]]] = None
-) -> vs.VideoNode:
-    '''
-    contra-sharpening: sharpen the denoised clip, but don't add more to any pixel than what was removed previously.
-
-    Parameters:
-        denoised: Denoised clip to sharpen.
-
-        original: Original clip before denoising.
-
-        radius: Spatial radius for contra-sharpening.
-
-        rep: Mode of repair to limit the difference.
-
-        planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
-            By default only luma plane will be processed for non-RGB formats.
-    '''
-    if not (isinstance(denoised, vs.VideoNode) and isinstance(original, vs.VideoNode)):
-        raise vs.Error('ContraSharpening: this is not a clip')
-
-    if denoised.format.id != original.format.id:
-        raise vs.Error('ContraSharpening: clips must have the same format')
-
-    neutral = 1 << (get_depth(denoised) - 1)
-
-    plane_range = range(denoised.format.num_planes)
-
-    if planes is None:
-        planes = [0] if denoised.format.color_family != vs.RGB else [0, 1, 2]
-    elif isinstance(planes, int):
-        planes = [planes]
-
-    pad = 2 if radius < 3 else 4
-    denoised = Padding(denoised, pad, pad, pad, pad)
-    original = Padding(original, pad, pad, pad, pad)
-
-    matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
-    matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
-
-    # damp down remaining spots of the denoised clip
-    s = MinBlur(denoised, radius, planes)
-    # the difference achieved by the denoising
-    allD = core.std.MakeDiff(original, denoised, planes=planes)
-
-    RG11 = s.std.Convolution(matrix=matrix1, planes=planes)
-    if radius >= 2:
-        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes)
-    if radius >= 3:
-        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes)
-
-    # the difference of a simple kernel blur
-    ssD = core.std.MakeDiff(s, RG11, planes=planes)
-    # limit the difference to the max of what the denoising removed locally
-    ssDD = core.rgvs.Repair(ssD, allD, mode=[rep if i in planes else 0 for i in plane_range])
-    # abs(diff) after limiting may not be bigger than before
-    ssDD = core.std.Expr([ssDD, ssD], expr=[f'x {neutral} - abs y {neutral} - abs < x y ?' if i in planes else '' for i in plane_range])
-    # apply the limited difference (sharpening is just inverse blurring)
-    last = core.std.MergeDiff(denoised, ssDD, planes=planes)
-    return last.std.Crop(pad, pad, pad, pad)
+def ContraSharpening(*args, **kwargs):
+    raise vs.Error("havsfunc.ContraSharpening outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
 
 
 def MinBlur(clp: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
