@@ -8,6 +8,7 @@
 
 ## Dependent plugins
 - [AddGrain](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain)
+- [AWarpSharp2](https://github.com/dubhater/vapoursynth-awarpsharp2)
 - [BM3D](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D)
 - [Bwdif](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Bwdif)
 - [CAS](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS)
