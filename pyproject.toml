@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
   "VapourSynth>=60",
+  "vsrgtools>=1.4.3",
   "vstools>=2.0.6"
 ]
 
