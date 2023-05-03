@@ -24,6 +24,7 @@
 - [KNLMeansCL](https://github.com/Khanattila/KNLMeansCL)
 - [MiscFilters](https://github.com/vapoursynth/vs-miscfilters-obsolete)
 - [MVTools](https://github.com/dubhater/vapoursynth-mvtools)
+- [neo_f3kdb](https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb)
 - [NNEDI3CL](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL)
 - [RGVS](https://github.com/vapoursynth/vs-removegrain)
 - [SangNom](https://bitbucket.org/James1201/vapoursynth-sangnom)
