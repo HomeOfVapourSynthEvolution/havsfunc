@@ -60,23 +60,16 @@ def daa(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **k
     return dbl.std.MergeDiff(DD)
 
 
-def daa3mod(
-    c1: vs.VideoNode,
-    nsize: Optional[int] = None,
-    nns: Optional[int] = None,
-    qual: Optional[int] = None,
-    pscrn: Optional[int] = None,
-    int16_prescreener: Optional[bool] = None,
-    int16_predictor: Optional[bool] = None,
-    exp: Optional[int] = None,
-    opencl: bool = False,
-    device: Optional[int] = None,
-) -> vs.VideoNode:
-    if not isinstance(c1, vs.VideoNode):
-        raise vs.Error('daa3mod: this is not a clip')
+def daa3mod(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **kwargs: Any) -> vs.VideoNode:
+    """
+    :param clip:    Clip to process.
+    :param opencl:  Whether to use OpenCL version of NNEDI3.
+    :param device:  Device ordinal of OpenCL device.
+    """
+    assert check_variable(clip, daa3mod)
 
-    c = c1.resize.Spline36(c1.width, c1.height * 3 // 2)
-    return daa(c, nsize, nns, qual, pscrn, int16_prescreener, int16_predictor, exp, opencl, device).resize.Spline36(c1.width, c1.height)
+    c = clip.resize.Spline36(clip.width, clip.height * 3 // 2)
+    return daa(c, opencl, device, **kwargs).resize.Spline36(clip.width, clip.height)
 
 
 def mcdaa3(
