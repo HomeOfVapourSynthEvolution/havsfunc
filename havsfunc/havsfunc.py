@@ -72,29 +72,22 @@ def daa3mod(clip: vs.VideoNode, opencl: bool = False, device: int | None = None,
     return daa(c, opencl, device, **kwargs).resize.Spline36(clip.width, clip.height)
 
 
-def mcdaa3(
-    input: vs.VideoNode,
-    nsize: Optional[int] = None,
-    nns: Optional[int] = None,
-    qual: Optional[int] = None,
-    pscrn: Optional[int] = None,
-    int16_prescreener: Optional[bool] = None,
-    int16_predictor: Optional[bool] = None,
-    exp: Optional[int] = None,
-    opencl: bool = False,
-    device: Optional[int] = None,
-) -> vs.VideoNode:
-    if not isinstance(input, vs.VideoNode):
-        raise vs.Error('mcdaa3: this is not a clip')
+def mcdaa3(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **kwargs: Any) -> vs.VideoNode:
+    """
+    :param clip:    Clip to process.
+    :param opencl:  Whether to use OpenCL version of NNEDI3.
+    :param device:  Device ordinal of OpenCL device.
+    """
+    assert check_variable(clip, mcdaa3)
 
-    sup = input.hqdn3d.Hqdn3d().fft3dfilter.FFT3DFilter().mv.Super(sharp=1)
-    fv1 = sup.mv.Analyse(isb=False, delta=1, truemotion=False, dct=2)
-    fv2 = sup.mv.Analyse(isb=True, delta=1, truemotion=True, dct=2)
-    csaa = daa3mod(input, nsize, nns, qual, pscrn, int16_prescreener, int16_predictor, exp, opencl, device)
-    momask1 = input.mv.Mask(fv1, ml=2, kind=1)
-    momask2 = input.mv.Mask(fv2, ml=3, kind=1)
-    momask = core.std.Merge(momask1, momask2)
-    return core.std.MaskedMerge(input, csaa, momask)
+    sup = clip.hqdn3d.Hqdn3d().fft3dfilter.FFT3DFilter().mv.Super(sharp=1)
+    fv1 = sup.mv.Analyse(isb=False, truemotion=False, dct=2)
+    fv2 = sup.mv.Analyse(isb=True, truemotion=True, dct=2)
+    csaa = daa3mod(clip, opencl, device, **kwargs)
+    momask1 = clip.mv.Mask(fv1, ml=2, kind=1)
+    momask2 = clip.mv.Mask(fv2, ml=3, kind=1)
+    momask = momask1.std.Merge(momask2)
+    return clip.std.MaskedMerge(csaa, momask)
 
 
 def santiag(
