@@ -4470,8 +4470,8 @@ def mt_deflate_multi(*args, **kwargs):
     raise vs.Error("havsfunc.mt_deflate_multi outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-masktools instead.")
 
 
-def m4(x: Union[float, int]) -> int:
-    return 16 if x < 16 else cround(x / 4) * 4
+def m4(*args, **kwargs):
+    raise vs.Error("havsfunc.m4 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
 
 
 def scale(value, peak):
