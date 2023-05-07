@@ -7,6 +7,7 @@ from typing import Any, Mapping, Optional, Sequence, Union
 
 from vsdenoise import nl_means, prefilter_to_full_range
 from vsexprtools import complexpr_available, norm_expr
+from vsmasktools import Morpho
 from vsrgtools import gauss_blur, min_blur, repair, sbr
 from vsrgtools.util import mean_matrix, wmean_matrix
 from vstools import (
@@ -3029,7 +3030,7 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
     ### EDGECLEANING
     if edgeclean:
         mP = avs_prewitt(plane(smP, 0))
-        mS = mt_expand_multi(mP, sw=ECrad, sh=ECrad).std.Inflate()
+        mS = Morpho.expand(mP, ECrad).std.Inflate()
         mD = core.std.Expr([mS, mP.std.Inflate()], expr=[f'x y - {ECthr} <= 0 x y - ?']).std.Inflate().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
         smP = core.std.MaskedMerge(smP, DeHalo_alpha(smP.dfttest.DFTTest(tbsize=1, planes=planes), darkstr=0), mD, planes=planes)
 
@@ -4452,88 +4453,20 @@ def DitherLumaRebuild(*args, **kwargs):
     raise vs.Error("havsfunc.DitherLumaRebuild outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-denoise instead.")
 
 
-def mt_expand_multi(src: vs.VideoNode, mode: str = 'rectangle', planes: Optional[Union[int, Sequence[int]]] = None, sw: int = 1, sh: int = 1) -> vs.VideoNode:
-    '''
-    Calls std.Maximum multiple times in order to grow the mask from the desired width and height.
-
-    Parameters:
-        src: Clip to process.
-
-        mode: "rectangle", "ellipse" or "losange". Ellipses are actually combinations of rectangles and losanges and look more like octogons.
-            Losanges are truncated (not scaled) when sw and sh are not equal.
-
-        planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
-
-        sw: Growing shape width. 0 is allowed.
-
-        sh: Growing shape height. 0 is allowed.
-    '''
-    if not isinstance(src, vs.VideoNode):
-        raise vs.Error('mt_expand_multi: this is not a clip')
-
-    if sw > 0 and sh > 0:
-        mode_m = [0, 1, 0, 1, 1, 0, 1, 0] if mode == 'losange' or (mode == 'ellipse' and (sw % 3) != 1) else [1, 1, 1, 1, 1, 1, 1, 1]
-    elif sw > 0:
-        mode_m = [0, 0, 0, 1, 1, 0, 0, 0]
-    elif sh > 0:
-        mode_m = [0, 1, 0, 0, 0, 0, 1, 0]
-    else:
-        mode_m = None
-
-    if mode_m is not None:
-        src = mt_expand_multi(src.std.Maximum(planes=planes, coordinates=mode_m), mode=mode, planes=planes, sw=sw - 1, sh=sh - 1)
-    return src
+def mt_expand_multi(*args, **kwargs):
+    raise vs.Error("havsfunc.mt_expand_multi outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-masktools instead.")
 
 
-def mt_inpand_multi(src: vs.VideoNode, mode: str = 'rectangle', planes: Optional[Union[int, Sequence[int]]] = None, sw: int = 1, sh: int = 1) -> vs.VideoNode:
-    '''
-    Calls std.Minimum multiple times in order to shrink the mask from the desired width and height.
-
-    Parameters:
-        src: Clip to process.
-
-        mode: "rectangle", "ellipse" or "losange". Ellipses are actually combinations of rectangles and losanges and look more like octogons.
-            Losanges are truncated (not scaled) when sw and sh are not equal.
-
-        planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
-
-        sw: Shrinking shape width. 0 is allowed.
-
-        sh: Shrinking shape height. 0 is allowed.
-    '''
-    if not isinstance(src, vs.VideoNode):
-        raise vs.Error('mt_inpand_multi: this is not a clip')
-
-    if sw > 0 and sh > 0:
-        mode_m = [0, 1, 0, 1, 1, 0, 1, 0] if mode == 'losange' or (mode == 'ellipse' and (sw % 3) != 1) else [1, 1, 1, 1, 1, 1, 1, 1]
-    elif sw > 0:
-        mode_m = [0, 0, 0, 1, 1, 0, 0, 0]
-    elif sh > 0:
-        mode_m = [0, 1, 0, 0, 0, 0, 1, 0]
-    else:
-        mode_m = None
-
-    if mode_m is not None:
-        src = mt_inpand_multi(src.std.Minimum(planes=planes, coordinates=mode_m), mode=mode, planes=planes, sw=sw - 1, sh=sh - 1)
-    return src
+def mt_inpand_multi(*args, **kwargs):
+    raise vs.Error("havsfunc.mt_inpand_multi outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-masktools instead.")
 
 
-def mt_inflate_multi(src: vs.VideoNode, planes: Optional[Union[int, Sequence[int]]] = None, radius: int = 1) -> vs.VideoNode:
-    if not isinstance(src, vs.VideoNode):
-        raise vs.Error('mt_inflate_multi: this is not a clip')
-
-    for _ in range(radius):
-        src = src.std.Inflate(planes=planes)
-    return src
+def mt_inflate_multi(*args, **kwargs):
+    raise vs.Error("havsfunc.mt_inflate_multi outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-masktools instead.")
 
 
-def mt_deflate_multi(src: vs.VideoNode, planes: Optional[Union[int, Sequence[int]]] = None, radius: int = 1) -> vs.VideoNode:
-    if not isinstance(src, vs.VideoNode):
-        raise vs.Error('mt_deflate_multi: this is not a clip')
-
-    for _ in range(radius):
-        src = src.std.Deflate(planes=planes)
-    return src
+def mt_deflate_multi(*args, **kwargs):
+    raise vs.Error("havsfunc.mt_deflate_multi outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-masktools instead.")
 
 
 def cround(x: float) -> int:
