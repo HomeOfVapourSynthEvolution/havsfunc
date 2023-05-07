@@ -1117,14 +1117,14 @@ def QTGMC(
             if InputType > 0:
                 denoised = dnWindow
             else:
-                denoised = Weave(dnWindow.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=4, offsets=[0, 3]), tff=TFF)
+                denoised = dnWindow.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=4, offsets=[0, 3]).std.DoubleWeave(TFF)[::2]
         elif InputType > 0:
             if NoiseTR <= 0:
                 denoised = dnWindow
             else:
                 denoised = dnWindow.std.SelectEvery(cycle=noiseTD, offsets=NoiseTR)
         else:
-            denoised = Weave(dnWindow.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=noiseTD * 4, offsets=[NoiseTR * 2, NoiseTR * 6 + 3]), tff=TFF)
+            denoised = dnWindow.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=noiseTD * 4, offsets=[NoiseTR * 2, NoiseTR * 6 + 3]).std.DoubleWeave(TFF)[::2]
 
         if totalRestore > 0:
             # Get actual noise from difference. Then 'deinterlace' where we have weaved noise - create the missing lines of noise in various ways
@@ -1155,7 +1155,7 @@ def QTGMC(
 
     # Support badly deinterlaced progressive content - drop half the fields and reweave to get 1/2fps interlaced stream appropriate for QTGMC processing
     if InputType > 1:
-        ediInput = Weave(innerClip.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=4, offsets=[0, 3]), tff=TFF)
+        ediInput = innerClip.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=4, offsets=[0, 3]).std.DoubleWeave(TFF)[::2]
     else:
         ediInput = innerClip
 
@@ -1617,7 +1617,7 @@ def QTGMC_Generate2ndFieldNoise(Input: vs.VideoNode, InterleavedClip: vs.VideoNo
     expr = f'x {neutral} - y * {scale_value(256, 8, bits)} / {neutral} +'
     varRandom = core.std.Expr([core.std.MakeDiff(noiseMax, noiseMin, planes=planes), random], expr=expr if ChromaNoise or is_gray else [expr, ''])
     newNoise = core.std.MergeDiff(noiseMin, varRandom, planes=planes)
-    return Weave(core.std.Interleave([origNoise, newNoise]), tff=TFF)
+    return core.std.Interleave([origNoise, newNoise]).std.DoubleWeave(TFF)[::2]
 
 
 def QTGMC_MakeLossless(Input: vs.VideoNode, Source: vs.VideoNode, InputType: int, TFF: Optional[bool] = None) -> vs.VideoNode:
@@ -1636,7 +1636,7 @@ def QTGMC_MakeLossless(Input: vs.VideoNode, Source: vs.VideoNode, InputType: int
     else:
         srcFields = Source.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=4, offsets=[0, 3])
     newFields = Input.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=4, offsets=[1, 2])
-    processed = Weave(core.std.Interleave([srcFields, newFields]).std.SelectEvery(cycle=4, offsets=[0, 1, 3, 2]), tff=TFF)
+    processed = core.std.Interleave([srcFields, newFields]).std.SelectEvery(cycle=4, offsets=[0, 1, 3, 2]).std.DoubleWeave(TFF)[::2]
 
     # Clean some of the artefacts caused by the above - creating a second version of the "new" fields
     vertMedian = processed.rgvs.VerticalCleaner(mode=1)
@@ -1648,7 +1648,7 @@ def QTGMC_MakeLossless(Input: vs.VideoNode, Source: vs.VideoNode, InputType: int
     vmNewDiff3 = core.rgvs.Repair(vmNewDiff2, vmNewDiff2.rgvs.RemoveGrain(mode=2), mode=1)
 
     # Reweave final result
-    return Weave(core.std.Interleave([srcFields, core.std.MakeDiff(newFields, vmNewDiff3)]).std.SelectEvery(cycle=4, offsets=[0, 1, 3, 2]), tff=TFF)
+    return core.std.Interleave([srcFields, core.std.MakeDiff(newFields, vmNewDiff3)]).std.SelectEvery(cycle=4, offsets=[0, 1, 3, 2]).std.DoubleWeave(TFF)[::2]
 
 
 def QTGMC_ApplySourceMatch(
@@ -1704,7 +1704,7 @@ def QTGMC_ApplySourceMatch(
     if SourceMatch < 1 or InputType == 1:
         match1Clip = Deinterlace
     else:
-        match1Clip = Weave(Deinterlace.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=4, offsets=[0, 3]), tff=TFF)
+        match1Clip = Deinterlace.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=4, offsets=[0, 3]).std.DoubleWeave(TFF)[::2]
     if SourceMatch < 1 or MatchTR1 <= 0:
         match1Update = Source
     else:
@@ -1754,7 +1754,7 @@ def QTGMC_ApplySourceMatch(
     if SourceMatch < 2 or InputType == 1:
         match2Clip = match1Shp
     else:
-        match2Clip = Weave(match1Shp.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=4, offsets=[0, 3]), tff=TFF)
+        match2Clip = match1Shp.std.SeparateFields(tff=TFF).std.SelectEvery(cycle=4, offsets=[0, 3]).std.DoubleWeave(TFF)[::2]
     if SourceMatch > 1:
         match2Diff = core.std.MakeDiff(Source, match2Clip)
         match2Edi = QTGMC_Interpolate(
@@ -4438,18 +4438,6 @@ def scdetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
         sc = clip.std.ModifyFrame([clip, sc], _copy_property)
 
     return sc
-
-
-def Weave(clip: vs.VideoNode, tff: Optional[bool] = None) -> vs.VideoNode:
-    if not isinstance(clip, vs.VideoNode):
-        raise vs.Error('Weave: this is not a clip')
-
-    if tff is None:
-        with clip.get_frame(0) as f:
-            if f.props.get('_Field') not in [1, 2]:
-                raise vs.Error('Weave: tff was not specified and field order could not be determined from frame properties')
-
-    return clip.std.DoubleWeave(tff=tff)[::2]
 
 
 def ContraSharpening(*args, **kwargs):
