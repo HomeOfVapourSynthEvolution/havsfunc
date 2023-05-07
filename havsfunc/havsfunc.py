@@ -6,10 +6,8 @@ from functools import partial
 from typing import Any, Mapping, Optional, Sequence, Union
 
 from vsdenoise import nl_means
-from vsexprtools import norm_expr
-from vsrgtools import gauss_blur, repair
 from vsexprtools import complexpr_available, norm_expr
-from vsrgtools import gauss_blur, repair
+from vsrgtools import gauss_blur, min_blur, repair
 from vsrgtools.util import mean_matrix, wmean_matrix
 from vstools import (
     DitherType,
@@ -2850,7 +2848,7 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
     elif pfMode >= 3:
         p = i.dfttest.DFTTest(tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0], planes=planes)
     else:
-        p = MinBlur(i, r=pfMode, planes=planes)
+        p = min_blur(i, pfMode, planes)
 
     pD = core.std.MakeDiff(i, p, planes=planes)
     p = DitherLumaRebuild(p, s0=1, chroma=chroma)
@@ -4078,7 +4076,7 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
         expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale(16, peak), j=scale(75, peak), peak=peak)
         pre = core.std.MaskedMerge(tmp.dfttest.DFTTest(tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0]), tmp, tmp.std.Expr(expr=[expr]))
     else:
-        pre = MinBlur(tmp, r=preblur)
+        pre = min_blur(tmp, preblur)
 
     dark_limit = pre.std.Minimum()
     bright_limit = pre.std.Maximum()
@@ -4458,42 +4456,8 @@ def ContraSharpening(*args, **kwargs):
     raise vs.Error("havsfunc.ContraSharpening outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
 
 
-def MinBlur(clp: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
-    '''Nifty Gauss/Median combination'''
-    from mvsfunc import LimitFilter
-
-    if not isinstance(clp, vs.VideoNode):
-        raise vs.Error('MinBlur: this is not a clip')
-
-    plane_range = range(clp.format.num_planes)
-
-    if planes is None:
-        planes = list(plane_range)
-    elif isinstance(planes, int):
-        planes = [planes]
-
-    matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
-    matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
-
-    if r <= 0:
-        RG11 = sbr(clp, planes=planes)
-        RG4 = clp.std.Median(planes=planes)
-    elif r == 1:
-        RG11 = clp.std.Convolution(matrix=matrix1, planes=planes)
-        RG4 = clp.std.Median(planes=planes)
-    elif r == 2:
-        RG11 = clp.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
-        RG4 = clp.ctmf.CTMF(radius=2, planes=planes)
-    else:
-        RG11 = clp.std.Convolution(matrix=matrix1, planes=planes).std.Convolution(matrix=matrix2, planes=planes).std.Convolution(matrix=matrix2, planes=planes)
-        if get_depth(clp) == 16:
-            s16 = clp
-            RG4 = depth(clp, 12, dither_type=DitherType.NONE).ctmf.CTMF(radius=3, planes=planes)
-            RG4 = LimitFilter(s16, depth(RG4, 16), thr=0.0625, elast=2, planes=planes)
-        else:
-            RG4 = clp.ctmf.CTMF(radius=3, planes=planes)
-
-    return core.std.Expr([clp, RG11, RG4], expr=['x y - x z - * 0 < x x y - abs x z - abs < y z ? ?' if i in planes else '' for i in plane_range])
+def MinBlur(*args, **kwargs):
+    raise vs.Error("havsfunc.MinBlur outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
 
 
 def sbr(c: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
