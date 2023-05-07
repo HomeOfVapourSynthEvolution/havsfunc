@@ -51,6 +51,7 @@ __all__ = [
     "Overlay",
     "average_frames",
     "mt_clamp",
+    "scdetect",
 ]
 
 
@@ -2307,7 +2308,7 @@ def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=
 
     output = core.std.ShufflePlanes([core.std.MaskedMerge(input_y, fixed_y, themask), input], planes=[0, 1, 2], colorfamily=input.format.color_family)
 
-    input = SCDetect(input, threshold=scnchg / 255)
+    input = scdetect(input, scnchg / 255)
     output = output.std.FrameEval(eval=partial(YDifferenceFromPrevious, clips=[input, output]), prop_src=input)
     output = output.std.FrameEval(eval=partial(YDifferenceToNext, clips=[input, output]), prop_src=input)
 
@@ -4198,7 +4199,7 @@ def average_frames(
     planes = normalize_planes(clip, planes)
 
     if scenechange:
-        clip = SCDetect(clip, scenechange)
+        clip = scdetect(clip, scenechange)
     return clip.std.AverageFrames(weights=weights, scenechange=scenechange, planes=planes)
 
 
@@ -4419,23 +4420,22 @@ def Padding(*args, **kwargs):
     raise vs.Error("havsfunc.Padding outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
 
 
-def SCDetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
-    def copy_property(n: int, f: vs.VideoFrame) -> vs.VideoFrame:
+def scdetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
+    def _copy_property(n: int, f: list[vs.VideoFrame]) -> vs.VideoFrame:
         fout = f[0].copy()
-        fout.props['_SceneChangePrev'] = f[1].props['_SceneChangePrev']
-        fout.props['_SceneChangeNext'] = f[1].props['_SceneChangeNext']
+        fout.props["_SceneChangePrev"] = f[1].props["_SceneChangePrev"]
+        fout.props["_SceneChangeNext"] = f[1].props["_SceneChangeNext"]
         return fout
 
-    if not isinstance(clip, vs.VideoNode):
-        raise vs.Error('SCDetect: this is not a clip')
+    assert check_variable(clip, scdetect)
 
     sc = clip
     if clip.format.color_family == vs.RGB:
-        sc = clip.resize.Point(format=vs.GRAY8, matrix_s='709')
+        sc = clip.resize.Point(format=vs.GRAY8, matrix_s="709")
 
-    sc = sc.misc.SCDetect(threshold=threshold)
+    sc = sc.misc.SCDetect(threshold)
     if clip.format.color_family == vs.RGB:
-        sc = clip.std.ModifyFrame(clips=[clip, sc], selector=copy_property)
+        sc = clip.std.ModifyFrame([clip, sc], _copy_property)
 
     return sc
 
