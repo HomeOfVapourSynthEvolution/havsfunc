@@ -7,7 +7,7 @@ from typing import Any, Mapping, Optional, Sequence, Union
 
 from vsdenoise import nl_means
 from vsexprtools import complexpr_available, norm_expr
-from vsrgtools import gauss_blur, min_blur, repair
+from vsrgtools import gauss_blur, min_blur, repair, sbr
 from vsrgtools.util import mean_matrix, wmean_matrix
 from vstools import (
     DitherType,
@@ -2504,7 +2504,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     elif nrmode <= 0:
         pre_nr = input.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1], planes=planes)
     else:
-        pre_nr = sbr(input, r=nrmode, planes=planes)
+        pre_nr = sbr(input, nrmode, planes=planes)
     dif_nr = core.std.MakeDiff(input, pre_nr, planes=planes)
 
     # Kernel: MC Grain Stabilize
@@ -4458,81 +4458,6 @@ def ContraSharpening(*args, **kwargs):
 
 def MinBlur(*args, **kwargs):
     raise vs.Error("havsfunc.MinBlur outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
-
-
-def sbr(c: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
-    '''make a highpass on a blur's difference (well, kind of that)'''
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('sbr: this is not a clip')
-
-    neutral = 1 << (get_depth(c) - 1) if c.format.sample_type == vs.INTEGER else 0.0
-
-    plane_range = range(c.format.num_planes)
-
-    if planes is None:
-        planes = list(plane_range)
-    elif isinstance(planes, int):
-        planes = [planes]
-
-    matrix1 = [1, 2, 1, 2, 4, 2, 1, 2, 1]
-    matrix2 = [1, 1, 1, 1, 1, 1, 1, 1, 1]
-
-    RG11 = c.std.Convolution(matrix=matrix1, planes=planes)
-    if r >= 2:
-        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes)
-    if r >= 3:
-        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes)
-
-    RG11D = core.std.MakeDiff(c, RG11, planes=planes)
-
-    RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes)
-    if r >= 2:
-        RG11DS = RG11DS.std.Convolution(matrix=matrix2, planes=planes)
-    if r >= 3:
-        RG11DS = RG11DS.std.Convolution(matrix=matrix2, planes=planes)
-
-    RG11DD = core.std.Expr(
-        [RG11D, RG11DS],
-        expr=[f'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?' if i in planes else '' for i in plane_range],
-    )
-    return core.std.MakeDiff(c, RG11DD, planes=planes)
-
-
-def sbrV(c: vs.VideoNode, r: int = 1, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('sbrV: this is not a clip')
-
-    neutral = 1 << (get_depth(c) - 1) if c.format.sample_type == vs.INTEGER else 0.0
-
-    plane_range = range(c.format.num_planes)
-
-    if planes is None:
-        planes = list(plane_range)
-    elif isinstance(planes, int):
-        planes = [planes]
-
-    matrix1 = [1, 2, 1]
-    matrix2 = [1, 4, 6, 4, 1]
-
-    RG11 = c.std.Convolution(matrix=matrix1, planes=planes, mode='v')
-    if r >= 2:
-        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes, mode='v')
-    if r >= 3:
-        RG11 = RG11.std.Convolution(matrix=matrix2, planes=planes, mode='v')
-
-    RG11D = core.std.MakeDiff(c, RG11, planes=planes)
-
-    RG11DS = RG11D.std.Convolution(matrix=matrix1, planes=planes, mode='v')
-    if r >= 2:
-        RG11DS = RG11DS.std.Convolution(matrix=matrix2, planes=planes, mode='v')
-    if r >= 3:
-        RG11DS = RG11DS.std.Convolution(matrix=matrix2, planes=planes, mode='v')
-
-    RG11DD = core.std.Expr(
-        [RG11D, RG11DS],
-        expr=[f'x y - x {neutral} - * 0 < {neutral} x y - abs x {neutral} - abs < x y - {neutral} + x ? ?' if i in planes else '' for i in plane_range],
-    )
-    return core.std.MakeDiff(c, RG11DD, planes=planes)
 
 
 def DitherLumaRebuild(src: vs.VideoNode, s0: float = 2.0, c: float = 0.0625, chroma: bool = True) -> vs.VideoNode:
