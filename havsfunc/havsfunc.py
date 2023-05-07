@@ -3423,6 +3423,10 @@ def FixRowBrightnessProtect2(*args, **kwargs):
 #########################################################################################
 def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, output_high=None, chroma=50, limiter=0, Lmode=0, DarkSTR=100, BrightSTR=100, Ecenter=None, protect=-1, Ecurve=0,
                  Smode=-2, Mfactor=2, RGmode=12, useDB=False):
+    # sin(pi x / 2) for -1 < x < 1 using Taylor series
+    def _sine_expr(var):
+        return f'{-3.5988432352121e-6} {var} * {var} * {0.00016044118478736} + {var} * {var} * {-0.0046817541353187} + {var} * {var} * {0.079692626246167} + {var} * {var} * {-0.64596409750625} + {var} * {var} * {1.5707963267949} + {var} *'
+
     if not isinstance(input, vs.VideoNode):
         raise vs.Error('SmoothLevels: this is not a clip')
 
@@ -3489,13 +3493,13 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
         if Lmode == 1:
             var_d = f'x {Ecenter} /'
             var_b = f'{peak} x - {peak} {Ecenter} - /'
-            exprL = f'x {Ecenter} < ' + sine_expr(var_d) + f' {Dstr} pow x {Ecenter} > ' + sine_expr(var_b) + f' {Bstr} pow 1 ? ?'
+            exprL = f'x {Ecenter} < ' + _sine_expr(var_d) + f' {Dstr} pow x {Ecenter} > ' + _sine_expr(var_b) + f' {Bstr} pow 1 ? ?'
         elif Lmode == 2:
             var_d = f'x {peak} /'
-            exprL = sine_expr(var_d) + f' {Dstr} pow'
+            exprL = _sine_expr(var_d) + f' {Dstr} pow'
         else:
             var_b = f'{peak} x - {peak} /'
-            exprL = sine_expr(var_b) + f' {Bstr} pow'
+            exprL = _sine_expr(var_b) + f' {Bstr} pow'
     else:
         if Lmode == 1:
             exprL = f'x {Ecenter} < x {Ecenter} / abs {Dstr} pow x {Ecenter} > 1 x {Ecenter} - {peak - Ecenter} / abs - {Bstr} pow 1 ? ?'
@@ -3508,7 +3512,7 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
         exprP = '1'
     elif Ecurve <= 0:
         var_p = f'x {protect} - {scale_8bit(input, 16)} /'
-        exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 ' + sine_expr(var_p) + f' ? ?'
+        exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 ' + _sine_expr(var_p) + f' ? ?'
     else:
         exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 x {protect} - {scale_8bit(input, 16)} / abs ? ?'
 
@@ -4477,7 +4481,3 @@ def m4(*args, **kwargs):
 
 def scale(*args, **kwargs):
     raise vs.Error("havsfunc.scale outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
-
-# sin(pi x / 2) for -1 < x < 1 using Taylor series
-def sine_expr(var):
-    return f'{-3.5988432352121e-6} {var} * {var} * {0.00016044118478736} + {var} * {var} * {-0.0046817541353187} + {var} * {var} * {0.079692626246167} + {var} * {var} * {-0.64596409750625} + {var} * {var} * {1.5707963267949} + {var} *'
