@@ -8,11 +8,14 @@ from typing import Any, Mapping, Optional, Sequence, Union
 from vsdenoise import nl_means
 from vsexprtools import norm_expr
 from vsrgtools import gauss_blur, repair
+from vsexprtools import complexpr_available, norm_expr
+from vsrgtools import gauss_blur, repair
 from vsrgtools.util import mean_matrix, wmean_matrix
 from vstools import (
     DitherType,
     PlanesT,
     change_fps,
+    check_ref_clip,
     check_variable,
     core,
     depth,
@@ -48,6 +51,7 @@ __all__ = [
     "LSFmod",
     "Overlay",
     "average_frames",
+    "mt_clamp",
 ]
 
 
@@ -4223,26 +4227,22 @@ def Gauss(*args, **kwargs):
 
 def mt_clamp(
     clip: vs.VideoNode,
-    bright_limit: vs.VideoNode,
-    dark_limit: vs.VideoNode,
+    bright: vs.VideoNode,
+    dark: vs.VideoNode,
     overshoot: int = 0,
     undershoot: int = 0,
-    planes: Optional[Union[int, Sequence[int]]] = None,
+    planes: PlanesT = None,
 ) -> vs.VideoNode:
-    if not (isinstance(clip, vs.VideoNode) and isinstance(bright_limit, vs.VideoNode) and isinstance(dark_limit, vs.VideoNode)):
-        raise vs.Error('mt_clamp: this is not a clip')
+    """clamp the value of the clip between bright + overshoot and dark - undershoot"""
+    check_ref_clip(clip, bright, mt_clamp)
+    check_ref_clip(clip, dark, mt_clamp)
+    planes = normalize_planes(clip, planes)
 
-    if bright_limit.format.id != clip.format.id or dark_limit.format.id != clip.format.id:
-        raise vs.Error('mt_clamp: clips must have the same format')
-
-    plane_range = range(clip.format.num_planes)
-
-    if planes is None:
-        planes = list(plane_range)
-    elif isinstance(planes, int):
-        planes = [planes]
-
-    return core.std.Expr([clip, bright_limit, dark_limit], expr=[f'x y {overshoot} + min z {undershoot} - max' if i in planes else '' for i in plane_range])
+    if complexpr_available:
+        expr = f"x z {undershoot} - y {overshoot} + clamp"
+    else:
+        expr = f"x z {undershoot} - max y {overshoot} + min"
+    return norm_expr([clip, bright, dark], expr, planes)
 
 
 def KNLMeansCL(*args, **kwargs):
