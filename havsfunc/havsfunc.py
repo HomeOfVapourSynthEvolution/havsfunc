@@ -25,6 +25,7 @@ from vstools import (
     normalize_planes,
     padder,
     plane,
+    scale_8bit,
     scale_value,
     vs,
 )
@@ -1943,7 +1944,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
         qmask2 = core.std.MakeDiff(unblend2.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1], planes=[0]), unblend2, planes=[0])
         diffm = core.std.MakeDiff(sourceDuplicate, source, planes=[0]).std.Maximum(planes=[0])
         bmask = core.std.Expr([qmask1, qmask2], expr=[f'x {neutral} - dup * dup y {neutral} - dup * + / {peak} *', ''])
-        expr = 'x 2 * y < x {i} < and 0 y 2 * x < y {i} < and {peak} x x y + / {j} * {k} + ? ?'.format(i=scale(4, peak), peak=peak, j=scale(200, peak), k=scale(28, peak))
+        expr = 'x 2 * y < x {i} < and 0 y 2 * x < y {i} < and {peak} x x y + / {j} * {k} + ? ?'.format(i=scale_8bit(source, 4), peak=peak, j=scale_8bit(source, 200), k=scale_8bit(source, 28))
         dmask = core.std.Expr([diffm, diffm.std.Trim(first=2)], expr=[expr, ''])
         pmask = core.std.Expr([dmask, bmask], expr=[f'y 0 > y {peak} < and x 0 = x {peak} = or and x y ?', ''])
 
@@ -2276,9 +2277,9 @@ def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=
     shift = input.format.bits_per_sample - 8
     peak = (1 << input.format.bits_per_sample) - 1
 
-    ythresh = scale(ythresh, peak)
-    cthresh = scale(cthresh, peak)
-    maxdiff = scale(maxdiff, peak)
+    ythresh = scale_8bit(input, ythresh)
+    cthresh = scale_8bit(input, cthresh)
+    maxdiff = scale_8bit(input, maxdiff)
 
     input_minus = input.std.DuplicateFrames(frames=[0])
     input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
@@ -2372,8 +2373,8 @@ def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False)
     shift = input.format.bits_per_sample - 8
     peak = (1 << input.format.bits_per_sample) - 1
 
-    cthresh = scale(cthresh, peak)
-    ythresh = scale(ythresh, peak)
+    cthresh = scale_8bit(input, cthresh)
+    ythresh = scale_8bit(input, ythresh)
 
     input_minus = input.std.DuplicateFrames(frames=[0])
     input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
@@ -2478,9 +2479,9 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     if thSADC is None:
         thSADC = thSAD // 2
     if limit is not None:
-        limit = scale(limit, peak)
+        limit = scale_8bit(input, limit)
     if limitc is not None:
-        limitc = scale(limitc, peak)
+        limitc = scale_8bit(input, limitc)
 
     Y = 0 in planes
     U = 1 in planes
@@ -2548,7 +2549,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
         elif adapt >= 255:
             Lmask = input_y.std.Invert().std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
         else:
-            expr = 'x {adapt} - abs {peak} * {adapt} {neutral} - abs {neutral} + /'.format(adapt=scale(adapt, peak), peak=peak, neutral=neutral)
+            expr = 'x {adapt} - abs {peak} * {adapt} {neutral} - abs {neutral} + /'.format(adapt=scale_8bit(input, adapt), peak=peak, neutral=neutral)
             Lmask = input_y.std.Expr(expr=[expr]).std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
         return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
 
@@ -2822,10 +2823,10 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
         MVsharp = [2, 2, 2, 1, 0][settings_num]
 
     sigma *= peak / 255
-    limit = scale(limit, peak)
-    limit2 = scale(limit2, peak)
+    limit = scale_8bit(i, limit)
+    limit2 = scale_8bit(i, limit2)
     post *= peak / 255
-    ECthr = scale(ECthr, peak)
+    ECthr = scale_8bit(i, ECthr)
     planes = [0, 1, 2] if chroma and not isGray else [0]
 
     ### INPUT
@@ -3506,10 +3507,10 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
     if protect <= -1:
         exprP = '1'
     elif Ecurve <= 0:
-        var_p = f'x {protect} - {scale(16, peak)} /'
-        exprP = f'x {protect} <= 0 x {protect + scale(16, peak)} >= 1 ' + sine_expr(var_p) + f' ? ?'
+        var_p = f'x {protect} - {scale_8bit(input, 16)} /'
+        exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 ' + sine_expr(var_p) + f' ? ?'
     else:
-        exprP = f'x {protect} <= 0 x {protect + scale(16, peak)} >= 1 x {protect} - {scale(16, peak)} / abs ? ?'
+        exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 x {protect} - {scale_8bit(input, 16)} / abs ? ?'
 
     ### PROCESS
     if limiter == 1 or limiter >= 3:
@@ -3604,8 +3605,8 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
 
     ## parameters ##
     Str = strength / 128
-    lum = scale(luma_cap, peak)
-    thr = scale(threshold, peak)
+    lum = scale_8bit(c, luma_cap)
+    thr = scale_8bit(c, threshold)
     thn = thinning / 16
 
     ## filtering ##
@@ -3614,9 +3615,9 @@ def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, t
     if thinning <= 0:
         last = thick
     else:
-        diff = core.std.Expr([c, exin], expr=[f'y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale(127, peak)} +'])
-        linemask = diff.std.Minimum().std.Expr(expr=[f'x {scale(127, peak)} - {thn} * {peak} +']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-        thin = core.std.Expr([c.std.Maximum(), diff], expr=[f'x y {scale(127, peak)} - {Str} 1 + * +'])
+        diff = core.std.Expr([c, exin], expr=[f'y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale_8bit(c, 127)} +'])
+        linemask = diff.std.Minimum().std.Expr(expr=[f'x {scale_8bit(c, 127)} - {thn} * {peak} +']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        thin = core.std.Expr([c.std.Maximum(), diff], expr=[f'x y {scale_8bit(c, 127)} - {Str} 1 + * +'])
         last = core.std.MaskedMerge(thin, thick, linemask)
 
     if c_orig is not None:
@@ -3658,9 +3659,9 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
     else:
         input_orig = None
 
-    lthr = neutral + scale(l_thr, peak)
+    lthr = neutral + scale_8bit(input, l_thr)
     lthr8 = lthr / multiple
-    uthr = neutral + scale(u_thr, peak)
+    uthr = neutral + scale_8bit(input, u_thr)
     uthr8 = uthr / multiple
     ludiff = u_thr - l_thr
 
@@ -4076,7 +4077,7 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
     if preblur <= -1:
         pre = tmp
     elif preblur >= 3:
-        expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale(16, peak), j=scale(75, peak), peak=peak)
+        expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale_8bit(input, 16), j=scale_8bit(input, 75), peak=peak)
         pre = core.std.MaskedMerge(tmp.dfttest.DFTTest(tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0]), tmp, tmp.std.Expr(expr=[expr]))
     else:
         pre = min_blur(tmp, preblur)
@@ -4093,7 +4094,7 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
             method = RemoveGrain(core.std.Merge(dark_limit, bright_limit))
 
         if secure:
-            method = core.std.Expr([method, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))])
+            method = core.std.Expr([method, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale_8bit(input, 1))])
 
         if preblur > -1:
             method = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, method))
@@ -4109,14 +4110,14 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
         normsharp = pre.cas.CAS(sharpness=min(Str, 1))
 
         if secure:
-            normsharp = core.std.Expr([normsharp, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale(1, peak))])
+            normsharp = core.std.Expr([normsharp, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale_8bit(input, 1))])
 
         if preblur > -1:
             normsharp = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, normsharp))
 
     ### LIMIT
-    normal = mt_clamp(normsharp, bright_limit, dark_limit, scale(overshoot, peak), scale(undershoot, peak))
-    second = mt_clamp(normsharp, bright_limit, dark_limit, scale(overshoot2, peak), scale(undershoot2, peak))
+    normal = mt_clamp(normsharp, bright_limit, dark_limit, scale_8bit(input, overshoot), scale_8bit(input, undershoot))
+    second = mt_clamp(normsharp, bright_limit, dark_limit, scale_8bit(input, overshoot2), scale_8bit(input, undershoot2))
     zero = mt_clamp(normsharp, bright_limit, dark_limit, 0, 0)
 
     if edgemaskHQ:
@@ -4474,8 +4475,8 @@ def m4(*args, **kwargs):
     raise vs.Error("havsfunc.m4 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
 
 
-def scale(value, peak):
-    return cround(value * peak / 255) if peak != 1 else value / 255
+def scale(*args, **kwargs):
+    raise vs.Error("havsfunc.scale outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
 
 # sin(pi x / 2) for -1 < x < 1 using Taylor series
 def sine_expr(var):
