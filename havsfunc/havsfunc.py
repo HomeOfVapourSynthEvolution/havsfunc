@@ -23,6 +23,7 @@ from vstools import (
     get_depth,
     join,
     normalize_planes,
+    padder,
     plane,
     scale_value,
     vs,
@@ -3663,7 +3664,7 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
     ludiff = u_thr - l_thr
 
     last = core.std.MakeDiff(input.std.Maximum().std.Minimum(), input)
-    last = core.std.Expr([last, Padding(last, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.Crop(6, 6, 6, 6)], expr=['x y min'])
+    last = core.std.Expr([last, padder(last, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.Crop(6, 6, 6, 6)], expr=['x y min'])
     expr = f'y {lthr} <= {neutral} y {uthr} >= x {uthr8} y {multiple} / - 128 * x {multiple} / y {multiple} / {lthr8} - * + {ludiff} / {multiple} * ? {neutral} - {str} * {neutral} + ?'
     last = core.std.MakeDiff(input, core.std.Expr([last, last.std.Maximum()], expr=[expr]))
 
@@ -4416,17 +4417,8 @@ def Overlay(
     return last
 
 
-def Padding(clip: vs.VideoNode, left: int = 0, right: int = 0, top: int = 0, bottom: int = 0) -> vs.VideoNode:
-    if not isinstance(clip, vs.VideoNode):
-        raise vs.Error('Padding: this is not a clip')
-
-    if left < 0 or right < 0 or top < 0 or bottom < 0:
-        raise vs.Error('Padding: border size to pad must not be negative')
-
-    width = clip.width + left + right
-    height = clip.height + top + bottom
-
-    return clip.resize.Point(width, height, src_left=-left, src_top=-top, src_width=width, src_height=height)
+def Padding(*args, **kwargs):
+    raise vs.Error("havsfunc.Padding outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
 
 
 def SCDetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
