@@ -31,30 +31,55 @@ from vstools import (
 )
 
 __all__ = [
+    "average_frames",
     "avs_prewitt",
     "daa",
     "daa3mod",
-    "mcdaa3",
-    "FixChromaBleedingMod",
     "Deblock_QED",
-    "QTGMC",
-    "smartfademod",
-    "srestore",
+    "FastLineDarkenMOD",
+    "FixChromaBleedingMod",
+    "GSMC",
+    "LSFmod",
     "LUTDeCrawl",
     "LUTDeRainbow",
-    "Stab",
-    "GSMC",
+    "mcdaa3",
     "MCTemporalDenoise",
-    "STPresso",
-    "SmoothLevels",
-    "FastLineDarkenMOD",
-    "Toon",
-    "LSFmod",
-    "Overlay",
-    "average_frames",
     "mt_clamp",
+    "Overlay",
+    "QTGMC",
     "scdetect",
+    "smartfademod",
+    "SmoothLevels",
+    "srestore",
+    "Stab",
+    "STPresso",
+    "Toon",
 ]
+
+
+def average_frames(
+    clip: vs.VideoNode, weights: float | Sequence[float], scenechange: float | None = None, planes: PlanesT = None
+) -> vs.VideoNode:
+    assert check_variable(clip, average_frames)
+    planes = normalize_planes(clip, planes)
+
+    if scenechange:
+        clip = scdetect(clip, scenechange)
+    return clip.std.AverageFrames(weights=weights, scenechange=scenechange, planes=planes)
+
+
+def avs_prewitt(clip: vs.VideoNode, planes: PlanesT = None) -> vs.VideoNode:
+    assert check_variable(clip, avs_prewitt)
+    planes = normalize_planes(clip, planes)
+
+    matrices = [
+        [1, 1, 0, 1, 0, -1, 0, -1, -1],
+        [1, 1, 1, 0, 0, 0, -1, -1, -1],
+        [1, 0, -1, 1, 0, -1, 1, 0, -1],
+        [0, -1, -1, 1, 0, -1, 1, 1, 0],
+    ]
+    clips = [clip.std.Convolution(matrix=matrix, planes=planes, saturate=False) for matrix in matrices]
+    return norm_expr(clips, "x y max z max a max", planes)
 
 
 def daa(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **kwargs: Any) -> vs.VideoNode:
@@ -94,96 +119,6 @@ def daa3mod(clip: vs.VideoNode, opencl: bool = False, device: int | None = None,
 
     c = clip.resize.Spline36(clip.width, clip.height * 3 // 2)
     return daa(c, opencl, device, **kwargs).resize.Spline36(clip.width, clip.height)
-
-
-def mcdaa3(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **kwargs: Any) -> vs.VideoNode:
-    """
-    :param clip:    Clip to process.
-    :param opencl:  Whether to use OpenCL version of NNEDI3.
-    :param device:  Device ordinal of OpenCL device.
-    """
-    assert check_variable(clip, mcdaa3)
-
-    sup = clip.hqdn3d.Hqdn3d().fft3dfilter.FFT3DFilter().mv.Super(sharp=1)
-    fv1 = sup.mv.Analyse(isb=False, truemotion=False, dct=2)
-    fv2 = sup.mv.Analyse(isb=True, truemotion=True, dct=2)
-    csaa = daa3mod(clip, opencl, device, **kwargs)
-    momask1 = clip.mv.Mask(fv1, ml=2, kind=1)
-    momask2 = clip.mv.Mask(fv2, ml=3, kind=1)
-    momask = momask1.std.Merge(momask2)
-    return clip.std.MaskedMerge(csaa, momask)
-
-
-def santiag(*args, **kwargs):
-    raise vs.Error("havsfunc.santiag outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-aa instead.")
-
-
-def FixChromaBleedingMod(input: vs.VideoNode, cx: int = 4, cy: int = 4, thr: float = 4.0, strength: float = 0.8, blur: bool = False) -> vs.VideoNode:
-    '''
-    FixChromaBleedingMod v1.36
-    A script to reduce color bleeding, over-saturation, and color shifting mainly in red and blue areas.
-
-    Parameters:
-        input: Clip to process.
-
-        cx: Horizontal chroma shift. Positive value shifts chroma to the left, negative value shifts chroma to the right.
-
-        cy: Vertical chroma shift. Positive value shifts chroma upwards, negative value shifts chroma downwards.
-
-        thr: Masking threshold, higher values treat more areas as color bleed.
-
-        strength: Saturation strength in clip to be merged with the original chroma.
-            Values below 1.0 reduce the saturation, a value of 1.0 leaves the saturation intact.
-
-        blur: Set to true to blur the mask clip.
-    '''
-    from adjust import Tweak
-
-    if not isinstance(input, vs.VideoNode):
-        raise vs.Error('FixChromaBleedingMod: this is not a clip')
-
-    if input.format.color_family != vs.YUV or input.format.sample_type != vs.INTEGER:
-        raise vs.Error('FixChromaBleedingMod: only YUV format with integer sample type is supported')
-
-    # prepare to work on the V channel and filter noise
-    vch = plane(Tweak(input, sat=thr), 2)
-    if blur:
-        area = vch.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    else:
-        area = vch
-
-    bits = get_depth(input)
-    i16 = scale_value(16, 8, bits)
-    i25 = scale_value(25, 8, bits)
-    i231 = scale_value(231, 8, bits)
-    i235 = scale_value(235, 8, bits)
-    i240 = scale_value(240, 8, bits)
-
-    # select and normalize both extremes of the scale
-    red = area.std.Levels(min_in=i235, max_in=i235, min_out=i235, max_out=i16)
-    blue = area.std.Levels(min_in=i16, max_in=i16, min_out=i16, max_out=i235)
-
-    # merge both masks
-    mask = core.std.Merge(red, blue)
-    if not blur:
-        mask = mask.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    mask = mask.std.Levels(min_in=i231, max_in=i231, min_out=i235, max_out=i16)
-
-    # expand to cover beyond the bleeding areas and shift to compensate the resizing
-    mask = mask.std.Convolution(matrix=[0, 0, 0, 1, 0, 0, 0, 0, 0], divisor=1, saturate=False).std.Convolution(
-        matrix=[1, 1, 1, 1, 1, 1, 0, 0, 0], divisor=8, saturate=False
-    )
-
-    # binarize (also a trick to expand)
-    mask = mask.std.Levels(min_in=i25, max_in=i25, min_out=i16, max_out=i240).std.Inflate()
-
-    # prepare a version of the image that has its chroma shifted and less saturated
-    input_c = Tweak(input.resize.Spline16(src_left=cx, src_top=cy), sat=strength)
-
-    # combine both images using the mask
-    fu = core.std.MaskedMerge(plane(input, 1), plane(input_c, 1), mask)
-    fv = core.std.MaskedMerge(plane(input, 2), plane(input_c, 2), mask)
-    return join([input, fu, fv])
 
 
 def Deblock_QED(
@@ -292,32 +227,1683 @@ def Deblock_QED(
     return deblocked.std.Crop(right=padX, bottom=padY)
 
 
-def DeHalo_alpha(*args, **kwargs):
-    raise vs.Error("havsfunc.DeHalo_alpha outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+##############################
+# FastLineDarken 1.4x MT MOD #
+##############################
+#
+# Written by Vectrangle    (http://forum.doom9.org/showthread.php?t=82125)
+# Didée: - Speed Boost, Updated: 11th May 2007
+# Dogway - added protection option. 12-May-2011
+#
+# Parameters are:
+#  strength (integer)   - Line darkening amount, 0-256. Default 48. Represents the _maximum_ amount
+#                         that the luma will be reduced by, weaker lines will be reduced by
+#                         proportionately less.
+#  protection (integer) - Prevents the darkest lines from being darkened. Protection acts as a threshold.
+#                         Values range from 0 (no prot) to ~50 (protect everything)
+#  luma_cap (integer)   - value from 0 (black) to 255 (white), used to stop the darkening
+#                         determination from being 'blinded' by bright pixels, and to stop grey
+#                         lines on white backgrounds being darkened. Any pixels brighter than
+#                         luma_cap are treated as only being as bright as luma_cap. Lowering
+#                         luma_cap tends to reduce line darkening. 255 disables capping. Default 191.
+#  threshold (integer)  - any pixels that were going to be darkened by an amount less than
+#                         threshold will not be touched. setting this to 0 will disable it, setting
+#                         it to 4 (default) is recommended, since often a lot of random pixels are
+#                         marked for very slight darkening and a threshold of about 4 should fix
+#                         them. Note if you set threshold too high, some lines will not be darkened
+#  thinning (integer)   - optional line thinning amount, 0-256. Setting this to 0 will disable it,
+#                         which is gives a _big_ speed increase. Note that thinning the lines will
+#                         inherently darken the remaining pixels in each line a little. Default 0.
+def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, thinning=0):
+    if not isinstance(c, vs.VideoNode):
+        raise vs.Error('FastLineDarkenMOD: this is not a clip')
+
+    if c.format.color_family == vs.RGB:
+        raise vs.Error('FastLineDarkenMOD: RGB format is not supported')
+
+    peak = (1 << c.format.bits_per_sample) - 1 if c.format.sample_type == vs.INTEGER else 1.0
+
+    if c.format.color_family != vs.GRAY:
+        c_orig = c
+        c = plane(c, 0)
+    else:
+        c_orig = None
+
+    ## parameters ##
+    Str = strength / 128
+    lum = scale_8bit(c, luma_cap)
+    thr = scale_8bit(c, threshold)
+    thn = thinning / 16
+
+    ## filtering ##
+    exin = c.std.Maximum(threshold=peak / (protection + 1)).std.Minimum()
+    thick = core.std.Expr([c, exin], expr=[f'y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {Str} * x +'])
+    if thinning <= 0:
+        last = thick
+    else:
+        diff = core.std.Expr([c, exin], expr=[f'y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale_8bit(c, 127)} +'])
+        linemask = diff.std.Minimum().std.Expr(expr=[f'x {scale_8bit(c, 127)} - {thn} * {peak} +']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        thin = core.std.Expr([c.std.Maximum(), diff], expr=[f'x y {scale_8bit(c, 127)} - {Str} 1 + * +'])
+        last = core.std.MaskedMerge(thin, thick, linemask)
+
+    if c_orig is not None:
+        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
+    return last
 
 
-def EdgeCleaner(*args, **kwargs):
-    raise vs.Error("havsfunc.EdgeCleaner outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+def FixChromaBleedingMod(input: vs.VideoNode, cx: int = 4, cy: int = 4, thr: float = 4.0, strength: float = 0.8, blur: bool = False) -> vs.VideoNode:
+    '''
+    FixChromaBleedingMod v1.36
+    A script to reduce color bleeding, over-saturation, and color shifting mainly in red and blue areas.
+
+    Parameters:
+        input: Clip to process.
+
+        cx: Horizontal chroma shift. Positive value shifts chroma to the left, negative value shifts chroma to the right.
+
+        cy: Vertical chroma shift. Positive value shifts chroma upwards, negative value shifts chroma downwards.
+
+        thr: Masking threshold, higher values treat more areas as color bleed.
+
+        strength: Saturation strength in clip to be merged with the original chroma.
+            Values below 1.0 reduce the saturation, a value of 1.0 leaves the saturation intact.
+
+        blur: Set to true to blur the mask clip.
+    '''
+    from adjust import Tweak
+
+    if not isinstance(input, vs.VideoNode):
+        raise vs.Error('FixChromaBleedingMod: this is not a clip')
+
+    if input.format.color_family != vs.YUV or input.format.sample_type != vs.INTEGER:
+        raise vs.Error('FixChromaBleedingMod: only YUV format with integer sample type is supported')
+
+    # prepare to work on the V channel and filter noise
+    vch = plane(Tweak(input, sat=thr), 2)
+    if blur:
+        area = vch.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    else:
+        area = vch
+
+    bits = get_depth(input)
+    i16 = scale_value(16, 8, bits)
+    i25 = scale_value(25, 8, bits)
+    i231 = scale_value(231, 8, bits)
+    i235 = scale_value(235, 8, bits)
+    i240 = scale_value(240, 8, bits)
+
+    # select and normalize both extremes of the scale
+    red = area.std.Levels(min_in=i235, max_in=i235, min_out=i235, max_out=i16)
+    blue = area.std.Levels(min_in=i16, max_in=i16, min_out=i16, max_out=i235)
+
+    # merge both masks
+    mask = core.std.Merge(red, blue)
+    if not blur:
+        mask = mask.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    mask = mask.std.Levels(min_in=i231, max_in=i231, min_out=i235, max_out=i16)
+
+    # expand to cover beyond the bleeding areas and shift to compensate the resizing
+    mask = mask.std.Convolution(matrix=[0, 0, 0, 1, 0, 0, 0, 0, 0], divisor=1, saturate=False).std.Convolution(
+        matrix=[1, 1, 1, 1, 1, 1, 0, 0, 0], divisor=8, saturate=False
+    )
+
+    # binarize (also a trick to expand)
+    mask = mask.std.Levels(min_in=i25, max_in=i25, min_out=i16, max_out=i240).std.Inflate()
+
+    # prepare a version of the image that has its chroma shifted and less saturated
+    input_c = Tweak(input.resize.Spline16(src_left=cx, src_top=cy), sat=strength)
+
+    # combine both images using the mask
+    fu = core.std.MaskedMerge(plane(input, 1), plane(input_c, 1), mask)
+    fv = core.std.MaskedMerge(plane(input, 2), plane(input_c, 2), mask)
+    return join([input, fu, fv])
 
 
-def FineDehalo(*args, **kwargs):
-    raise vs.Error("havsfunc.FineDehalo outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+######
+###
+### GrainStabilizeMC v1.0      by mawen1250      2014.03.22
+###
+### Requirements: MVTools, RGVS
+###
+### Temporal-only on-top grain stabilizer
+### Only stabilize the difference ( on-top grain ) between source clip and spatial-degrained clip
+###
+### Parameters:
+###  nrmode (int)   - Mode to get grain/noise from input clip. 0: 3x3 Average Blur, 1: 3x3 SBR, 2: 5x5 SBR, 3: 7x7 SBR. Or define your own denoised clip "p". Default is 2 for HD / 1 for SD
+###  radius (int)   - Temporal radius of MDegrain for grain stabilize (1-3). Default is 1
+###  adapt (int)    - Threshold for luma-adaptative mask. -1: off, 0: source, 255: invert. Or define your own luma mask clip "Lmask". Default is -1
+###  rep (int)      - Mode of repair to avoid artifacts, set 0 to turn off this operation. Default is 13
+###  planes (int[]) - Whether to process the corresponding plane. The other planes will be passed through unchanged.
+###
+######
+def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, planes=None, thSAD=300, thSADC=None, thSCD1=300, thSCD2=100, limit=None, limitc=None):
+    if not isinstance(input, vs.VideoNode):
+        raise vs.Error('GSMC: this is not a clip')
+
+    if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
+        raise vs.Error("GSMC: 'p' must be the same format as input")
+
+    if Lmask is not None and not isinstance(Lmask, vs.VideoNode):
+        raise vs.Error("GSMC: 'Lmask' is not a clip")
+
+    neutral = 1 << (input.format.bits_per_sample - 1)
+    peak = (1 << input.format.bits_per_sample) - 1
+
+    if planes is None:
+        planes = list(range(input.format.num_planes))
+    elif isinstance(planes, int):
+        planes = [planes]
+
+    HD = input.width > 1024 or input.height > 576
+
+    if nrmode is None:
+        nrmode = 2 if HD else 1
+    if thSADC is None:
+        thSADC = thSAD // 2
+    if limit is not None:
+        limit = scale_8bit(input, limit)
+    if limitc is not None:
+        limitc = scale_8bit(input, limitc)
+
+    Y = 0 in planes
+    U = 1 in planes
+    V = 2 in planes
+
+    chromamv = U or V
+    blksize = 32 if HD else 16
+    overlap = blksize // 4
+    if not Y:
+        if not U:
+            plane = 2
+        elif not V:
+            plane = 1
+        else:
+            plane = 3
+    elif not (U or V):
+        plane = 0
+    else:
+        plane = 4
+
+    # Kernel: Spatial Noise Dumping
+    if p is not None:
+        pre_nr = p
+    elif nrmode <= 0:
+        pre_nr = input.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1], planes=planes)
+    else:
+        pre_nr = sbr(input, nrmode, planes=planes)
+    dif_nr = core.std.MakeDiff(input, pre_nr, planes=planes)
+
+    # Kernel: MC Grain Stabilize
+    psuper = prefilter_to_full_range(pre_nr, 2, planes).mv.Super(pel=1, chroma=chromamv)
+    difsuper = dif_nr.mv.Super(pel=1, levels=1, chroma=chromamv)
+
+    analyse_args = dict(blksize=blksize, chroma=chromamv, truemotion=False, global_=True, overlap=overlap)
+    fv1 = psuper.mv.Analyse(isb=False, delta=1, **analyse_args)
+    bv1 = psuper.mv.Analyse(isb=True, delta=1, **analyse_args)
+    if radius >= 2:
+        fv2 = psuper.mv.Analyse(isb=False, delta=2, **analyse_args)
+        bv2 = psuper.mv.Analyse(isb=True, delta=2, **analyse_args)
+    if radius >= 3:
+        fv3 = psuper.mv.Analyse(isb=False, delta=3, **analyse_args)
+        bv3 = psuper.mv.Analyse(isb=True, delta=3, **analyse_args)
+
+    degrain_args = dict(thsad=thSAD, thsadc=thSADC, plane=plane, limit=limit, limitc=limitc, thscd1=thSCD1, thscd2=thSCD2)
+    if radius <= 1:
+        dif_sb = core.mv.Degrain1(dif_nr, difsuper, bv1, fv1, **degrain_args)
+    elif radius == 2:
+        dif_sb = core.mv.Degrain2(dif_nr, difsuper, bv1, fv1, bv2, fv2, **degrain_args)
+    else:
+        dif_sb = core.mv.Degrain3(dif_nr, difsuper, bv1, fv1, bv2, fv2, bv3, fv3, **degrain_args)
+
+    # Post-Process: Luma-Adaptive Mask Merging & Repairing
+    stable = core.std.MergeDiff(pre_nr, dif_sb, planes=planes)
+    if rep > 0:
+        stable = core.rgvs.Repair(stable, input, mode=[rep if i in planes else 0 for i in range(input.format.num_planes)])
+
+    if Lmask is not None:
+        return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
+    elif adapt <= -1:
+        return stable
+    else:
+        input_y = plane(input, 0)
+        if adapt == 0:
+            Lmask = input_y.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+        elif adapt >= 255:
+            Lmask = input_y.std.Invert().std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+        else:
+            expr = 'x {adapt} - abs {peak} * {adapt} {neutral} - abs {neutral} + /'.format(adapt=scale_8bit(input, adapt), peak=peak, neutral=neutral)
+            Lmask = input_y.std.Expr(expr=[expr]).std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+        return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
 
 
-def FineDehalo_contrasharp(*args, **kwargs):
-    raise vs.Error("havsfunc.FineDehalo_contrasharp outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
+################################################################################################
+###                                                                                          ###
+###                       LimitedSharpenFaster MOD : function LSFmod()                       ###
+###                                                                                          ###
+###                                Modded Version by LaTo INV.                               ###
+###                                                                                          ###
+###                                  v1.9 - 05 October 2009                                  ###
+###                                                                                          ###
+################################################################################################
+###
+### +--------------+
+### | DEPENDENCIES |
+### +--------------+
+###
+### -> RGVS
+### -> CAS
+###
+###
+###
+### +---------+
+### | GENERAL |
+### +---------+
+###
+### strength [int]
+### --------------
+### Strength of the sharpening
+###
+### Smode [int: 1,2,3]
+### ----------------------
+### Sharpen mode:
+###    =1 : Range sharpening
+###    =2 : Nonlinear sharpening (corrected version)
+###    =3 : Contrast Adaptive Sharpening
+###
+### Smethod [int: 1,2,3]
+### --------------------
+### Sharpen method: (only used in Smode=1,2)
+###    =1 : 3x3 kernel
+###    =2 : Min/Max
+###    =3 : Min/Max + 3x3 kernel
+###
+### kernel [int: 11,12,19,20]
+### -------------------------
+### Kernel used in Smethod=1&3
+### In strength order: + 19 > 12 >> 20 > 11 -
+###
+###
+###
+### +---------+
+### | SPECIAL |
+### +---------+
+###
+### preblur [int: 0,1,2,3]
+### --------------------------------
+### Mode to avoid noise sharpening & ringing:
+###    =-1 : No preblur
+###    = 0 : MinBlur(0)
+###    = 1 : MinBlur(1)
+###    = 2 : MinBlur(2)
+###    = 3 : DFTTest
+###
+### secure [bool]
+### -------------
+### Mode to avoid banding & oil painting (or face wax) effect of sharpening
+###
+### source [clip]
+### -------------
+### If source is defined, LSFmod doesn't sharp more a denoised clip than this source clip
+### In this mode, you can safely set Lmode=0 & PP=off
+###    Usage:   denoised.LSFmod(source=source)
+###    Example: last.FFT3DFilter().LSFmod(source=last,Lmode=0,soft=0)
+###
+###
+###
+### +----------------------+
+### | NONLINEAR SHARPENING |
+### +----------------------+
+###
+### Szrp [int]
+### ----------
+### Zero Point:
+###    - differences below Szrp are amplified (overdrive sharpening)
+###    - differences above Szrp are reduced   (reduced sharpening)
+###
+### Spwr [int]
+### ----------
+### Power: exponent for sharpener
+###
+### SdmpLo [int]
+### ------------
+### Damp Low: reduce sharpening for small changes [0:disable]
+###
+### SdmpHi [int]
+### ------------
+### Damp High: reduce sharpening for big changes [0:disable]
+###
+###
+###
+### +----------+
+### | LIMITING |
+### +----------+
+###
+### Lmode [int: ...,0,1,2,3,4]
+### --------------------------
+### Limit mode:
+###    <0 : Limit with repair (ex: Lmode=-1 --> repair(1), Lmode=-5 --> repair(5)...)
+###    =0 : No limit
+###    =1 : Limit to over/undershoot
+###    =2 : Limit to over/undershoot on edges and no limit on not-edges
+###    =3 : Limit to zero on edges and to over/undershoot on not-edges
+###    =4 : Limit to over/undershoot on edges and to over/undershoot2 on not-edges
+###
+### overshoot [int]
+### ---------------
+### Limit for pixels that get brighter during sharpening
+###
+### undershoot [int]
+### ----------------
+### Limit for pixels that get darker during sharpening
+###
+### overshoot2 [int]
+### ----------------
+### Same as overshoot, only for Lmode=4
+###
+### undershoot2 [int]
+### -----------------
+### Same as undershoot, only for Lmode=4
+###
+###
+###
+### +-----------------+
+### | POST-PROCESSING |
+### +-----------------+
+###
+### soft [int: -2,-1,0...100]
+### -------------------------
+### Soft the sharpening effect (-1 = old autocalculate, -2 = new autocalculate)
+###
+### soothe [bool]
+### -------------
+###    =True  : Enable soothe temporal stabilization
+###    =False : Disable soothe temporal stabilization
+###
+### keep [int: 0...100]
+### -------------------
+### Minimum percent of the original sharpening to keep (only with soothe=True)
+###
+###
+###
+### +-------+
+### | EDGES |
+### +-------+
+###
+### edgemode [int: -1,0,1,2]
+### ------------------------
+###    =-1 : Show edgemask
+###    = 0 : Sharpening all
+###    = 1 : Sharpening only edges
+###    = 2 : Sharpening only not-edges
+###
+### edgemaskHQ [bool]
+### -----------------
+###    =True  : Original edgemask
+###    =False : Faster edgemask
+###
+###
+###
+### +------------+
+### | UPSAMPLING |
+### +------------+
+###
+### ss_x ; ss_y [float]
+### -------------------
+### Supersampling factor (reduce aliasing on edges)
+###
+### dest_x ; dest_y [int]
+### ---------------------
+### Output resolution after sharpening (avoid a resizing step)
+###
+###
+###
+### +----------+
+### | SETTINGS |
+### +----------+
+###
+### defaults [string: "old" or "slow" or "fast"]
+### --------------------------------------------
+###    = "old"  : Reset settings to original version (output will be THE SAME AS LSF)
+###    = "slow" : Enable SLOW modded version settings
+###    = "fast" : Enable FAST modded version settings
+###  --> /!\ [default:"fast"]
+###
+###
+### defaults="old" :  - strength    = 100
+### ----------------  - Smode       = 1
+###                   - Smethod     = Smode==1?2:1
+###                   - kernel      = 11
+###
+###                   - preblur     = -1
+###                   - secure      = false
+###                   - source      = undefined
+###
+###                   - Szrp        = 16
+###                   - Spwr        = 2
+###                   - SdmpLo      = strength/25
+###                   - SdmpHi      = 0
+###
+###                   - Lmode       = 1
+###                   - overshoot   = 1
+###                   - undershoot  = overshoot
+###                   - overshoot2  = overshoot*2
+###                   - undershoot2 = overshoot2
+###
+###                   - soft        = 0
+###                   - soothe      = false
+###                   - keep        = 25
+###
+###                   - edgemode    = 0
+###                   - edgemaskHQ  = true
+###
+###                   - ss_x        = Smode==1?1.50:1.25
+###                   - ss_y        = ss_x
+###                   - dest_x      = ox
+###                   - dest_y      = oy
+###
+###
+### defaults="slow" : - strength    = 100
+### ----------------- - Smode       = 2
+###                   - Smethod     = 3
+###                   - kernel      = 11
+###
+###                   - preblur     = -1
+###                   - secure      = true
+###                   - source      = undefined
+###
+###                   - Szrp        = 16
+###                   - Spwr        = 4
+###                   - SdmpLo      = 4
+###                   - SdmpHi      = 48
+###
+###                   - Lmode       = 4
+###                   - overshoot   = strength/100
+###                   - undershoot  = overshoot
+###                   - overshoot2  = overshoot*2
+###                   - undershoot2 = overshoot2
+###
+###                   - soft        = -2
+###                   - soothe      = true
+###                   - keep        = 20
+###
+###                   - edgemode    = 0
+###                   - edgemaskHQ  = true
+###
+###                   - ss_x        = Smode==3?1.00:1.50
+###                   - ss_y        = ss_x
+###                   - dest_x      = ox
+###                   - dest_y      = oy
+###
+###
+### defaults="fast" : - strength    = 80
+### ----------------- - Smode       = 3
+###                   - Smethod     = 2
+###                   - kernel      = 11
+###
+###                   - preblur     = 0
+###                   - secure      = true
+###                   - source      = undefined
+###
+###                   - Szrp        = 16
+###                   - Spwr        = 4
+###                   - SdmpLo      = 4
+###                   - SdmpHi      = 48
+###
+###                   - Lmode       = 0
+###                   - overshoot   = strength/100
+###                   - undershoot  = overshoot
+###                   - overshoot2  = overshoot*2
+###                   - undershoot2 = overshoot2
+###
+###                   - soft        = 0
+###                   - soothe      = false
+###                   - keep        = 20
+###
+###                   - edgemode    = 0
+###                   - edgemaskHQ  = false
+###
+###                   - ss_x        = Smode==3?1.00:1.25
+###                   - ss_y        = ss_x
+###                   - dest_x      = ox
+###                   - dest_y      = oy
+###
+################################################################################################
+def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=None, secure=None, source=None, Szrp=16, Spwr=None, SdmpLo=None, SdmpHi=None, Lmode=None, overshoot=None, undershoot=None,
+           overshoot2=None, undershoot2=None, soft=None, soothe=None, keep=None, edgemode=0, edgemaskHQ=None, ss_x=None, ss_y=None, dest_x=None, dest_y=None, defaults='fast'):
+    if not isinstance(input, vs.VideoNode):
+        raise vs.Error('LSFmod: this is not a clip')
+
+    if input.format.color_family == vs.RGB:
+        raise vs.Error('LSFmod: RGB format is not supported')
+
+    if source is not None and (not isinstance(source, vs.VideoNode) or source.format.id != input.format.id):
+        raise vs.Error("LSFmod: 'source' must be the same format as input")
+
+    isGray = (input.format.color_family == vs.GRAY)
+    isInteger = (input.format.sample_type == vs.INTEGER)
+
+    if isInteger:
+        neutral = 1 << (input.format.bits_per_sample - 1)
+        peak = (1 << input.format.bits_per_sample) - 1
+        factor = 1 << (input.format.bits_per_sample - 8)
+    else:
+        neutral = 0.0
+        peak = 1.0
+        factor = 255.0
+
+    ### DEFAULTS
+    try:
+        num = ['old', 'slow', 'fast'].index(defaults.lower())
+    except:
+        raise vs.Error('LSFmod: defaults must be "old" or "slow" or "fast"')
+
+    ox = input.width
+    oy = input.height
+
+    if strength is None:
+        strength = [100, 100, 80][num]
+    if Smode is None:
+        Smode = [1, 2, 3][num]
+    if Smethod is None:
+        Smethod = [2 if Smode == 1 else 1, 3, 2][num]
+    if preblur is None:
+        preblur = [-1, -1, 0][num]
+    if secure is None:
+        secure = [False, True, True][num]
+    if Spwr is None:
+        Spwr = [2, 4, 4][num]
+    if SdmpLo is None:
+        SdmpLo = [strength // 25, 4, 4][num]
+    if SdmpHi is None:
+        SdmpHi = [0, 48, 48][num]
+    if Lmode is None:
+        Lmode = [1, 4, 0][num]
+    if overshoot is None:
+        overshoot = [1, strength // 100, strength // 100][num]
+    if undershoot is None:
+        undershoot = overshoot
+    if overshoot2 is None:
+        overshoot2 = overshoot * 2
+    if undershoot2 is None:
+        undershoot2 = overshoot2
+    if soft is None:
+        soft = [0, -2, 0][num]
+    if soothe is None:
+        soothe = [False, True, False][num]
+    if keep is None:
+        keep = [25, 20, 20][num]
+    if edgemaskHQ is None:
+        edgemaskHQ = [True, True, False][num]
+    if ss_x is None:
+        ss_x = [1.5 if Smode == 1 else 1.25, 1.0 if Smode == 3 else 1.5, 1.0 if Smode == 3 else 1.25][num]
+    if ss_y is None:
+        ss_y = ss_x
+    if dest_x is None:
+        dest_x = ox
+    if dest_y is None:
+        dest_y = oy
+
+    if kernel == 4:
+        RemoveGrain = partial(core.std.Median)
+    elif kernel in [11, 12]:
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    elif kernel == 19:
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+    elif kernel == 20:
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+    else:
+        RemoveGrain = partial(core.rgvs.RemoveGrain, mode=[kernel])
+
+    if soft == -1:
+        soft = math.sqrt(((ss_x + ss_y) / 2 - 1) * 100) * 10
+    elif soft <= -2:
+        soft = int((1 + 2 / (ss_x + ss_y)) * math.sqrt(strength))
+    soft = min(soft, 100)
+
+    xxs = cround(ox * ss_x / 8) * 8
+    yys = cround(oy * ss_y / 8) * 8
+
+    Str = strength / 100
+
+    ### SHARP
+    if ss_x > 1 or ss_y > 1:
+        tmp = input.resize.Spline36(xxs, yys)
+    else:
+        tmp = input
+
+    if not isGray:
+        tmp_orig = tmp
+        tmp = plane(tmp, 0)
+
+    if preblur <= -1:
+        pre = tmp
+    elif preblur >= 3:
+        expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale_8bit(input, 16), j=scale_8bit(input, 75), peak=peak)
+        pre = core.std.MaskedMerge(tmp.dfttest.DFTTest(tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0]), tmp, tmp.std.Expr(expr=[expr]))
+    else:
+        pre = min_blur(tmp, preblur)
+
+    dark_limit = pre.std.Minimum()
+    bright_limit = pre.std.Maximum()
+
+    if Smode < 3:
+        if Smethod <= 1:
+            method = RemoveGrain(pre)
+        elif Smethod == 2:
+            method = core.std.Merge(dark_limit, bright_limit)
+        else:
+            method = RemoveGrain(core.std.Merge(dark_limit, bright_limit))
+
+        if secure:
+            method = core.std.Expr([method, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale_8bit(input, 1))])
+
+        if preblur > -1:
+            method = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, method))
+
+        if Smode <= 1:
+            normsharp = core.std.Expr([tmp, method], expr=[f'x x y - {Str} * +'])
+        else:
+            tmpScaled = tmp.std.Expr(expr=[f'x {1 / factor if isInteger else factor} *'], format=tmp.format.replace(sample_type=vs.FLOAT, bits_per_sample=32))
+            methodScaled = method.std.Expr(expr=[f'x {1 / factor if isInteger else factor} *'], format=method.format.replace(sample_type=vs.FLOAT, bits_per_sample=32))
+            expr = f'x y = x x x y - abs {Szrp} / {1 / Spwr} pow {Szrp} * {Str} * x y - dup abs / * x y - dup * {Szrp * Szrp} {SdmpLo} + * x y - dup * {SdmpLo} + {Szrp * Szrp} * / * 1 {SdmpHi} 0 = 0 {(Szrp / SdmpHi) ** 4} ? + 1 {SdmpHi} 0 = 0 x y - abs {SdmpHi} / 4 pow ? + / * + ? {factor if isInteger else 1 / factor} *'
+            normsharp = core.std.Expr([tmpScaled, methodScaled], expr=[expr], format=tmp.format)
+    else:
+        normsharp = pre.cas.CAS(sharpness=min(Str, 1))
+
+        if secure:
+            normsharp = core.std.Expr([normsharp, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale_8bit(input, 1))])
+
+        if preblur > -1:
+            normsharp = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, normsharp))
+
+    ### LIMIT
+    normal = mt_clamp(normsharp, bright_limit, dark_limit, scale_8bit(input, overshoot), scale_8bit(input, undershoot))
+    second = mt_clamp(normsharp, bright_limit, dark_limit, scale_8bit(input, overshoot2), scale_8bit(input, undershoot2))
+    zero = mt_clamp(normsharp, bright_limit, dark_limit, 0, 0)
+
+    if edgemaskHQ:
+        edge = tmp.std.Sobel(scale=2)
+    else:
+        edge = core.std.Expr([tmp.std.Maximum(), tmp.std.Minimum()], expr=['x y -'])
+    edge = edge.std.Expr(expr=[f'x {1 / factor if isInteger else factor} * {128 if edgemaskHQ else 32} / 0.86 pow 255 * {factor if isInteger else 1 / factor} *'])
+
+    if Lmode < 0:
+        limit1 = core.rgvs.Repair(normsharp, tmp, mode=[abs(Lmode)])
+    elif Lmode == 0:
+        limit1 = normsharp
+    elif Lmode == 1:
+        limit1 = normal
+    elif Lmode == 2:
+        limit1 = core.std.MaskedMerge(normsharp, normal, edge.std.Inflate())
+    elif Lmode == 3:
+        limit1 = core.std.MaskedMerge(normal, zero, edge.std.Inflate())
+    else:
+        limit1 = core.std.MaskedMerge(second, normal, edge.std.Inflate())
+
+    if edgemode <= 0:
+        limit2 = limit1
+    elif edgemode == 1:
+        limit2 = core.std.MaskedMerge(tmp, limit1, edge.std.Inflate().std.Inflate().std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
+    else:
+        limit2 = core.std.MaskedMerge(limit1, tmp, edge.std.Inflate().std.Inflate().std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
+
+    ### SOFT
+    if soft == 0:
+        PP1 = limit2
+    else:
+        sharpdiff = core.std.MakeDiff(tmp, limit2)
+        sharpdiff = core.std.Expr([sharpdiff, sharpdiff.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])], expr=[f'x {neutral} - abs y {neutral} - abs > y {soft} * x {100 - soft} * + 100 / x ?'])
+        PP1 = core.std.MakeDiff(tmp, sharpdiff)
+
+    ### SOOTHE
+    if soothe:
+        diff = core.std.MakeDiff(tmp, PP1)
+        diff = core.std.Expr([diff, average_frames(diff, weights=[1] * 3, scenechange=32 / 255)],
+                             expr=[f'x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {100 - keep} * + 100 / x ? ?'])
+        PP2 = core.std.MakeDiff(tmp, diff)
+    else:
+        PP2 = PP1
+
+    ### OUTPUT
+    if dest_x != ox or dest_y != oy:
+        if not isGray:
+            PP2 = core.std.ShufflePlanes([PP2, tmp_orig], planes=[0, 1, 2], colorfamily=input.format.color_family)
+        out = PP2.resize.Spline36(dest_x, dest_y)
+    elif ss_x > 1 or ss_y > 1:
+        out = PP2.resize.Spline36(dest_x, dest_y)
+        if not isGray:
+            out = core.std.ShufflePlanes([out, input], planes=[0, 1, 2], colorfamily=input.format.color_family)
+    elif not isGray:
+        out = core.std.ShufflePlanes([PP2, input], planes=[0, 1, 2], colorfamily=input.format.color_family)
+    else:
+        out = PP2
+
+    if edgemode <= -1:
+        return edge.resize.Spline36(dest_x, dest_y, format=input.format)
+    elif source is not None:
+        if dest_x != ox or dest_y != oy:
+            src = source.resize.Spline36(dest_x, dest_y)
+            In = input.resize.Spline36(dest_x, dest_y)
+        else:
+            src = source
+            In = input
+
+        shrpD = core.std.MakeDiff(In, out, planes=[0])
+        expr = f'x {neutral} - abs y {neutral} - abs < x y ?'
+        shrpL = core.std.Expr([core.rgvs.Repair(shrpD, core.std.MakeDiff(In, src, planes=[0]), mode=[1] if isGray else [1, 0]), shrpD], expr=[expr] if isGray else [expr, ''])
+        return core.std.MakeDiff(In, shrpL, planes=[0])
+    else:
+        return out
 
 
-def FineDehalo2(*args, **kwargs):
-    raise vs.Error("havsfunc.FineDehalo2 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+########################################################
+#                                                      #
+# LUTDeCrawl, a dot crawl removal script by Scintilla  #
+# Created 10/3/08                                      #
+# Last updated 10/3/08                                 #
+#                                                      #
+########################################################
+#
+# Requires YUV input, frame-based only.
+# Is of average speed (faster than VagueDenoiser, slower than HQDN3D).
+# Suggestions for improvement welcome: scintilla@aquilinestudios.org
+#
+# Arguments:
+#
+# ythresh (int, default=10) - This determines how close the luma values of the
+#   pixel in the previous and next frames have to be for the pixel to
+#   be hit.  Higher values (within reason) should catch more dot crawl,
+#   but may introduce unwanted artifacts.  Probably shouldn't be set
+#   above 20 or so.
+#
+# cthresh (int, default=10) - This determines how close the chroma values of the
+#   pixel in the previous and next frames have to be for the pixel to
+#   be hit.  Just as with ythresh.
+#
+# maxdiff (int, default=50) - This is the maximum difference allowed between the
+#   luma values of the pixel in the CURRENT frame and in each of its
+#   neighbour frames (so, the upper limit to what fluctuations are
+#   considered dot crawl).  Lower values will reduce artifacts but may
+#   cause the filter to miss some dot crawl.  Obviously, this should
+#   never be lower than ythresh.  Meaningless if usemaxdiff = false.
+#
+# scnchg (int, default=25) - Scene change detection threshold.  Any frame with
+#   total luma difference between it and the previous/next frame greater
+#   than this value will not be processed.
+#
+# usemaxdiff (bool, default=True) - Whether or not to reject luma fluctuations
+#   higher than maxdiff.  Setting this to false is not recommended, as
+#   it may introduce artifacts; but on the other hand, it produces a
+#   30% speed boost.  Test on your particular source.
+#
+# mask (bool, default=False) - When set true, the function will return the mask
+#   instead of the image.  Use to find the best values of cthresh,
+#   ythresh, and maxdiff.
+#   (The scene change threshold, scnchg, is not reflected in the mask.)
+#
+###################
+def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=True, mask=False):
+    def YDifferenceFromPrevious(n, f, clips):
+        if f.props['_SceneChangePrev']:
+            return clips[0]
+        else:
+            return clips[1]
+
+    def YDifferenceToNext(n, f, clips):
+        if f.props['_SceneChangeNext']:
+            return clips[0]
+        else:
+            return clips[1]
+
+    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 10:
+        raise vs.Error('LUTDeCrawl: This is not an 8-10 bit YUV clip')
+
+    shift = input.format.bits_per_sample - 8
+    peak = (1 << input.format.bits_per_sample) - 1
+
+    ythresh = scale_8bit(input, ythresh)
+    cthresh = scale_8bit(input, cthresh)
+    maxdiff = scale_8bit(input, maxdiff)
+
+    input_minus = input.std.DuplicateFrames(frames=[0])
+    input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
+
+    input_y = plane(input, 0)
+    input_minus_y = plane(input_minus, 0)
+    input_minus_u = plane(input_minus, 1)
+    input_minus_v = plane(input_minus, 2)
+    input_plus_y = plane(input_plus, 0)
+    input_plus_u = plane(input_plus, 1)
+    input_plus_v = plane(input_plus, 2)
+
+    average_y = core.std.Expr([input_minus_y, input_plus_y], expr=[f'x y - abs {ythresh} < x y + 2 / 0 ?'])
+    average_u = core.std.Expr([input_minus_u, input_plus_u], expr=[f'x y - abs {cthresh} < {peak} 0 ?'])
+    average_v = core.std.Expr([input_minus_v, input_plus_v], expr=[f'x y - abs {cthresh} < {peak} 0 ?'])
+
+    ymask = average_y.std.Binarize(threshold=1 << shift)
+    if usemaxdiff:
+        diffplus_y = core.std.Expr([input_plus_y, input_y], expr=[f'x y - abs {maxdiff} < {peak} 0 ?'])
+        diffminus_y = core.std.Expr([input_minus_y, input_y], expr=[f'x y - abs {maxdiff} < {peak} 0 ?'])
+        diffs_y = core.std.Lut2(diffplus_y, diffminus_y, function=lambda x, y: x & y)
+        ymask = core.std.Lut2(ymask, diffs_y, function=lambda x, y: x & y)
+    cmask = core.std.Lut2(average_u.std.Binarize(threshold=129 << shift), average_v.std.Binarize(threshold=129 << shift), function=lambda x, y: x & y)
+    cmask = cmask.resize.Point(input.width, input.height)
+
+    themask = core.std.Lut2(ymask, cmask, function=lambda x, y: x & y)
+
+    fixed_y = core.std.Merge(average_y, input_y)
+
+    output = core.std.ShufflePlanes([core.std.MaskedMerge(input_y, fixed_y, themask), input], planes=[0, 1, 2], colorfamily=input.format.color_family)
+
+    input = scdetect(input, scnchg / 255)
+    output = output.std.FrameEval(eval=partial(YDifferenceFromPrevious, clips=[input, output]), prop_src=input)
+    output = output.std.FrameEval(eval=partial(YDifferenceToNext, clips=[input, output]), prop_src=input)
+
+    if mask:
+        return themask
+    else:
+        return output
 
 
-def YAHR(*args, **kwargs):
-    raise vs.Error("havsfunc.YAHR outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+#####################################################
+#                                                   #
+# LUTDeRainbow, a derainbowing script by Scintilla  #
+# Last updated 2022-10-08                           #
+#                                                   #
+#####################################################
+#
+# Requires YUV input, frame-based only.
+# Is of reasonable speed (faster than aWarpSharp, slower than DeGrainMedian).
+# Suggestions for improvement welcome: scintilla@aquilinestudios.org
+#
+# Arguments:
+#
+# cthresh (int, default=10) - This determines how close the chroma values of the
+#   pixel in the previous and next frames have to be for the pixel to
+#   be hit.  Higher values (within reason) should catch more rainbows,
+#   but may introduce unwanted artifacts.  Probably shouldn't be set
+#   above 20 or so.
+#
+# ythresh (int, default=10) - If the y parameter is set true, then this
+#   determines how close the luma values of the pixel in the previous
+#   and next frames have to be for the pixel to be hit.  Just as with
+#   cthresh.
+#
+# y (bool, default=True) - Determines whether luma difference will be considered
+#   in determining which pixels to hit and which to leave alone.
+#
+# linkUV (bool, default=True) - Determines whether both chroma channels are
+#   considered in determining which pixels in each channel to hit.
+#   When set true, only pixels that meet the thresholds for both U and
+#   V will be hit; when set false, the U and V channels are masked
+#   separately (so a pixel could have its U hit but not its V, or vice
+#   versa).
+#
+# mask (bool, default=False) - When set true, the function will return the mask
+#   (for combined U/V) instead of the image.  Formerly used to find the
+#   best values of cthresh and ythresh.  If linkUV=false, then this
+#   mask won't actually be used anyway (because each chroma channel
+#   will have its own mask).
+#
+###################
+def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False):
+    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 16:
+        raise vs.Error('LUTDeRainbow: This is not an 8-16 bit YUV clip')
+
+    # Since LUT2 can't handle clips with more than 10 bits, we default to using
+    # Expr and MaskedMerge to handle the same logic for higher bit depths.
+    useExpr = input.format.bits_per_sample > 10
+
+    shift = input.format.bits_per_sample - 8
+    peak = (1 << input.format.bits_per_sample) - 1
+
+    cthresh = scale_8bit(input, cthresh)
+    ythresh = scale_8bit(input, ythresh)
+
+    input_minus = input.std.DuplicateFrames(frames=[0])
+    input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
+
+    input_u = plane(input, 1)
+    input_v = plane(input, 2)
+    input_minus_y = plane(input_minus, 0)
+    input_minus_u = plane(input_minus, 1)
+    input_minus_v = plane(input_minus, 2)
+    input_plus_y = plane(input_plus, 0)
+    input_plus_u = plane(input_plus, 1)
+    input_plus_v = plane(input_plus, 2)
+
+    average_y = core.std.Expr([input_minus_y, input_plus_y], expr=[f'x y - abs {ythresh} < {peak} 0 ?']).resize.Bilinear(input_u.width, input_u.height)
+    average_u = core.std.Expr([input_minus_u, input_plus_u], expr=[f'x y - abs {cthresh} < x y + 2 / 0 ?'])
+    average_v = core.std.Expr([input_minus_v, input_plus_v], expr=[f'x y - abs {cthresh} < x y + 2 / 0 ?'])
+
+    umask = average_u.std.Binarize(threshold=21 << shift)
+    vmask = average_v.std.Binarize(threshold=21 << shift)
+
+    if useExpr:
+        themask = core.std.Expr([umask, vmask], expr=[f'x y + {peak + 1} < 0 {peak} ?'])
+        if y:
+            umask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, umask)
+            vmask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, vmask)
+            themask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, themask)
+    else:
+        themask = core.std.Lut2(umask, vmask, function=lambda x, y: x & y)
+        if y:
+            umask = core.std.Lut2(umask, average_y, function=lambda x, y: x & y)
+            vmask = core.std.Lut2(vmask, average_y, function=lambda x, y: x & y)
+            themask = core.std.Lut2(themask, average_y, function=lambda x, y: x & y)
+
+    fixed_u = core.std.Merge(average_u, input_u)
+    fixed_v = core.std.Merge(average_v, input_v)
+
+    output_u = core.std.MaskedMerge(input_u, fixed_u, themask if linkUV else umask)
+    output_v = core.std.MaskedMerge(input_v, fixed_v, themask if linkUV else vmask)
+
+    output = core.std.ShufflePlanes([input, output_u, output_v], planes=[0, 0, 0], colorfamily=input.format.color_family)
+
+    if mask:
+        return themask.resize.Point(input.width, input.height)
+    else:
+        return output
 
 
-def HQDeringmod(*args, **kwargs):
-    raise vs.Error("havsfunc.HQDeringmod outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+def mcdaa3(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **kwargs: Any) -> vs.VideoNode:
+    """
+    :param clip:    Clip to process.
+    :param opencl:  Whether to use OpenCL version of NNEDI3.
+    :param device:  Device ordinal of OpenCL device.
+    """
+    assert check_variable(clip, mcdaa3)
+
+    sup = clip.hqdn3d.Hqdn3d().fft3dfilter.FFT3DFilter().mv.Super(sharp=1)
+    fv1 = sup.mv.Analyse(isb=False, truemotion=False, dct=2)
+    fv2 = sup.mv.Analyse(isb=True, truemotion=True, dct=2)
+    csaa = daa3mod(clip, opencl, device, **kwargs)
+    momask1 = clip.mv.Mask(fv1, ml=2, kind=1)
+    momask2 = clip.mv.Mask(fv2, ml=3, kind=1)
+    momask = momask1.std.Merge(momask2)
+    return clip.std.MaskedMerge(csaa, momask)
+
+
+####################################################################################################################################
+###                                                                                                                              ###
+###                                   Motion-Compensated Temporal Denoise: MCTemporalDenoise()                                   ###
+###                                                                                                                              ###
+###                                                     v1.4.20 by "LaTo INV."                                                   ###
+###                                                                                                                              ###
+###                                                           2 July 2010                                                        ###
+###                                                                                                                              ###
+####################################################################################################################################
+###
+###
+###
+### /!\ Needed filters: MVTools, DFTTest, FFT3DFilter, TTempSmooth, RGVS, Deblock, DCTFilter
+### -------------------
+###
+###
+###
+### USAGE: MCTemporalDenoise(i, radius, pfMode, sigma, twopass, useTTmpSm, limit, limit2, post, chroma, refine,
+###                          deblock, useQED, quant1, quant2,
+###                          edgeclean, ECrad, ECthr,
+###                          stabilize, maxr, TTstr,
+###                          bwbh, owoh, blksize, overlap,
+###                          bt, ncpu,
+###                          thSAD, thSADC, thSAD2, thSADC2, thSCD1, thSCD2,
+###                          truemotion, MVglobal, pel, pelsearch, search, searchparam, MVsharp, DCT,
+###                          p, settings)
+###
+###
+###
+### PARAMETERS:
+### -----------
+###
+### +---------+
+### | DENOISE |
+### +---------+--------------------------------------------------------------------------------------+
+### | radius    : Temporal radius [1...6]                                                            |
+### | pfMode    : Pre-filter mode [-1=off,0=FFT3DFilter,1=MinBlur(1),2=MinBlur(2),3=DFTTest]         |
+### | sigma     : FFT3D sigma for the pre-filtering clip (if pfMode=0)                               |
+### | twopass   : Do the denoising job in 2 stages (stronger but very slow)                          |
+### | useTTmpSm : Use MDegrain (faster) or MCompensate+TTempSmooth (stronger)                        |
+### | limit     : Limit the effect of the first denoising [-1=auto,0=off,1...255]                    |
+### | limit2    : Limit the effect of the second denoising (if twopass=true) [-1=auto,0=off,1...255] |
+### | post      : Sigma value for post-denoising with FFT3D [0=off,...]                              |
+### | chroma    : Process or not the chroma plane                                                    |
+### | refine    : Refine and recalculate motion data of previously estimated motion vectors          |
+### +------------------------------------------------------------------------------------------------+
+###
+###
+### +---------+
+### | DEBLOCK |
+### +---------+-----------------------------------------------------------------------------------+
+### | deblock : Enable deblocking before the denoising                                            |
+### | useQED  : If true, use Deblock_QED, else use Deblock (faster & stronger)                    |
+### | quant1  : Deblock_QED "quant1" parameter (Deblock "quant" parameter is "(quant1+quant2)/2") |
+### | quant2  : Deblock_QED "quant2" parameter (Deblock "quant" parameter is "(quant1+quant2)/2") |
+### +---------------------------------------------------------------------------------------------+
+###
+###
+### +------------------------------+
+### | EDGECLEAN: DERING, DEHALO... |
+### +------------------------------+-----------------------------------------------------------------------------------------------------+
+### | edgeclean : Enable safe edgeclean process after the denoising (only on edges which are in non-detailed areas, so less detail loss) |
+### | ECrad     : Radius for mask (the higher, the greater distance from the edge is filtered)                                           |
+### | ECthr     : Threshold for mask (the higher, the less "small edges" are process) [0...255]                                          |
+### +------------------------------------------------------------------------------------------------------------------------------------+
+###
+###
+### +-----------+
+### | STABILIZE |
+### +-----------+------------------------------------------------------------------------------------------------+
+### | stabilize : Enable TTempSmooth post processing to stabilize flat areas (background will be less "nervous") |
+### | maxr      : Temporal radius (the higher, the more stable image)                                            |
+### | TTstr     : Strength (see TTempSmooth docs)                                                                |
+### +------------------------------------------------------------------------------------------------------------+
+###
+###
+### +---------------------+
+### | BLOCKSIZE / OVERLAP |
+### +---------------------+----------------+
+### | bwbh    : FFT3D blocksize            |
+### | owoh    : FFT3D overlap              |
+### |             - for speed:   bwbh/4    |
+### |             - for quality: bwbh/2    |
+### | blksize : MVTools blocksize          |
+### | overlap : MVTools overlap            |
+### |             - for speed:   blksize/4 |
+### |             - for quality: blksize/2 |
+### +--------------------------------------+
+###
+###
+### +-------+
+### | FFT3D |
+### +-------+--------------------------+
+### | bt   : FFT3D block temporal size |
+### | ncpu : FFT3DFilter ncpu          |
+### +----------------------------------+
+###
+###
+### +---------+
+### | MVTOOLS |
+### +---------+------------------------------------------------------+
+### | thSAD   : MVTools thSAD for the first pass                     |
+### | thSADC  : MVTools thSADC for the first pass                    |
+### | thSAD2  : MVTools thSAD for the second pass (if twopass=true)  |
+### | thSADC2 : MVTools thSADC for the second pass (if twopass=true) |
+### | thSCD1  : MVTools thSCD1                                       |
+### | thSCD2  : MVTools thSCD2                                       |
+### +-----------------------------------+----------------------------+
+### | truemotion  : MVTools truemotion  |
+### | MVglobal    : MVTools global      |
+### | pel         : MVTools pel         |
+### | pelsearch   : MVTools pelsearch   |
+### | search      : MVTools search      |
+### | searchparam : MVTools searchparam |
+### | MVsharp     : MVTools sharp       |
+### | DCT         : MVTools DCT         |
+### +-----------------------------------+
+###
+###
+### +--------+
+### | GLOBAL |
+### +--------+-----------------------------------------------------+
+### | p        : Set an external prefilter clip                    |
+### | settings : Global MCTemporalDenoise settings [default="low"] |
+### |             - "very low"                                     |
+### |             - "low"                                          |
+### |             - "medium"                                       |
+### |             - "high"                                         |
+### |             - "very high"                                    |
+### +--------------------------------------------------------------+
+###
+###
+###
+### DEFAULTS:
+### ---------
+###
+### +-------------+----------------------+----------------------+----------------------+----------------------+----------------------+
+### | SETTINGS    |      VERY LOW        |      LOW             |      MEDIUM          |      HIGH            |      VERY HIGH       |
+### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
+### | radius      |      1               |      2               |      3               |      2               |      3               |
+### | pfMode      |      3               |      3               |      3               |      3               |      3               |
+### | sigma       |      2               |      4               |      8               |      12              |      16              |
+### | twopass     |      false           |      false           |      false           |      true            |      true            |
+### | useTTmpSm   |      false           |      false           |      false           |      false           |      false           |
+### | limit       |      -1              |      -1              |      -1              |      -1              |      0               |
+### | limit2      |      -1              |      -1              |      -1              |      0               |      0               |
+### | post        |      0               |      0               |      0               |      0               |      0               |
+### | chroma      |      false           |      false           |      true            |      true            |      true            |
+### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
+### | deblock     |      false           |      false           |      false           |      false           |      false           |
+### | useQED      |      true            |      true            |      true            |      false           |      false           |
+### | quant1      |      10              |      20              |      30              |      30              |      40              |
+### | quant2      |      20              |      40              |      60              |      60              |      80              |
+### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
+### | edgeclean   |      false           |      false           |      false           |      false           |      false           |
+### | ECrad       |      1               |      2               |      3               |      4               |      5               |
+### | ECthr       |      64              |      32              |      32              |      16              |      16              |
+### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
+### | stabilize   |      false           |      false           |      false           |      true            |      true            |
+### | maxr        |      1               |      1               |      2               |      2               |      2               |
+### | TTstr       |      1               |      1               |      1               |      2               |      2               |
+### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
+### | bwbh        |      HD?16:8         |      HD?16:8         |      HD?16:8         |      HD?16:8         |      HD?16:8         |
+### | owoh        |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |
+### | blksize     |      HD?16:8         |      HD?16:8         |      HD?16:8         |      HD?16:8         |      HD?16:8         |
+### | overlap     |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |
+### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
+### | bt          |      1               |      3               |      3               |      3               |      4               |
+### | ncpu        |      1               |      1               |      1               |      1               |      1               |
+### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
+### | thSAD       |      200             |      300             |      400             |      500             |      600             |
+### | thSADC      |      thSAD/2         |      thSAD/2         |      thSAD/2         |      thSAD/2         |      thSAD/2         |
+### | thSAD2      |      200             |      300             |      400             |      500             |      600             |
+### | thSADC2     |      thSAD2/2        |      thSAD2/2        |      thSAD2/2        |      thSAD2/2        |      thSAD2/2        |
+### | thSCD1      |      200             |      300             |      400             |      500             |      600             |
+### | thSCD2      |      90              |      100             |      100             |      130             |      130             |
+### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
+### | truemotion  |      false           |      false           |      false           |      false           |      false           |
+### | MVglobal    |      true            |      true            |      true            |      true            |      true            |
+### | pel         |      1               |      2               |      2               |      2               |      2               |
+### | pelsearch   |      1               |      2               |      2               |      2               |      2               |
+### | search      |      4               |      4               |      4               |      4               |      4               |
+### | searchparam |      2               |      2               |      2               |      2               |      2               |
+### | MVsharp     |      2               |      2               |      2               |      1               |      0               |
+### | DCT         |      0               |      0               |      0               |      0               |      0               |
+### +-------------+----------------------+----------------------+----------------------+----------------------+----------------------+
+###
+####################################################################################################################################
+def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, refine=False, deblock=False, useQED=None, quant1=None,
+                      quant2=None, edgeclean=False, ECrad=None, ECthr=None, stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None,
+                      thSADC=None, thSAD2=None, thSADC2=None, thSCD1=None, thSCD2=None, truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=4, searchparam=2, MVsharp=None, DCT=0, p=None,
+                      settings='low'):
+    if not isinstance(i, vs.VideoNode):
+        raise vs.Error('MCTemporalDenoise: this is not a clip')
+
+    if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != i.format.id):
+        raise vs.Error("MCTemporalDenoise: 'p' must be the same format as input")
+
+    isGray = (i.format.color_family == vs.GRAY)
+
+    neutral = 1 << (i.format.bits_per_sample - 1)
+    peak = (1 << i.format.bits_per_sample) - 1
+
+    ### DEFAULTS
+    try:
+        settings_num = ['very low', 'low', 'medium', 'high', 'very high'].index(settings.lower())
+    except:
+        raise vs.Error('MCTemporalDenoise: these settings do not exist')
+
+    HD = i.width > 1024 or i.height > 576
+
+    if radius is None:
+        radius = [1, 2, 3, 2, 3][settings_num]
+    if sigma is None:
+        sigma = [2, 4, 8, 12, 16][settings_num]
+    if twopass is None:
+        twopass = [False, False, False, True, True][settings_num]
+    if limit is None:
+        limit = [-1, -1, -1, -1, 0][settings_num]
+    if limit2 is None:
+        limit2 = [-1, -1, -1, 0, 0][settings_num]
+    if chroma is None:
+        chroma = [False, False, True, True, True][settings_num]
+    if useQED is None:
+        useQED = [True, True, True, False, False][settings_num]
+    if quant1 is None:
+        quant1 = [10, 20, 30, 30, 40][settings_num]
+    if quant2 is None:
+        quant2 = [20, 40, 60, 60, 80][settings_num]
+    if ECrad is None:
+        ECrad = [1, 2, 3, 4, 5][settings_num]
+    if ECthr is None:
+        ECthr = [64, 32, 32, 16, 16][settings_num]
+    if stabilize is None:
+        stabilize = [False, False, False, True, True][settings_num]
+    if maxr is None:
+        maxr = [1, 1, 2, 2, 2][settings_num]
+    if TTstr is None:
+        TTstr = [1, 1, 1, 2, 2][settings_num]
+    if bwbh is None:
+        bwbh = 16 if HD else 8
+    if owoh is None:
+        owoh = 8 if HD else 4
+    if blksize is None:
+        blksize = 16 if HD else 8
+    if overlap is None:
+        overlap = 8 if HD else 4
+    if bt is None:
+        bt = [1, 3, 3, 3, 4][settings_num]
+    if thSAD is None:
+        thSAD = [200, 300, 400, 500, 600][settings_num]
+    if thSADC is None:
+        thSADC = thSAD // 2
+    if thSAD2 is None:
+        thSAD2 = [200, 300, 400, 500, 600][settings_num]
+    if thSADC2 is None:
+        thSADC2 = thSAD2 // 2
+    if thSCD1 is None:
+        thSCD1 = [200, 300, 400, 500, 600][settings_num]
+    if thSCD2 is None:
+        thSCD2 = [90, 100, 100, 130, 130][settings_num]
+    if pel is None:
+        pel = [1, 2, 2, 2, 2][settings_num]
+    if pelsearch is None:
+        pelsearch = [1, 2, 2, 2, 2][settings_num]
+    if MVsharp is None:
+        MVsharp = [2, 2, 2, 1, 0][settings_num]
+
+    sigma *= peak / 255
+    limit = scale_8bit(i, limit)
+    limit2 = scale_8bit(i, limit2)
+    post *= peak / 255
+    ECthr = scale_8bit(i, ECthr)
+    planes = [0, 1, 2] if chroma and not isGray else [0]
+
+    ### INPUT
+    mod = bwbh if bwbh >= blksize else blksize
+    xi = i.width
+    xf = math.ceil(xi / mod) * mod - xi + mod
+    xn = int(xi + xf)
+    yi = i.height
+    yf = math.ceil(yi / mod) * mod - yi + mod
+    yn = int(yi + yf)
+
+    pointresize_args = dict(width=xn, height=yn, src_left=-xf / 2, src_top=-yf / 2, src_width=xn, src_height=yn)
+    i = i.resize.Point(**pointresize_args)
+
+    ### PREFILTERING
+    fft3d_args = dict(planes=planes, bw=bwbh, bh=bwbh, bt=bt, ow=owoh, oh=owoh, ncpu=ncpu)
+    if p is not None:
+        p = p.resize.Point(**pointresize_args)
+    elif pfMode <= -1:
+        p = i
+    elif pfMode == 0:
+        p = i.fft3dfilter.FFT3DFilter(sigma=sigma * 0.8, sigma2=sigma * 0.6, sigma3=sigma * 0.4, sigma4=sigma * 0.2, **fft3d_args)
+    elif pfMode >= 3:
+        p = i.dfttest.DFTTest(tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0], planes=planes)
+    else:
+        p = min_blur(i, pfMode, planes)
+
+    pD = core.std.MakeDiff(i, p, planes=planes)
+    p = prefilter_to_full_range(p, 2, planes)
+
+    ### DEBLOCKING
+    crop_args = dict(left=xf // 2, right=xf // 2, top=yf // 2, bottom=yf // 2)
+    if not deblock:
+        d = i
+    elif useQED:
+        d = Deblock_QED(i.std.Crop(**crop_args), quant1=quant1, quant2=quant2, uv=3 if chroma else 2).resize.Point(**pointresize_args)
+    else:
+        d = i.std.Crop(**crop_args).deblock.Deblock(quant=(quant1 + quant2) // 2, planes=planes).resize.Point(**pointresize_args)
+
+    ### PREPARING
+    super_args = dict(hpad=0, vpad=0, pel=pel, chroma=chroma, sharp=MVsharp)
+    pMVS = p.mv.Super(rfilter=4 if refine else 2, **super_args)
+    if refine:
+        rMVS = p.mv.Super(levels=1, **super_args)
+
+    analyse_args = dict(blksize=blksize, search=search, searchparam=searchparam, pelsearch=pelsearch, chroma=chroma, truemotion=truemotion, global_=MVglobal, overlap=overlap, dct=DCT)
+    recalculate_args = dict(thsad=thSAD // 2, blksize=max(blksize // 2, 4), search=search, chroma=chroma, truemotion=truemotion, overlap=max(overlap // 2, 2), dct=DCT)
+    f1v = pMVS.mv.Analyse(isb=False, delta=1, **analyse_args)
+    b1v = pMVS.mv.Analyse(isb=True, delta=1, **analyse_args)
+    if refine:
+        f1v = core.mv.Recalculate(rMVS, f1v, **recalculate_args)
+        b1v = core.mv.Recalculate(rMVS, b1v, **recalculate_args)
+    if radius > 1:
+        f2v = pMVS.mv.Analyse(isb=False, delta=2, **analyse_args)
+        b2v = pMVS.mv.Analyse(isb=True, delta=2, **analyse_args)
+        if refine:
+            f2v = core.mv.Recalculate(rMVS, f2v, **recalculate_args)
+            b2v = core.mv.Recalculate(rMVS, b2v, **recalculate_args)
+    if radius > 2:
+        f3v = pMVS.mv.Analyse(isb=False, delta=3, **analyse_args)
+        b3v = pMVS.mv.Analyse(isb=True, delta=3, **analyse_args)
+        if refine:
+            f3v = core.mv.Recalculate(rMVS, f3v, **recalculate_args)
+            b3v = core.mv.Recalculate(rMVS, b3v, **recalculate_args)
+    if radius > 3:
+        f4v = pMVS.mv.Analyse(isb=False, delta=4, **analyse_args)
+        b4v = pMVS.mv.Analyse(isb=True, delta=4, **analyse_args)
+        if refine:
+            f4v = core.mv.Recalculate(rMVS, f4v, **recalculate_args)
+            b4v = core.mv.Recalculate(rMVS, b4v, **recalculate_args)
+    if radius > 4:
+        f5v = pMVS.mv.Analyse(isb=False, delta=5, **analyse_args)
+        b5v = pMVS.mv.Analyse(isb=True, delta=5, **analyse_args)
+        if refine:
+            f5v = core.mv.Recalculate(rMVS, f5v, **recalculate_args)
+            b5v = core.mv.Recalculate(rMVS, b5v, **recalculate_args)
+    if radius > 5:
+        f6v = pMVS.mv.Analyse(isb=False, delta=6, **analyse_args)
+        b6v = pMVS.mv.Analyse(isb=True, delta=6, **analyse_args)
+        if refine:
+            f6v = core.mv.Recalculate(rMVS, f6v, **recalculate_args)
+            b6v = core.mv.Recalculate(rMVS, b6v, **recalculate_args)
+
+    # if useTTmpSm or stabilize:
+        # mask_args = dict(ml=thSAD, gamma=0.999, kind=1, ysc=255)
+        # SAD_f1m = core.mv.Mask(d, f1v, **mask_args)
+        # SAD_b1m = core.mv.Mask(d, b1v, **mask_args)
+
+    def MCTD_MVD(i, iMVS, thSAD, thSADC):
+        degrain_args = dict(thsad=thSAD, thsadc=thSADC, plane=4 if chroma else 0, thscd1=thSCD1, thscd2=thSCD2)
+        if radius <= 1:
+            sm = core.mv.Degrain1(i, iMVS, b1v, f1v, **degrain_args)
+        elif radius == 2:
+            sm = core.mv.Degrain2(i, iMVS, b1v, f1v, b2v, f2v, **degrain_args)
+        elif radius == 3:
+            sm = core.mv.Degrain3(i, iMVS, b1v, f1v, b2v, f2v, b3v, f3v, **degrain_args)
+        elif radius == 4:
+            mv12 = core.mv.Degrain2(i, iMVS, b1v, f1v, b2v, f2v, **degrain_args)
+            mv34 = core.mv.Degrain2(i, iMVS, b3v, f3v, b4v, f4v, **degrain_args)
+            sm = core.std.Merge(mv12, mv34, weight=[0.4444])
+        elif radius == 5:
+            mv123 = core.mv.Degrain3(i, iMVS, b1v, f1v, b2v, f2v, b3v, f3v, **degrain_args)
+            mv45 = core.mv.Degrain2(i, iMVS, b4v, f4v, b5v, f5v, **degrain_args)
+            sm = core.std.Merge(mv123, mv45, weight=[0.4545])
+        else:
+            mv123 = core.mv.Degrain3(i, iMVS, b1v, f1v, b2v, f2v, b3v, f3v, **degrain_args)
+            mv456 = core.mv.Degrain3(i, iMVS, b4v, f4v, b5v, f5v, b6v, f6v, **degrain_args)
+            sm = core.std.Merge(mv123, mv456, weight=[0.4615])
+
+        return sm
+
+    def MCTD_TTSM(i, iMVS, thSAD):
+        compensate_args = dict(thsad=thSAD, thscd1=thSCD1, thscd2=thSCD2)
+        f1c = core.mv.Compensate(i, iMVS, f1v, **compensate_args)
+        b1c = core.mv.Compensate(i, iMVS, b1v, **compensate_args)
+        if radius > 1:
+            f2c = core.mv.Compensate(i, iMVS, f2v, **compensate_args)
+            b2c = core.mv.Compensate(i, iMVS, b2v, **compensate_args)
+            # SAD_f2m = core.mv.Mask(i, f2v, **mask_args)
+            # SAD_b2m = core.mv.Mask(i, b2v, **mask_args)
+        if radius > 2:
+            f3c = core.mv.Compensate(i, iMVS, f3v, **compensate_args)
+            b3c = core.mv.Compensate(i, iMVS, b3v, **compensate_args)
+            # SAD_f3m = core.mv.Mask(i, f3v, **mask_args)
+            # SAD_b3m = core.mv.Mask(i, b3v, **mask_args)
+        if radius > 3:
+            f4c = core.mv.Compensate(i, iMVS, f4v, **compensate_args)
+            b4c = core.mv.Compensate(i, iMVS, b4v, **compensate_args)
+            # SAD_f4m = core.mv.Mask(i, f4v, **mask_args)
+            # SAD_b4m = core.mv.Mask(i, b4v, **mask_args)
+        if radius > 4:
+            f5c = core.mv.Compensate(i, iMVS, f5v, **compensate_args)
+            b5c = core.mv.Compensate(i, iMVS, b5v, **compensate_args)
+            # SAD_f5m = core.mv.Mask(i, f5v, **mask_args)
+            # SAD_b5m = core.mv.Mask(i, b5v, **mask_args)
+        if radius > 5:
+            f6c = core.mv.Compensate(i, iMVS, f6v, **compensate_args)
+            b6c = core.mv.Compensate(i, iMVS, b6v, **compensate_args)
+            # SAD_f6m = core.mv.Mask(i, f6v, **mask_args)
+            # SAD_b6m = core.mv.Mask(i, b6v, **mask_args)
+
+        # b = i.std.BlankClip(color=[0] if isGray else [0, neutral, neutral])
+        if radius <= 1:
+            c = core.std.Interleave([f1c, i, b1c])
+            # SAD_m = core.std.Interleave([SAD_f1m, b, SAD_b1m])
+        elif radius == 2:
+            c = core.std.Interleave([f2c, f1c, i, b1c, b2c])
+            # SAD_m = core.std.Interleave([SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m])
+        elif radius == 3:
+            c = core.std.Interleave([f3c, f2c, f1c, i, b1c, b2c, b3c])
+            # SAD_m = core.std.Interleave([SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m])
+        elif radius == 4:
+            c = core.std.Interleave([f4c, f3c, f2c, f1c, i, b1c, b2c, b3c, b4c])
+            # SAD_m = core.std.Interleave([SAD_f4m, SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m, SAD_b4m])
+        elif radius == 5:
+            c = core.std.Interleave([f5c, f4c, f3c, f2c, f1c, i, b1c, b2c, b3c, b4c, b5c])
+            # SAD_m = core.std.Interleave([SAD_f5m, SAD_f4m, SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m, SAD_b4m, SAD_b5m])
+        else:
+            c = core.std.Interleave([f6c, f5c, f4c, f3c, f2c, f1c, i, b1c, b2c, b3c, b4c, b5c, b6c])
+            # SAD_m = core.std.Interleave([SAD_f6m, SAD_f5m, SAD_f4m, SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m, SAD_b4m, SAD_b5m, SAD_b6m])
+
+        # sm = c.ttmpsm.TTempSmooth(maxr=radius, thresh=[255], mdiff=[1], strength=radius + 1, scthresh=99.9, fp=False, pfclip=SAD_m, planes=planes)
+        sm = c.ttmpsm.TTempSmooth(maxr=radius, thresh=[255], mdiff=[1], strength=radius + 1, scthresh=99.9, fp=False, planes=planes)
+        return sm.std.SelectEvery(cycle=radius * 2 + 1, offsets=[radius])
+
+    ### DENOISING: FIRST PASS
+    dMVS = d.mv.Super(levels=1, **super_args)
+    sm = MCTD_TTSM(d, dMVS, thSAD) if useTTmpSm else MCTD_MVD(d, dMVS, thSAD, thSADC)
+
+    if limit <= -1:
+        smD = core.std.MakeDiff(i, sm, planes=planes)
+        expr = f'x {neutral} - abs y {neutral} - abs < x y ?'
+        DD = core.std.Expr([pD, smD], expr=[expr] if chroma or isGray else [expr, ''])
+        smL = core.std.MakeDiff(i, DD, planes=planes)
+    elif limit > 0:
+        expr = f'x y - abs {limit} <= x x y - 0 < y {limit} - y {limit} + ? ?'
+        smL = core.std.Expr([sm, i], expr=[expr] if chroma or isGray else [expr, ''])
+    else:
+        smL = sm
+
+    ### DENOISING: SECOND PASS
+    if twopass:
+        smLMVS = smL.mv.Super(levels=1, **super_args)
+        sm = MCTD_TTSM(smL, smLMVS, thSAD2) if useTTmpSm else MCTD_MVD(smL, smLMVS, thSAD2, thSADC2)
+
+        if limit2 <= -1:
+            smD = core.std.MakeDiff(i, sm, planes=planes)
+            expr = f'x {neutral} - abs y {neutral} - abs < x y ?'
+            DD = core.std.Expr([pD, smD], expr=[expr] if chroma or isGray else [expr, ''])
+            smL = core.std.MakeDiff(i, DD, planes=planes)
+        elif limit2 > 0:
+            expr = f'x y - abs {limit2} <= x x y - 0 < y {limit2} - y {limit2} + ? ?'
+            smL = core.std.Expr([sm, i], expr=[expr] if chroma or isGray else [expr, ''])
+        else:
+            smL = sm
+
+    ### POST-DENOISING: FFT3D
+    if post <= 0:
+        smP = smL
+    else:
+        smP = smL.fft3dfilter.FFT3DFilter(sigma=post * 0.8, sigma2=post * 0.6, sigma3=post * 0.4, sigma4=post * 0.2, **fft3d_args)
+
+    ### EDGECLEANING
+    if edgeclean:
+        mP = avs_prewitt(plane(smP, 0))
+        mS = Morpho.expand(mP, ECrad).std.Inflate()
+        mD = core.std.Expr([mS, mP.std.Inflate()], expr=[f'x y - {ECthr} <= 0 x y - ?']).std.Inflate().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        smP = core.std.MaskedMerge(smP, DeHalo_alpha(smP.dfttest.DFTTest(tbsize=1, planes=planes), darkstr=0), mD, planes=planes)
+
+    ### STABILIZING
+    if stabilize:
+        # mM = core.std.Merge(plane(SAD_f1m, 0), plane(SAD_b1m, 0)).std.Lut(function=lambda x: min(cround(x ** 1.6), peak))
+        mE = avs_prewitt(plane(smP, 0)).std.Lut(function=lambda x: min(cround(x ** 1.8), peak)).std.Median().std.Inflate()
+        # mF = core.std.Expr([mM, mE], expr=['x y max']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        mF = mE.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+        TTc = smP.ttmpsm.TTempSmooth(maxr=maxr, mdiff=[255], strength=TTstr, planes=planes)
+        smP = core.std.MaskedMerge(TTc, smP, mF, planes=planes)
+
+    ### OUTPUT
+    return smP.std.Crop(**crop_args)
+
+
+def mt_clamp(
+    clip: vs.VideoNode,
+    bright: vs.VideoNode,
+    dark: vs.VideoNode,
+    overshoot: int = 0,
+    undershoot: int = 0,
+    planes: PlanesT = None,
+) -> vs.VideoNode:
+    """clamp the value of the clip between bright + overshoot and dark - undershoot"""
+    check_ref_clip(clip, bright, mt_clamp)
+    check_ref_clip(clip, dark, mt_clamp)
+    planes = normalize_planes(clip, planes)
+
+    if complexpr_available:
+        expr = f"x z {undershoot} - y {overshoot} + clamp"
+    else:
+        expr = f"x z {undershoot} - max y {overshoot} + min"
+    return norm_expr([clip, bright, dark], expr, planes)
+
+
+def Overlay(
+    base: vs.VideoNode,
+    overlay: vs.VideoNode,
+    x: int = 0,
+    y: int = 0,
+    mask: Optional[vs.VideoNode] = None,
+    opacity: float = 1.0,
+    mode: str = 'normal',
+    planes: Optional[Union[int, Sequence[int]]] = None,
+    mask_first_plane: bool = True,
+) -> vs.VideoNode:
+    '''
+    Puts clip overlay on top of clip base using different blend modes, and with optional x,y positioning, masking and opacity.
+
+    Parameters:
+        base: This clip will be the base, determining the size and all other video properties of the result.
+
+        overlay: This is the image that will be placed on top of the base clip.
+
+        x, y: Define the placement of the overlay image on the base clip, in pixels. Can be positive or negative.
+
+        mask: Optional transparency mask. Must be the same size as overlay. Where mask is darker, overlay will be more transparent.
+
+        opacity: Set overlay transparency. The value is from 0.0 to 1.0, where 0.0 is transparent and 1.0 is fully opaque.
+            This value is multiplied by mask luminance to form the final opacity.
+
+        mode: Defines how your overlay should be blended with your base image. Available blend modes are:
+            addition, average, burn, darken, difference, divide, dodge, exclusion, extremity, freeze, glow, grainextract, grainmerge, hardlight, hardmix, heat,
+            lighten, linearlight, multiply, negation, normal, overlay, phoenix, pinlight, reflect, screen, softlight, subtract, vividlight
+
+        planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
+
+        mask_first_plane: If true, only the mask's first plane will be used for transparency.
+    '''
+    if not (isinstance(base, vs.VideoNode) and isinstance(overlay, vs.VideoNode)):
+        raise vs.Error('Overlay: this is not a clip')
+
+    if mask is not None:
+        if not isinstance(mask, vs.VideoNode):
+            raise vs.Error('Overlay: mask is not a clip')
+
+        if mask.width != overlay.width or mask.height != overlay.height or get_depth(mask) != get_depth(overlay):
+            raise vs.Error('Overlay: mask must have the same dimensions and bit depth as overlay')
+
+    if base.format.sample_type == vs.INTEGER:
+        bits = get_depth(base)
+        neutral = 1 << (bits - 1)
+        peak = (1 << bits) - 1
+        factor = 1 << bits
+    else:
+        neutral = 0.5
+        peak = factor = 1.0
+
+    plane_range = range(base.format.num_planes)
+
+    if planes is None:
+        planes = list(plane_range)
+    elif isinstance(planes, int):
+        planes = [planes]
+
+    if base.format.subsampling_w > 0 or base.format.subsampling_h > 0:
+        base_orig = base
+        base = base.resize.Point(format=base.format.replace(subsampling_w=0, subsampling_h=0))
+    else:
+        base_orig = None
+
+    if overlay.format.id != base.format.id:
+        overlay = overlay.resize.Point(format=base.format)
+
+    if mask is None:
+        mask = overlay.std.BlankClip(format=overlay.format.replace(color_family=vs.GRAY, subsampling_w=0, subsampling_h=0), color=peak)
+    elif mask.format.id != overlay.format.id and mask.format.color_family != vs.GRAY:
+        mask = mask.resize.Point(format=overlay.format, range_s='full')
+
+    opacity = min(max(opacity, 0.0), 1.0)
+    mode = mode.lower()
+
+    # Calculate padding sizes
+    l, r = x, base.width - overlay.width - x
+    t, b = y, base.height - overlay.height - y
+
+    # Split into crop and padding values
+    cl, pl = min(l, 0) * -1, max(l, 0)
+    cr, pr = min(r, 0) * -1, max(r, 0)
+    ct, pt = min(t, 0) * -1, max(t, 0)
+    cb, pb = min(b, 0) * -1, max(b, 0)
+
+    # Crop and padding
+    overlay = overlay.std.Crop(left=cl, right=cr, top=ct, bottom=cb)
+    overlay = overlay.std.AddBorders(left=pl, right=pr, top=pt, bottom=pb)
+    mask = mask.std.Crop(left=cl, right=cr, top=ct, bottom=cb)
+    mask = mask.std.AddBorders(left=pl, right=pr, top=pt, bottom=pb, color=[0] * mask.format.num_planes)
+
+    if opacity < 1:
+        mask = mask.std.Expr(expr=f'x {opacity} *')
+
+    if mode == 'normal':
+        pass
+    elif mode == 'addition':
+        expr = f'x y +'
+    elif mode == 'average':
+        expr = f'x y + 2 /'
+    elif mode == 'burn':
+        expr = f'x 0 <= x {peak} {peak} y - {factor} * x / - ?'
+    elif mode == 'darken':
+        expr = f'x y min'
+    elif mode == 'difference':
+        expr = f'x y - abs'
+    elif mode == 'divide':
+        expr = f'y 0 <= {peak} {peak} x * y / ?'
+    elif mode == 'dodge':
+        expr = f'x {peak} >= x y {factor} * {peak} x - / ?'
+    elif mode == 'exclusion':
+        expr = f'x y + 2 x * y * {peak} / -'
+    elif mode == 'extremity':
+        expr = f'{peak} x - y - abs'
+    elif mode == 'freeze':
+        expr = f'y 0 <= 0 {peak} {peak} x - dup * y / {peak} min - ?'
+    elif mode == 'glow':
+        expr = f'x {peak} >= x y y * {peak} x - / ?'
+    elif mode == 'grainextract':
+        expr = f'x y - {neutral} +'
+    elif mode == 'grainmerge':
+        expr = f'x y + {neutral} -'
+    elif mode == 'hardlight':
+        expr = f'y {neutral} < 2 y x * {peak} / * {peak} 2 {peak} y - {peak} x - * {peak} / * - ?'
+    elif mode == 'hardmix':
+        expr = f'x {peak} y - < 0 {peak} ?'
+    elif mode == 'heat':
+        expr = f'x 0 <= 0 {peak} {peak} y - dup * x / {peak} min - ?'
+    elif mode == 'lighten':
+        expr = f'x y max'
+    elif mode == 'linearlight':
+        expr = f'y {neutral} < y 2 x * + {peak} - y 2 x {neutral} - * + ?'
+    elif mode == 'multiply':
+        expr = f'x y * {peak} /'
+    elif mode == 'negation':
+        expr = f'{peak} {peak} x - y - abs -'
+    elif mode == 'overlay':
+        expr = f'x {neutral} < 2 x y * {peak} / * {peak} 2 {peak} x - {peak} y - * {peak} / * - ?'
+    elif mode == 'phoenix':
+        expr = f'x y min x y max - {peak} +'
+    elif mode == 'pinlight':
+        expr = f'y {neutral} < x 2 y * min x 2 y {neutral} - * max ?'
+    elif mode == 'reflect':
+        expr = f'y {peak} >= y x x * {peak} y - / ?'
+    elif mode == 'screen':
+        expr = f'{peak} {peak} x - {peak} y - * {peak} / -'
+    elif mode == 'softlight':
+        expr = f'x {neutral} > y {peak} y - x {neutral} - * {neutral} / 0.5 y {neutral} - abs {peak} / - * + y y {neutral} x - {neutral} / * 0.5 y {neutral} - abs {peak} / - * - ?'
+    elif mode == 'subtract':
+        expr = f'x y -'
+    elif mode == 'vividlight':
+        expr = f'x {neutral} < x 0 <= 2 x * {peak} {peak} y - {factor} * 2 x * / - ? 2 x {neutral} - * {peak} >= 2 x {neutral} - * y {factor} * {peak} 2 x {neutral} - * - / ? ?'
+    else:
+        raise vs.Error('Overlay: invalid mode specified')
+
+    if mode != 'normal':
+        overlay = core.std.Expr([overlay, base], expr=[expr if i in planes else '' for i in plane_range])
+
+    # Return padded clip
+    last = core.std.MaskedMerge(base, overlay, mask, planes=planes, first_plane=mask_first_plane)
+    if base_orig is not None:
+        last = last.resize.Point(format=base_orig.format)
+    return last
 
 
 QTGMC_globals = {}
@@ -1824,6 +3410,26 @@ def QTGMC_GetUserGlobal(Prefix: str, Name: str) -> Union[vs.VideoNode, None]:
     return QTGMC_globals.get(f'{Prefix}_{Name}')
 
 
+def scdetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
+    def _copy_property(n: int, f: list[vs.VideoFrame]) -> vs.VideoFrame:
+        fout = f[0].copy()
+        fout.props["_SceneChangePrev"] = f[1].props["_SceneChangePrev"]
+        fout.props["_SceneChangeNext"] = f[1].props["_SceneChangeNext"]
+        return fout
+
+    assert check_variable(clip, scdetect)
+
+    sc = clip
+    if clip.format.color_family == vs.RGB:
+        sc = clip.resize.Point(format=vs.GRAY8, matrix_s="709")
+
+    sc = sc.misc.SCDetect(threshold)
+    if clip.format.color_family == vs.RGB:
+        sc = clip.std.ModifyFrame([clip, sc], _copy_property)
+
+    return sc
+
+
 def smartfademod(clip: vs.VideoNode, threshold: float = 0.4, show: bool = False, tff: Optional[bool] = None) -> vs.VideoNode:
     '''
     Aimed at removing interlaced fades in anime. Uses luma difference between two fields as activation threshold.
@@ -1858,6 +3464,257 @@ def smartfademod(clip: vs.VideoNode, threshold: float = 0.4, show: bool = False,
     odd = sep[1::2].std.PlaneStats()
     defade = daa(clip)
     return clip.std.FrameEval(eval=partial(frame_eval, orig=clip, defade=defade), prop_src=[even, odd], clip_src=[clip, defade])
+
+
+#########################################################################################
+###                                                                                   ###
+###                      function Smooth Levels : SmoothLevels()                      ###
+###                                                                                   ###
+###                                v1.02 by "LaTo INV."                               ###
+###                                                                                   ###
+###                                  28 January 2009                                  ###
+###                                                                                   ###
+#########################################################################################
+###
+###
+### /!\ Needed filters : RGVS, neo_f3kdb
+### --------------------
+###
+###
+###
+### +---------+
+### | GENERAL |
+### +---------+
+###
+### Levels options:
+### ---------------
+### input_low, gamma, input_high, output_low, output_high [default: 0, 1.0, maximum value of input format, 0, maximum value of input format]
+### /!\ The value is not internally normalized on an 8-bit scale, and must be scaled to the bit depth of input format manually by users
+###
+### chroma [default: 50]
+### ---------------------
+### 0   = no chroma processing     (similar as Ylevels)
+### xx  = intermediary
+### 100 = normal chroma processing (similar as Levels)
+###
+### limiter [default: 0]
+### --------------------
+### 0 = no limiter             (similar as Ylevels)
+### 1 = input limiter
+### 2 = output limiter         (similar as Levels: coring=false)
+### 3 = input & output limiter (similar as Levels: coring=true)
+###
+###
+###
+### +----------+
+### | LIMITING |
+### +----------+
+###
+### Lmode [default: 0]
+### ------------------
+### 0 = no limit
+### 1 = limit conversion on dark & bright areas (apply conversion @0%   at luma=0 & @100% at luma=Ecenter & @0% at luma=255)
+### 2 = limit conversion on dark areas          (apply conversion @0%   at luma=0 & @100% at luma=255)
+### 3 = limit conversion on bright areas        (apply conversion @100% at luma=0 & @0%   at luma=255)
+###
+### DarkSTR [default: 100]
+### ----------------------
+### Strength for limiting: the higher, the more conversion are reduced on dark areas (for Lmode=1&2)
+###
+### BrightSTR [default: 100]
+### ------------------------
+### Strength for limiting: the higher, the more conversion are reduced on bright areas (for Lmode=1&3)
+###
+### Ecenter [default: median value of input format]
+### ----------------------
+### Center of expression for Lmode=1
+### /!\ The value is not internally normalized on an 8-bit scale, and must be scaled to the bit depth of input format manually by users
+###
+### protect [default: -1]
+### ---------------------
+### -1  = protect off
+### >=0 = pure black protection
+###       ---> don't apply conversion on pixels egal or below this value
+###            (ex: with 16, the black areas like borders and generic are untouched so they don't look washed out)
+### /!\ The value is not internally normalized on an 8-bit scale, and must be scaled to the bit depth of input format manually by users
+###
+### Ecurve [default: 0]
+### -------------------
+### Curve used for limit & protect:
+### 0 = use sine curve
+### 1 = use linear curve
+###
+###
+###
+### +-----------+
+### | SMOOTHING |
+### +-----------+
+###
+### Smode [default: -2]
+### -------------------
+### 2  = smooth on, maxdiff must be < to "255/Mfactor"
+### 1  = smooth on, maxdiff must be < to "128/Mfactor"
+### 0  = smooth off
+### -1 = smooth on if maxdiff < "128/Mfactor", else off
+### -2 = smooth on if maxdiff < "255/Mfactor", else off
+###
+### Mfactor [default: 2]
+### --------------------
+### The higher, the more precise but the less maxdiff allowed:
+### maxdiff=128/Mfactor for Smode1&-1 and maxdiff=255/Mfactor for Smode2&-2
+###
+### RGmode [default: 12]
+### --------------------
+### In strength order: + 19 > 12 >> 20 > 11 -
+###
+### useDB [default: false]
+### ---------------------
+### Use neo_f3kdb on top of removegrain: prevent posterize when doing levels conversion
+###
+###
+#########################################################################################
+def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, output_high=None, chroma=50, limiter=0, Lmode=0, DarkSTR=100, BrightSTR=100, Ecenter=None, protect=-1, Ecurve=0,
+                 Smode=-2, Mfactor=2, RGmode=12, useDB=False):
+    # sin(pi x / 2) for -1 < x < 1 using Taylor series
+    def _sine_expr(var):
+        return f'{-3.5988432352121e-6} {var} * {var} * {0.00016044118478736} + {var} * {var} * {-0.0046817541353187} + {var} * {var} * {0.079692626246167} + {var} * {var} * {-0.64596409750625} + {var} * {var} * {1.5707963267949} + {var} *'
+
+    if not isinstance(input, vs.VideoNode):
+        raise vs.Error('SmoothLevels: this is not a clip')
+
+    if input.format.color_family == vs.RGB:
+        raise vs.Error('SmoothLevels: RGB format is not supported')
+
+    isGray = (input.format.color_family == vs.GRAY)
+
+    if input.format.sample_type == vs.INTEGER:
+        neutral = [1 << (input.format.bits_per_sample - 1)] * 2
+        peak = (1 << input.format.bits_per_sample) - 1
+    else:
+        neutral = [0.5, 0.0]
+        peak = 1.0
+
+    if chroma <= 0 and not isGray:
+        input_orig = input
+        input = plane(input, 0)
+    else:
+        input_orig = None
+
+    if input_high is None:
+        input_high = peak
+
+    if output_high is None:
+        output_high = peak
+
+    if Ecenter is None:
+        Ecenter = neutral[0]
+
+    if gamma <= 0:
+        raise vs.Error('SmoothLevels: gamma must be greater than 0.0')
+
+    if Ecenter <= 0 or Ecenter >= peak:
+        raise vs.Error('SmoothLevels: Ecenter must be greater than 0 and less than maximum value of input format')
+
+    if Mfactor <= 0:
+        raise vs.Error('SmoothLevels: Mfactor must be greater than 0')
+
+    if RGmode == 4:
+        RemoveGrain = partial(core.std.Median)
+    elif RGmode in [11, 12]:
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
+    elif RGmode == 19:
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
+    elif RGmode == 20:
+        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
+    else:
+        RemoveGrain = partial(core.rgvs.RemoveGrain, mode=[RGmode])
+
+    ### EXPRESSION
+    exprY = f'x {input_low} - {input_high - input_low + (input_high == input_low)} / {1 / gamma} pow {output_high - output_low} * {output_low} +'
+
+    if chroma > 0 and not isGray:
+        scaleC = ((output_high - output_low) / (input_high - input_low + (input_high == input_low)) + 100 / chroma - 1) / (100 / chroma)
+        exprC = f'x {neutral[1]} - {scaleC} * {neutral[1]} +'
+
+    Dstr = DarkSTR / 100
+    Bstr = BrightSTR / 100
+
+    if Lmode <= 0:
+        exprL = '1'
+    elif Ecurve <= 0:
+        if Lmode == 1:
+            var_d = f'x {Ecenter} /'
+            var_b = f'{peak} x - {peak} {Ecenter} - /'
+            exprL = f'x {Ecenter} < ' + _sine_expr(var_d) + f' {Dstr} pow x {Ecenter} > ' + _sine_expr(var_b) + f' {Bstr} pow 1 ? ?'
+        elif Lmode == 2:
+            var_d = f'x {peak} /'
+            exprL = _sine_expr(var_d) + f' {Dstr} pow'
+        else:
+            var_b = f'{peak} x - {peak} /'
+            exprL = _sine_expr(var_b) + f' {Bstr} pow'
+    else:
+        if Lmode == 1:
+            exprL = f'x {Ecenter} < x {Ecenter} / abs {Dstr} pow x {Ecenter} > 1 x {Ecenter} - {peak - Ecenter} / abs - {Bstr} pow 1 ? ?'
+        elif Lmode == 2:
+            exprL = f'1 x {peak} - {peak} / abs - {Dstr} pow'
+        else:
+            exprL = f'x {peak} - {peak} / abs {Bstr} pow'
+
+    if protect <= -1:
+        exprP = '1'
+    elif Ecurve <= 0:
+        var_p = f'x {protect} - {scale_8bit(input, 16)} /'
+        exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 ' + _sine_expr(var_p) + f' ? ?'
+    else:
+        exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 x {protect} - {scale_8bit(input, 16)} / abs ? ?'
+
+    ### PROCESS
+    if limiter == 1 or limiter >= 3:
+        limitI = input.std.Expr(expr=[f'x {input_low} max {input_high} min'])
+    else:
+        limitI = input
+
+    expr = exprL + ' ' + exprP + ' * ' + exprY + ' x - * x +'
+    level = limitI.std.Expr(expr=[expr] if chroma <= 0 or isGray else [expr, exprC])
+    diff = core.std.Expr([limitI, level], expr=[f'x y - {Mfactor} * {neutral[1]} +'])
+    process = RemoveGrain(diff)
+    if useDB:
+        process = process.std.Expr(expr=[f'x {neutral[1]} - {Mfactor} / {neutral[1]} +']).neo_f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
+        smth = core.std.MakeDiff(limitI, process)
+    else:
+        smth = core.std.Expr([limitI, process], expr=[f'x y {neutral[1]} - {Mfactor} / -'])
+
+    level2 = core.std.Expr([limitI, diff], expr=[f'x y {neutral[1]} - {Mfactor} / -'])
+    diff2 = core.std.Expr([level2, level], expr=[f'x y - {Mfactor} * {neutral[1]} +'])
+    process2 = RemoveGrain(diff2)
+    if useDB:
+        process2 = process2.std.Expr(expr=[f'x {neutral[1]} - {Mfactor} / {neutral[1]} +']).neo_f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
+        smth2 = core.std.MakeDiff(smth, process2)
+    else:
+        smth2 = core.std.Expr([smth, process2], expr=[f'x y {neutral[1]} - {Mfactor} / -'])
+
+    mask1 = core.std.Expr([limitI, level], expr=[f'x y - abs {neutral[0] / Mfactor} >= {peak} 0 ?'])
+    mask2 = core.std.Expr([limitI, level], expr=[f'x y - abs {peak / Mfactor} >= {peak} 0 ?'])
+
+    if Smode >= 2:
+        Slevel = smth2
+    elif Smode == 1:
+        Slevel = smth
+    elif Smode == -1:
+        Slevel = core.std.MaskedMerge(smth, level, mask1)
+    elif Smode <= -2:
+        Slevel = core.std.MaskedMerge(core.std.MaskedMerge(smth, smth2, mask1), level, mask2)
+    else:
+        Slevel = level
+
+    if limiter >= 2:
+        limitO = Slevel.std.Expr(expr=[f'x {output_low} max {output_high} min'])
+    else:
+        limitO = Slevel
+
+    if input_orig is not None:
+        limitO = core.std.ShufflePlanes([limitO, input_orig], planes=[0, 1, 2], colorfamily=input_orig.format.color_family)
+    return limitO
 
 
 ###### srestore v2.7e ######
@@ -2191,236 +4048,6 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     return change_fps(last.std.Cache(make_linear=True), Fraction(source.fps_num * numr, source.fps_den * denm))
 
 
-def dec_txt60mc(*args, **kwargs):
-    raise vs.Error("havsfunc.dec_txt60mc outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
-
-
-def ivtc_txt30mc(*args, **kwargs):
-    raise vs.Error("havsfunc.ivtc_txt30mc outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
-
-
-def ivtc_txt60mc(*args, **kwargs):
-    raise vs.Error("havsfunc.ivtc_txt60mc outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
-
-
-def Vinverse(*args, **kwargs):
-    raise vs.Error("havsfunc.Vinverse outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
-
-
-def Vinverse2(*args, **kwargs):
-    raise vs.Error("havsfunc.Vinverse2 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
-
-
-########################################################
-#                                                      #
-# LUTDeCrawl, a dot crawl removal script by Scintilla  #
-# Created 10/3/08                                      #
-# Last updated 10/3/08                                 #
-#                                                      #
-########################################################
-#
-# Requires YUV input, frame-based only.
-# Is of average speed (faster than VagueDenoiser, slower than HQDN3D).
-# Suggestions for improvement welcome: scintilla@aquilinestudios.org
-#
-# Arguments:
-#
-# ythresh (int, default=10) - This determines how close the luma values of the
-#   pixel in the previous and next frames have to be for the pixel to
-#   be hit.  Higher values (within reason) should catch more dot crawl,
-#   but may introduce unwanted artifacts.  Probably shouldn't be set
-#   above 20 or so.
-#
-# cthresh (int, default=10) - This determines how close the chroma values of the
-#   pixel in the previous and next frames have to be for the pixel to
-#   be hit.  Just as with ythresh.
-#
-# maxdiff (int, default=50) - This is the maximum difference allowed between the
-#   luma values of the pixel in the CURRENT frame and in each of its
-#   neighbour frames (so, the upper limit to what fluctuations are
-#   considered dot crawl).  Lower values will reduce artifacts but may
-#   cause the filter to miss some dot crawl.  Obviously, this should
-#   never be lower than ythresh.  Meaningless if usemaxdiff = false.
-#
-# scnchg (int, default=25) - Scene change detection threshold.  Any frame with
-#   total luma difference between it and the previous/next frame greater
-#   than this value will not be processed.
-#
-# usemaxdiff (bool, default=True) - Whether or not to reject luma fluctuations
-#   higher than maxdiff.  Setting this to false is not recommended, as
-#   it may introduce artifacts; but on the other hand, it produces a
-#   30% speed boost.  Test on your particular source.
-#
-# mask (bool, default=False) - When set true, the function will return the mask
-#   instead of the image.  Use to find the best values of cthresh,
-#   ythresh, and maxdiff.
-#   (The scene change threshold, scnchg, is not reflected in the mask.)
-#
-###################
-def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=True, mask=False):
-    def YDifferenceFromPrevious(n, f, clips):
-        if f.props['_SceneChangePrev']:
-            return clips[0]
-        else:
-            return clips[1]
-
-    def YDifferenceToNext(n, f, clips):
-        if f.props['_SceneChangeNext']:
-            return clips[0]
-        else:
-            return clips[1]
-
-    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 10:
-        raise vs.Error('LUTDeCrawl: This is not an 8-10 bit YUV clip')
-
-    shift = input.format.bits_per_sample - 8
-    peak = (1 << input.format.bits_per_sample) - 1
-
-    ythresh = scale_8bit(input, ythresh)
-    cthresh = scale_8bit(input, cthresh)
-    maxdiff = scale_8bit(input, maxdiff)
-
-    input_minus = input.std.DuplicateFrames(frames=[0])
-    input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
-
-    input_y = plane(input, 0)
-    input_minus_y = plane(input_minus, 0)
-    input_minus_u = plane(input_minus, 1)
-    input_minus_v = plane(input_minus, 2)
-    input_plus_y = plane(input_plus, 0)
-    input_plus_u = plane(input_plus, 1)
-    input_plus_v = plane(input_plus, 2)
-
-    average_y = core.std.Expr([input_minus_y, input_plus_y], expr=[f'x y - abs {ythresh} < x y + 2 / 0 ?'])
-    average_u = core.std.Expr([input_minus_u, input_plus_u], expr=[f'x y - abs {cthresh} < {peak} 0 ?'])
-    average_v = core.std.Expr([input_minus_v, input_plus_v], expr=[f'x y - abs {cthresh} < {peak} 0 ?'])
-
-    ymask = average_y.std.Binarize(threshold=1 << shift)
-    if usemaxdiff:
-        diffplus_y = core.std.Expr([input_plus_y, input_y], expr=[f'x y - abs {maxdiff} < {peak} 0 ?'])
-        diffminus_y = core.std.Expr([input_minus_y, input_y], expr=[f'x y - abs {maxdiff} < {peak} 0 ?'])
-        diffs_y = core.std.Lut2(diffplus_y, diffminus_y, function=lambda x, y: x & y)
-        ymask = core.std.Lut2(ymask, diffs_y, function=lambda x, y: x & y)
-    cmask = core.std.Lut2(average_u.std.Binarize(threshold=129 << shift), average_v.std.Binarize(threshold=129 << shift), function=lambda x, y: x & y)
-    cmask = cmask.resize.Point(input.width, input.height)
-
-    themask = core.std.Lut2(ymask, cmask, function=lambda x, y: x & y)
-
-    fixed_y = core.std.Merge(average_y, input_y)
-
-    output = core.std.ShufflePlanes([core.std.MaskedMerge(input_y, fixed_y, themask), input], planes=[0, 1, 2], colorfamily=input.format.color_family)
-
-    input = scdetect(input, scnchg / 255)
-    output = output.std.FrameEval(eval=partial(YDifferenceFromPrevious, clips=[input, output]), prop_src=input)
-    output = output.std.FrameEval(eval=partial(YDifferenceToNext, clips=[input, output]), prop_src=input)
-
-    if mask:
-        return themask
-    else:
-        return output
-
-
-#####################################################
-#                                                   #
-# LUTDeRainbow, a derainbowing script by Scintilla  #
-# Last updated 2022-10-08                           #
-#                                                   #
-#####################################################
-#
-# Requires YUV input, frame-based only.
-# Is of reasonable speed (faster than aWarpSharp, slower than DeGrainMedian).
-# Suggestions for improvement welcome: scintilla@aquilinestudios.org
-#
-# Arguments:
-#
-# cthresh (int, default=10) - This determines how close the chroma values of the
-#   pixel in the previous and next frames have to be for the pixel to
-#   be hit.  Higher values (within reason) should catch more rainbows,
-#   but may introduce unwanted artifacts.  Probably shouldn't be set
-#   above 20 or so.
-#
-# ythresh (int, default=10) - If the y parameter is set true, then this
-#   determines how close the luma values of the pixel in the previous
-#   and next frames have to be for the pixel to be hit.  Just as with
-#   cthresh.
-#
-# y (bool, default=True) - Determines whether luma difference will be considered
-#   in determining which pixels to hit and which to leave alone.
-#
-# linkUV (bool, default=True) - Determines whether both chroma channels are
-#   considered in determining which pixels in each channel to hit.
-#   When set true, only pixels that meet the thresholds for both U and
-#   V will be hit; when set false, the U and V channels are masked
-#   separately (so a pixel could have its U hit but not its V, or vice
-#   versa).
-#
-# mask (bool, default=False) - When set true, the function will return the mask
-#   (for combined U/V) instead of the image.  Formerly used to find the
-#   best values of cthresh and ythresh.  If linkUV=false, then this
-#   mask won't actually be used anyway (because each chroma channel
-#   will have its own mask).
-#
-###################
-def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False):
-    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 16:
-        raise vs.Error('LUTDeRainbow: This is not an 8-16 bit YUV clip')
-
-    # Since LUT2 can't handle clips with more than 10 bits, we default to using
-    # Expr and MaskedMerge to handle the same logic for higher bit depths.
-    useExpr = input.format.bits_per_sample > 10
-
-    shift = input.format.bits_per_sample - 8
-    peak = (1 << input.format.bits_per_sample) - 1
-
-    cthresh = scale_8bit(input, cthresh)
-    ythresh = scale_8bit(input, ythresh)
-
-    input_minus = input.std.DuplicateFrames(frames=[0])
-    input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
-
-    input_u = plane(input, 1)
-    input_v = plane(input, 2)
-    input_minus_y = plane(input_minus, 0)
-    input_minus_u = plane(input_minus, 1)
-    input_minus_v = plane(input_minus, 2)
-    input_plus_y = plane(input_plus, 0)
-    input_plus_u = plane(input_plus, 1)
-    input_plus_v = plane(input_plus, 2)
-
-    average_y = core.std.Expr([input_minus_y, input_plus_y], expr=[f'x y - abs {ythresh} < {peak} 0 ?']).resize.Bilinear(input_u.width, input_u.height)
-    average_u = core.std.Expr([input_minus_u, input_plus_u], expr=[f'x y - abs {cthresh} < x y + 2 / 0 ?'])
-    average_v = core.std.Expr([input_minus_v, input_plus_v], expr=[f'x y - abs {cthresh} < x y + 2 / 0 ?'])
-
-    umask = average_u.std.Binarize(threshold=21 << shift)
-    vmask = average_v.std.Binarize(threshold=21 << shift)
-
-    if useExpr:
-        themask = core.std.Expr([umask, vmask], expr=[f'x y + {peak + 1} < 0 {peak} ?'])
-        if y:
-            umask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, umask)
-            vmask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, vmask)
-            themask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, themask)
-    else:
-        themask = core.std.Lut2(umask, vmask, function=lambda x, y: x & y)
-        if y:
-            umask = core.std.Lut2(umask, average_y, function=lambda x, y: x & y)
-            vmask = core.std.Lut2(vmask, average_y, function=lambda x, y: x & y)
-            themask = core.std.Lut2(themask, average_y, function=lambda x, y: x & y)
-
-    fixed_u = core.std.Merge(average_u, input_u)
-    fixed_v = core.std.Merge(average_v, input_v)
-
-    output_u = core.std.MaskedMerge(input_u, fixed_u, themask if linkUV else umask)
-    output_v = core.std.MaskedMerge(input_v, fixed_v, themask if linkUV else vmask)
-
-    output = core.std.ShufflePlanes([input, output_u, output_v], planes=[0, 0, 0], colorfamily=input.format.color_family)
-
-    if mask:
-        return themask.resize.Point(input.width, input.height)
-    else:
-        return output
-
-
 ##############################################################################
 # Original script by g-force converted into a stand alone script by McCauley #
 # latest version from December 10, 2008                                      #
@@ -2434,622 +4061,6 @@ def Stab(clp, dxmax=4, dymax=4, mirror=0):
     mdata = inter.mv.DepanEstimate(trust=0, dxmax=dxmax, dymax=dymax)
     last = inter.mv.DepanCompensate(data=mdata, offset=-1, mirror=mirror)
     return last[::2]
-
-
-######
-###
-### GrainStabilizeMC v1.0      by mawen1250      2014.03.22
-###
-### Requirements: MVTools, RGVS
-###
-### Temporal-only on-top grain stabilizer
-### Only stabilize the difference ( on-top grain ) between source clip and spatial-degrained clip
-###
-### Parameters:
-###  nrmode (int)   - Mode to get grain/noise from input clip. 0: 3x3 Average Blur, 1: 3x3 SBR, 2: 5x5 SBR, 3: 7x7 SBR. Or define your own denoised clip "p". Default is 2 for HD / 1 for SD
-###  radius (int)   - Temporal radius of MDegrain for grain stabilize (1-3). Default is 1
-###  adapt (int)    - Threshold for luma-adaptative mask. -1: off, 0: source, 255: invert. Or define your own luma mask clip "Lmask". Default is -1
-###  rep (int)      - Mode of repair to avoid artifacts, set 0 to turn off this operation. Default is 13
-###  planes (int[]) - Whether to process the corresponding plane. The other planes will be passed through unchanged.
-###
-######
-def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, planes=None, thSAD=300, thSADC=None, thSCD1=300, thSCD2=100, limit=None, limitc=None):
-    if not isinstance(input, vs.VideoNode):
-        raise vs.Error('GSMC: this is not a clip')
-
-    if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
-        raise vs.Error("GSMC: 'p' must be the same format as input")
-
-    if Lmask is not None and not isinstance(Lmask, vs.VideoNode):
-        raise vs.Error("GSMC: 'Lmask' is not a clip")
-
-    neutral = 1 << (input.format.bits_per_sample - 1)
-    peak = (1 << input.format.bits_per_sample) - 1
-
-    if planes is None:
-        planes = list(range(input.format.num_planes))
-    elif isinstance(planes, int):
-        planes = [planes]
-
-    HD = input.width > 1024 or input.height > 576
-
-    if nrmode is None:
-        nrmode = 2 if HD else 1
-    if thSADC is None:
-        thSADC = thSAD // 2
-    if limit is not None:
-        limit = scale_8bit(input, limit)
-    if limitc is not None:
-        limitc = scale_8bit(input, limitc)
-
-    Y = 0 in planes
-    U = 1 in planes
-    V = 2 in planes
-
-    chromamv = U or V
-    blksize = 32 if HD else 16
-    overlap = blksize // 4
-    if not Y:
-        if not U:
-            plane = 2
-        elif not V:
-            plane = 1
-        else:
-            plane = 3
-    elif not (U or V):
-        plane = 0
-    else:
-        plane = 4
-
-    # Kernel: Spatial Noise Dumping
-    if p is not None:
-        pre_nr = p
-    elif nrmode <= 0:
-        pre_nr = input.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1], planes=planes)
-    else:
-        pre_nr = sbr(input, nrmode, planes=planes)
-    dif_nr = core.std.MakeDiff(input, pre_nr, planes=planes)
-
-    # Kernel: MC Grain Stabilize
-    psuper = prefilter_to_full_range(pre_nr, 2, planes).mv.Super(pel=1, chroma=chromamv)
-    difsuper = dif_nr.mv.Super(pel=1, levels=1, chroma=chromamv)
-
-    analyse_args = dict(blksize=blksize, chroma=chromamv, truemotion=False, global_=True, overlap=overlap)
-    fv1 = psuper.mv.Analyse(isb=False, delta=1, **analyse_args)
-    bv1 = psuper.mv.Analyse(isb=True, delta=1, **analyse_args)
-    if radius >= 2:
-        fv2 = psuper.mv.Analyse(isb=False, delta=2, **analyse_args)
-        bv2 = psuper.mv.Analyse(isb=True, delta=2, **analyse_args)
-    if radius >= 3:
-        fv3 = psuper.mv.Analyse(isb=False, delta=3, **analyse_args)
-        bv3 = psuper.mv.Analyse(isb=True, delta=3, **analyse_args)
-
-    degrain_args = dict(thsad=thSAD, thsadc=thSADC, plane=plane, limit=limit, limitc=limitc, thscd1=thSCD1, thscd2=thSCD2)
-    if radius <= 1:
-        dif_sb = core.mv.Degrain1(dif_nr, difsuper, bv1, fv1, **degrain_args)
-    elif radius == 2:
-        dif_sb = core.mv.Degrain2(dif_nr, difsuper, bv1, fv1, bv2, fv2, **degrain_args)
-    else:
-        dif_sb = core.mv.Degrain3(dif_nr, difsuper, bv1, fv1, bv2, fv2, bv3, fv3, **degrain_args)
-
-    # Post-Process: Luma-Adaptive Mask Merging & Repairing
-    stable = core.std.MergeDiff(pre_nr, dif_sb, planes=planes)
-    if rep > 0:
-        stable = core.rgvs.Repair(stable, input, mode=[rep if i in planes else 0 for i in range(input.format.num_planes)])
-
-    if Lmask is not None:
-        return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
-    elif adapt <= -1:
-        return stable
-    else:
-        input_y = plane(input, 0)
-        if adapt == 0:
-            Lmask = input_y.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
-        elif adapt >= 255:
-            Lmask = input_y.std.Invert().std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
-        else:
-            expr = 'x {adapt} - abs {peak} * {adapt} {neutral} - abs {neutral} + /'.format(adapt=scale_8bit(input, adapt), peak=peak, neutral=neutral)
-            Lmask = input_y.std.Expr(expr=[expr]).std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
-        return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
-
-
-####################################################################################################################################
-###                                                                                                                              ###
-###                                   Motion-Compensated Temporal Denoise: MCTemporalDenoise()                                   ###
-###                                                                                                                              ###
-###                                                     v1.4.20 by "LaTo INV."                                                   ###
-###                                                                                                                              ###
-###                                                           2 July 2010                                                        ###
-###                                                                                                                              ###
-####################################################################################################################################
-###
-###
-###
-### /!\ Needed filters: MVTools, DFTTest, FFT3DFilter, TTempSmooth, RGVS, Deblock, DCTFilter
-### -------------------
-###
-###
-###
-### USAGE: MCTemporalDenoise(i, radius, pfMode, sigma, twopass, useTTmpSm, limit, limit2, post, chroma, refine,
-###                          deblock, useQED, quant1, quant2,
-###                          edgeclean, ECrad, ECthr,
-###                          stabilize, maxr, TTstr,
-###                          bwbh, owoh, blksize, overlap,
-###                          bt, ncpu,
-###                          thSAD, thSADC, thSAD2, thSADC2, thSCD1, thSCD2,
-###                          truemotion, MVglobal, pel, pelsearch, search, searchparam, MVsharp, DCT,
-###                          p, settings)
-###
-###
-###
-### PARAMETERS:
-### -----------
-###
-### +---------+
-### | DENOISE |
-### +---------+--------------------------------------------------------------------------------------+
-### | radius    : Temporal radius [1...6]                                                            |
-### | pfMode    : Pre-filter mode [-1=off,0=FFT3DFilter,1=MinBlur(1),2=MinBlur(2),3=DFTTest]         |
-### | sigma     : FFT3D sigma for the pre-filtering clip (if pfMode=0)                               |
-### | twopass   : Do the denoising job in 2 stages (stronger but very slow)                          |
-### | useTTmpSm : Use MDegrain (faster) or MCompensate+TTempSmooth (stronger)                        |
-### | limit     : Limit the effect of the first denoising [-1=auto,0=off,1...255]                    |
-### | limit2    : Limit the effect of the second denoising (if twopass=true) [-1=auto,0=off,1...255] |
-### | post      : Sigma value for post-denoising with FFT3D [0=off,...]                              |
-### | chroma    : Process or not the chroma plane                                                    |
-### | refine    : Refine and recalculate motion data of previously estimated motion vectors          |
-### +------------------------------------------------------------------------------------------------+
-###
-###
-### +---------+
-### | DEBLOCK |
-### +---------+-----------------------------------------------------------------------------------+
-### | deblock : Enable deblocking before the denoising                                            |
-### | useQED  : If true, use Deblock_QED, else use Deblock (faster & stronger)                    |
-### | quant1  : Deblock_QED "quant1" parameter (Deblock "quant" parameter is "(quant1+quant2)/2") |
-### | quant2  : Deblock_QED "quant2" parameter (Deblock "quant" parameter is "(quant1+quant2)/2") |
-### +---------------------------------------------------------------------------------------------+
-###
-###
-### +------------------------------+
-### | EDGECLEAN: DERING, DEHALO... |
-### +------------------------------+-----------------------------------------------------------------------------------------------------+
-### | edgeclean : Enable safe edgeclean process after the denoising (only on edges which are in non-detailed areas, so less detail loss) |
-### | ECrad     : Radius for mask (the higher, the greater distance from the edge is filtered)                                           |
-### | ECthr     : Threshold for mask (the higher, the less "small edges" are process) [0...255]                                          |
-### +------------------------------------------------------------------------------------------------------------------------------------+
-###
-###
-### +-----------+
-### | STABILIZE |
-### +-----------+------------------------------------------------------------------------------------------------+
-### | stabilize : Enable TTempSmooth post processing to stabilize flat areas (background will be less "nervous") |
-### | maxr      : Temporal radius (the higher, the more stable image)                                            |
-### | TTstr     : Strength (see TTempSmooth docs)                                                                |
-### +------------------------------------------------------------------------------------------------------------+
-###
-###
-### +---------------------+
-### | BLOCKSIZE / OVERLAP |
-### +---------------------+----------------+
-### | bwbh    : FFT3D blocksize            |
-### | owoh    : FFT3D overlap              |
-### |             - for speed:   bwbh/4    |
-### |             - for quality: bwbh/2    |
-### | blksize : MVTools blocksize          |
-### | overlap : MVTools overlap            |
-### |             - for speed:   blksize/4 |
-### |             - for quality: blksize/2 |
-### +--------------------------------------+
-###
-###
-### +-------+
-### | FFT3D |
-### +-------+--------------------------+
-### | bt   : FFT3D block temporal size |
-### | ncpu : FFT3DFilter ncpu          |
-### +----------------------------------+
-###
-###
-### +---------+
-### | MVTOOLS |
-### +---------+------------------------------------------------------+
-### | thSAD   : MVTools thSAD for the first pass                     |
-### | thSADC  : MVTools thSADC for the first pass                    |
-### | thSAD2  : MVTools thSAD for the second pass (if twopass=true)  |
-### | thSADC2 : MVTools thSADC for the second pass (if twopass=true) |
-### | thSCD1  : MVTools thSCD1                                       |
-### | thSCD2  : MVTools thSCD2                                       |
-### +-----------------------------------+----------------------------+
-### | truemotion  : MVTools truemotion  |
-### | MVglobal    : MVTools global      |
-### | pel         : MVTools pel         |
-### | pelsearch   : MVTools pelsearch   |
-### | search      : MVTools search      |
-### | searchparam : MVTools searchparam |
-### | MVsharp     : MVTools sharp       |
-### | DCT         : MVTools DCT         |
-### +-----------------------------------+
-###
-###
-### +--------+
-### | GLOBAL |
-### +--------+-----------------------------------------------------+
-### | p        : Set an external prefilter clip                    |
-### | settings : Global MCTemporalDenoise settings [default="low"] |
-### |             - "very low"                                     |
-### |             - "low"                                          |
-### |             - "medium"                                       |
-### |             - "high"                                         |
-### |             - "very high"                                    |
-### +--------------------------------------------------------------+
-###
-###
-###
-### DEFAULTS:
-### ---------
-###
-### +-------------+----------------------+----------------------+----------------------+----------------------+----------------------+
-### | SETTINGS    |      VERY LOW        |      LOW             |      MEDIUM          |      HIGH            |      VERY HIGH       |
-### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
-### | radius      |      1               |      2               |      3               |      2               |      3               |
-### | pfMode      |      3               |      3               |      3               |      3               |      3               |
-### | sigma       |      2               |      4               |      8               |      12              |      16              |
-### | twopass     |      false           |      false           |      false           |      true            |      true            |
-### | useTTmpSm   |      false           |      false           |      false           |      false           |      false           |
-### | limit       |      -1              |      -1              |      -1              |      -1              |      0               |
-### | limit2      |      -1              |      -1              |      -1              |      0               |      0               |
-### | post        |      0               |      0               |      0               |      0               |      0               |
-### | chroma      |      false           |      false           |      true            |      true            |      true            |
-### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
-### | deblock     |      false           |      false           |      false           |      false           |      false           |
-### | useQED      |      true            |      true            |      true            |      false           |      false           |
-### | quant1      |      10              |      20              |      30              |      30              |      40              |
-### | quant2      |      20              |      40              |      60              |      60              |      80              |
-### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
-### | edgeclean   |      false           |      false           |      false           |      false           |      false           |
-### | ECrad       |      1               |      2               |      3               |      4               |      5               |
-### | ECthr       |      64              |      32              |      32              |      16              |      16              |
-### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
-### | stabilize   |      false           |      false           |      false           |      true            |      true            |
-### | maxr        |      1               |      1               |      2               |      2               |      2               |
-### | TTstr       |      1               |      1               |      1               |      2               |      2               |
-### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
-### | bwbh        |      HD?16:8         |      HD?16:8         |      HD?16:8         |      HD?16:8         |      HD?16:8         |
-### | owoh        |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |
-### | blksize     |      HD?16:8         |      HD?16:8         |      HD?16:8         |      HD?16:8         |      HD?16:8         |
-### | overlap     |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |      HD? 8:4         |
-### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
-### | bt          |      1               |      3               |      3               |      3               |      4               |
-### | ncpu        |      1               |      1               |      1               |      1               |      1               |
-### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
-### | thSAD       |      200             |      300             |      400             |      500             |      600             |
-### | thSADC      |      thSAD/2         |      thSAD/2         |      thSAD/2         |      thSAD/2         |      thSAD/2         |
-### | thSAD2      |      200             |      300             |      400             |      500             |      600             |
-### | thSADC2     |      thSAD2/2        |      thSAD2/2        |      thSAD2/2        |      thSAD2/2        |      thSAD2/2        |
-### | thSCD1      |      200             |      300             |      400             |      500             |      600             |
-### | thSCD2      |      90              |      100             |      100             |      130             |      130             |
-### |-------------+----------------------+----------------------+----------------------+----------------------+----------------------|
-### | truemotion  |      false           |      false           |      false           |      false           |      false           |
-### | MVglobal    |      true            |      true            |      true            |      true            |      true            |
-### | pel         |      1               |      2               |      2               |      2               |      2               |
-### | pelsearch   |      1               |      2               |      2               |      2               |      2               |
-### | search      |      4               |      4               |      4               |      4               |      4               |
-### | searchparam |      2               |      2               |      2               |      2               |      2               |
-### | MVsharp     |      2               |      2               |      2               |      1               |      0               |
-### | DCT         |      0               |      0               |      0               |      0               |      0               |
-### +-------------+----------------------+----------------------+----------------------+----------------------+----------------------+
-###
-####################################################################################################################################
-def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTmpSm=False, limit=None, limit2=None, post=0, chroma=None, refine=False, deblock=False, useQED=None, quant1=None,
-                      quant2=None, edgeclean=False, ECrad=None, ECthr=None, stabilize=None, maxr=None, TTstr=None, bwbh=None, owoh=None, blksize=None, overlap=None, bt=None, ncpu=1, thSAD=None,
-                      thSADC=None, thSAD2=None, thSADC2=None, thSCD1=None, thSCD2=None, truemotion=False, MVglobal=True, pel=None, pelsearch=None, search=4, searchparam=2, MVsharp=None, DCT=0, p=None,
-                      settings='low'):
-    if not isinstance(i, vs.VideoNode):
-        raise vs.Error('MCTemporalDenoise: this is not a clip')
-
-    if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != i.format.id):
-        raise vs.Error("MCTemporalDenoise: 'p' must be the same format as input")
-
-    isGray = (i.format.color_family == vs.GRAY)
-
-    neutral = 1 << (i.format.bits_per_sample - 1)
-    peak = (1 << i.format.bits_per_sample) - 1
-
-    ### DEFAULTS
-    try:
-        settings_num = ['very low', 'low', 'medium', 'high', 'very high'].index(settings.lower())
-    except:
-        raise vs.Error('MCTemporalDenoise: these settings do not exist')
-
-    HD = i.width > 1024 or i.height > 576
-
-    if radius is None:
-        radius = [1, 2, 3, 2, 3][settings_num]
-    if sigma is None:
-        sigma = [2, 4, 8, 12, 16][settings_num]
-    if twopass is None:
-        twopass = [False, False, False, True, True][settings_num]
-    if limit is None:
-        limit = [-1, -1, -1, -1, 0][settings_num]
-    if limit2 is None:
-        limit2 = [-1, -1, -1, 0, 0][settings_num]
-    if chroma is None:
-        chroma = [False, False, True, True, True][settings_num]
-    if useQED is None:
-        useQED = [True, True, True, False, False][settings_num]
-    if quant1 is None:
-        quant1 = [10, 20, 30, 30, 40][settings_num]
-    if quant2 is None:
-        quant2 = [20, 40, 60, 60, 80][settings_num]
-    if ECrad is None:
-        ECrad = [1, 2, 3, 4, 5][settings_num]
-    if ECthr is None:
-        ECthr = [64, 32, 32, 16, 16][settings_num]
-    if stabilize is None:
-        stabilize = [False, False, False, True, True][settings_num]
-    if maxr is None:
-        maxr = [1, 1, 2, 2, 2][settings_num]
-    if TTstr is None:
-        TTstr = [1, 1, 1, 2, 2][settings_num]
-    if bwbh is None:
-        bwbh = 16 if HD else 8
-    if owoh is None:
-        owoh = 8 if HD else 4
-    if blksize is None:
-        blksize = 16 if HD else 8
-    if overlap is None:
-        overlap = 8 if HD else 4
-    if bt is None:
-        bt = [1, 3, 3, 3, 4][settings_num]
-    if thSAD is None:
-        thSAD = [200, 300, 400, 500, 600][settings_num]
-    if thSADC is None:
-        thSADC = thSAD // 2
-    if thSAD2 is None:
-        thSAD2 = [200, 300, 400, 500, 600][settings_num]
-    if thSADC2 is None:
-        thSADC2 = thSAD2 // 2
-    if thSCD1 is None:
-        thSCD1 = [200, 300, 400, 500, 600][settings_num]
-    if thSCD2 is None:
-        thSCD2 = [90, 100, 100, 130, 130][settings_num]
-    if pel is None:
-        pel = [1, 2, 2, 2, 2][settings_num]
-    if pelsearch is None:
-        pelsearch = [1, 2, 2, 2, 2][settings_num]
-    if MVsharp is None:
-        MVsharp = [2, 2, 2, 1, 0][settings_num]
-
-    sigma *= peak / 255
-    limit = scale_8bit(i, limit)
-    limit2 = scale_8bit(i, limit2)
-    post *= peak / 255
-    ECthr = scale_8bit(i, ECthr)
-    planes = [0, 1, 2] if chroma and not isGray else [0]
-
-    ### INPUT
-    mod = bwbh if bwbh >= blksize else blksize
-    xi = i.width
-    xf = math.ceil(xi / mod) * mod - xi + mod
-    xn = int(xi + xf)
-    yi = i.height
-    yf = math.ceil(yi / mod) * mod - yi + mod
-    yn = int(yi + yf)
-
-    pointresize_args = dict(width=xn, height=yn, src_left=-xf / 2, src_top=-yf / 2, src_width=xn, src_height=yn)
-    i = i.resize.Point(**pointresize_args)
-
-    ### PREFILTERING
-    fft3d_args = dict(planes=planes, bw=bwbh, bh=bwbh, bt=bt, ow=owoh, oh=owoh, ncpu=ncpu)
-    if p is not None:
-        p = p.resize.Point(**pointresize_args)
-    elif pfMode <= -1:
-        p = i
-    elif pfMode == 0:
-        p = i.fft3dfilter.FFT3DFilter(sigma=sigma * 0.8, sigma2=sigma * 0.6, sigma3=sigma * 0.4, sigma4=sigma * 0.2, **fft3d_args)
-    elif pfMode >= 3:
-        p = i.dfttest.DFTTest(tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0], planes=planes)
-    else:
-        p = min_blur(i, pfMode, planes)
-
-    pD = core.std.MakeDiff(i, p, planes=planes)
-    p = prefilter_to_full_range(p, 2, planes)
-
-    ### DEBLOCKING
-    crop_args = dict(left=xf // 2, right=xf // 2, top=yf // 2, bottom=yf // 2)
-    if not deblock:
-        d = i
-    elif useQED:
-        d = Deblock_QED(i.std.Crop(**crop_args), quant1=quant1, quant2=quant2, uv=3 if chroma else 2).resize.Point(**pointresize_args)
-    else:
-        d = i.std.Crop(**crop_args).deblock.Deblock(quant=(quant1 + quant2) // 2, planes=planes).resize.Point(**pointresize_args)
-
-    ### PREPARING
-    super_args = dict(hpad=0, vpad=0, pel=pel, chroma=chroma, sharp=MVsharp)
-    pMVS = p.mv.Super(rfilter=4 if refine else 2, **super_args)
-    if refine:
-        rMVS = p.mv.Super(levels=1, **super_args)
-
-    analyse_args = dict(blksize=blksize, search=search, searchparam=searchparam, pelsearch=pelsearch, chroma=chroma, truemotion=truemotion, global_=MVglobal, overlap=overlap, dct=DCT)
-    recalculate_args = dict(thsad=thSAD // 2, blksize=max(blksize // 2, 4), search=search, chroma=chroma, truemotion=truemotion, overlap=max(overlap // 2, 2), dct=DCT)
-    f1v = pMVS.mv.Analyse(isb=False, delta=1, **analyse_args)
-    b1v = pMVS.mv.Analyse(isb=True, delta=1, **analyse_args)
-    if refine:
-        f1v = core.mv.Recalculate(rMVS, f1v, **recalculate_args)
-        b1v = core.mv.Recalculate(rMVS, b1v, **recalculate_args)
-    if radius > 1:
-        f2v = pMVS.mv.Analyse(isb=False, delta=2, **analyse_args)
-        b2v = pMVS.mv.Analyse(isb=True, delta=2, **analyse_args)
-        if refine:
-            f2v = core.mv.Recalculate(rMVS, f2v, **recalculate_args)
-            b2v = core.mv.Recalculate(rMVS, b2v, **recalculate_args)
-    if radius > 2:
-        f3v = pMVS.mv.Analyse(isb=False, delta=3, **analyse_args)
-        b3v = pMVS.mv.Analyse(isb=True, delta=3, **analyse_args)
-        if refine:
-            f3v = core.mv.Recalculate(rMVS, f3v, **recalculate_args)
-            b3v = core.mv.Recalculate(rMVS, b3v, **recalculate_args)
-    if radius > 3:
-        f4v = pMVS.mv.Analyse(isb=False, delta=4, **analyse_args)
-        b4v = pMVS.mv.Analyse(isb=True, delta=4, **analyse_args)
-        if refine:
-            f4v = core.mv.Recalculate(rMVS, f4v, **recalculate_args)
-            b4v = core.mv.Recalculate(rMVS, b4v, **recalculate_args)
-    if radius > 4:
-        f5v = pMVS.mv.Analyse(isb=False, delta=5, **analyse_args)
-        b5v = pMVS.mv.Analyse(isb=True, delta=5, **analyse_args)
-        if refine:
-            f5v = core.mv.Recalculate(rMVS, f5v, **recalculate_args)
-            b5v = core.mv.Recalculate(rMVS, b5v, **recalculate_args)
-    if radius > 5:
-        f6v = pMVS.mv.Analyse(isb=False, delta=6, **analyse_args)
-        b6v = pMVS.mv.Analyse(isb=True, delta=6, **analyse_args)
-        if refine:
-            f6v = core.mv.Recalculate(rMVS, f6v, **recalculate_args)
-            b6v = core.mv.Recalculate(rMVS, b6v, **recalculate_args)
-
-    # if useTTmpSm or stabilize:
-        # mask_args = dict(ml=thSAD, gamma=0.999, kind=1, ysc=255)
-        # SAD_f1m = core.mv.Mask(d, f1v, **mask_args)
-        # SAD_b1m = core.mv.Mask(d, b1v, **mask_args)
-
-    def MCTD_MVD(i, iMVS, thSAD, thSADC):
-        degrain_args = dict(thsad=thSAD, thsadc=thSADC, plane=4 if chroma else 0, thscd1=thSCD1, thscd2=thSCD2)
-        if radius <= 1:
-            sm = core.mv.Degrain1(i, iMVS, b1v, f1v, **degrain_args)
-        elif radius == 2:
-            sm = core.mv.Degrain2(i, iMVS, b1v, f1v, b2v, f2v, **degrain_args)
-        elif radius == 3:
-            sm = core.mv.Degrain3(i, iMVS, b1v, f1v, b2v, f2v, b3v, f3v, **degrain_args)
-        elif radius == 4:
-            mv12 = core.mv.Degrain2(i, iMVS, b1v, f1v, b2v, f2v, **degrain_args)
-            mv34 = core.mv.Degrain2(i, iMVS, b3v, f3v, b4v, f4v, **degrain_args)
-            sm = core.std.Merge(mv12, mv34, weight=[0.4444])
-        elif radius == 5:
-            mv123 = core.mv.Degrain3(i, iMVS, b1v, f1v, b2v, f2v, b3v, f3v, **degrain_args)
-            mv45 = core.mv.Degrain2(i, iMVS, b4v, f4v, b5v, f5v, **degrain_args)
-            sm = core.std.Merge(mv123, mv45, weight=[0.4545])
-        else:
-            mv123 = core.mv.Degrain3(i, iMVS, b1v, f1v, b2v, f2v, b3v, f3v, **degrain_args)
-            mv456 = core.mv.Degrain3(i, iMVS, b4v, f4v, b5v, f5v, b6v, f6v, **degrain_args)
-            sm = core.std.Merge(mv123, mv456, weight=[0.4615])
-
-        return sm
-
-    def MCTD_TTSM(i, iMVS, thSAD):
-        compensate_args = dict(thsad=thSAD, thscd1=thSCD1, thscd2=thSCD2)
-        f1c = core.mv.Compensate(i, iMVS, f1v, **compensate_args)
-        b1c = core.mv.Compensate(i, iMVS, b1v, **compensate_args)
-        if radius > 1:
-            f2c = core.mv.Compensate(i, iMVS, f2v, **compensate_args)
-            b2c = core.mv.Compensate(i, iMVS, b2v, **compensate_args)
-            # SAD_f2m = core.mv.Mask(i, f2v, **mask_args)
-            # SAD_b2m = core.mv.Mask(i, b2v, **mask_args)
-        if radius > 2:
-            f3c = core.mv.Compensate(i, iMVS, f3v, **compensate_args)
-            b3c = core.mv.Compensate(i, iMVS, b3v, **compensate_args)
-            # SAD_f3m = core.mv.Mask(i, f3v, **mask_args)
-            # SAD_b3m = core.mv.Mask(i, b3v, **mask_args)
-        if radius > 3:
-            f4c = core.mv.Compensate(i, iMVS, f4v, **compensate_args)
-            b4c = core.mv.Compensate(i, iMVS, b4v, **compensate_args)
-            # SAD_f4m = core.mv.Mask(i, f4v, **mask_args)
-            # SAD_b4m = core.mv.Mask(i, b4v, **mask_args)
-        if radius > 4:
-            f5c = core.mv.Compensate(i, iMVS, f5v, **compensate_args)
-            b5c = core.mv.Compensate(i, iMVS, b5v, **compensate_args)
-            # SAD_f5m = core.mv.Mask(i, f5v, **mask_args)
-            # SAD_b5m = core.mv.Mask(i, b5v, **mask_args)
-        if radius > 5:
-            f6c = core.mv.Compensate(i, iMVS, f6v, **compensate_args)
-            b6c = core.mv.Compensate(i, iMVS, b6v, **compensate_args)
-            # SAD_f6m = core.mv.Mask(i, f6v, **mask_args)
-            # SAD_b6m = core.mv.Mask(i, b6v, **mask_args)
-
-        # b = i.std.BlankClip(color=[0] if isGray else [0, neutral, neutral])
-        if radius <= 1:
-            c = core.std.Interleave([f1c, i, b1c])
-            # SAD_m = core.std.Interleave([SAD_f1m, b, SAD_b1m])
-        elif radius == 2:
-            c = core.std.Interleave([f2c, f1c, i, b1c, b2c])
-            # SAD_m = core.std.Interleave([SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m])
-        elif radius == 3:
-            c = core.std.Interleave([f3c, f2c, f1c, i, b1c, b2c, b3c])
-            # SAD_m = core.std.Interleave([SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m])
-        elif radius == 4:
-            c = core.std.Interleave([f4c, f3c, f2c, f1c, i, b1c, b2c, b3c, b4c])
-            # SAD_m = core.std.Interleave([SAD_f4m, SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m, SAD_b4m])
-        elif radius == 5:
-            c = core.std.Interleave([f5c, f4c, f3c, f2c, f1c, i, b1c, b2c, b3c, b4c, b5c])
-            # SAD_m = core.std.Interleave([SAD_f5m, SAD_f4m, SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m, SAD_b4m, SAD_b5m])
-        else:
-            c = core.std.Interleave([f6c, f5c, f4c, f3c, f2c, f1c, i, b1c, b2c, b3c, b4c, b5c, b6c])
-            # SAD_m = core.std.Interleave([SAD_f6m, SAD_f5m, SAD_f4m, SAD_f3m, SAD_f2m, SAD_f1m, b, SAD_b1m, SAD_b2m, SAD_b3m, SAD_b4m, SAD_b5m, SAD_b6m])
-
-        # sm = c.ttmpsm.TTempSmooth(maxr=radius, thresh=[255], mdiff=[1], strength=radius + 1, scthresh=99.9, fp=False, pfclip=SAD_m, planes=planes)
-        sm = c.ttmpsm.TTempSmooth(maxr=radius, thresh=[255], mdiff=[1], strength=radius + 1, scthresh=99.9, fp=False, planes=planes)
-        return sm.std.SelectEvery(cycle=radius * 2 + 1, offsets=[radius])
-
-    ### DENOISING: FIRST PASS
-    dMVS = d.mv.Super(levels=1, **super_args)
-    sm = MCTD_TTSM(d, dMVS, thSAD) if useTTmpSm else MCTD_MVD(d, dMVS, thSAD, thSADC)
-
-    if limit <= -1:
-        smD = core.std.MakeDiff(i, sm, planes=planes)
-        expr = f'x {neutral} - abs y {neutral} - abs < x y ?'
-        DD = core.std.Expr([pD, smD], expr=[expr] if chroma or isGray else [expr, ''])
-        smL = core.std.MakeDiff(i, DD, planes=planes)
-    elif limit > 0:
-        expr = f'x y - abs {limit} <= x x y - 0 < y {limit} - y {limit} + ? ?'
-        smL = core.std.Expr([sm, i], expr=[expr] if chroma or isGray else [expr, ''])
-    else:
-        smL = sm
-
-    ### DENOISING: SECOND PASS
-    if twopass:
-        smLMVS = smL.mv.Super(levels=1, **super_args)
-        sm = MCTD_TTSM(smL, smLMVS, thSAD2) if useTTmpSm else MCTD_MVD(smL, smLMVS, thSAD2, thSADC2)
-
-        if limit2 <= -1:
-            smD = core.std.MakeDiff(i, sm, planes=planes)
-            expr = f'x {neutral} - abs y {neutral} - abs < x y ?'
-            DD = core.std.Expr([pD, smD], expr=[expr] if chroma or isGray else [expr, ''])
-            smL = core.std.MakeDiff(i, DD, planes=planes)
-        elif limit2 > 0:
-            expr = f'x y - abs {limit2} <= x x y - 0 < y {limit2} - y {limit2} + ? ?'
-            smL = core.std.Expr([sm, i], expr=[expr] if chroma or isGray else [expr, ''])
-        else:
-            smL = sm
-
-    ### POST-DENOISING: FFT3D
-    if post <= 0:
-        smP = smL
-    else:
-        smP = smL.fft3dfilter.FFT3DFilter(sigma=post * 0.8, sigma2=post * 0.6, sigma3=post * 0.4, sigma4=post * 0.2, **fft3d_args)
-
-    ### EDGECLEANING
-    if edgeclean:
-        mP = avs_prewitt(plane(smP, 0))
-        mS = Morpho.expand(mP, ECrad).std.Inflate()
-        mD = core.std.Expr([mS, mP.std.Inflate()], expr=[f'x y - {ECthr} <= 0 x y - ?']).std.Inflate().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-        smP = core.std.MaskedMerge(smP, DeHalo_alpha(smP.dfttest.DFTTest(tbsize=1, planes=planes), darkstr=0), mD, planes=planes)
-
-    ### STABILIZING
-    if stabilize:
-        # mM = core.std.Merge(plane(SAD_f1m, 0), plane(SAD_b1m, 0)).std.Lut(function=lambda x: min(cround(x ** 1.6), peak))
-        mE = avs_prewitt(plane(smP, 0)).std.Lut(function=lambda x: min(cround(x ** 1.8), peak)).std.Median().std.Inflate()
-        # mF = core.std.Expr([mM, mE], expr=['x y max']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-        mF = mE.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-        TTc = smP.ttmpsm.TTempSmooth(maxr=maxr, mdiff=[255], strength=TTstr, planes=planes)
-        smP = core.std.MaskedMerge(TTc, smP, mF, planes=planes)
-
-    ### OUTPUT
-    return smP.std.Crop(**crop_args)
-
-
-def SMDegrain(*args, **kwargs):
-    raise vs.Error("havsfunc.SMDegrain outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-denoise instead.")
 
 
 def STPresso(
@@ -3153,353 +4164,6 @@ def STPresso(
     return last
 
 
-def bbmod(*args, **kwargs):
-    raise vs.Error("havsfunc.bbmod outdated. Use https://github.com/OpusGang/awsmfunc instead.")
-
-
-def GrainFactory3(*args, **kwargs):
-    raise vs.Error("havsfunc.GrainFactory3 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deband instead.")
-
-
-def FixColumnBrightness(*args, **kwargs):
-    raise vs.Error("havsfunc.FixColumnBrightness outdated. Use https://github.com/OpusGang/awsmfunc instead.")
-
-
-def FixRowBrightness(*args, **kwargs):
-    raise vs.Error("havsfunc.FixRowBrightness outdated. Use https://github.com/OpusGang/awsmfunc instead.")
-
-
-def FixColumnBrightnessProtect(*args, **kwargs):
-    raise vs.Error("havsfunc.FixColumnBrightnessProtect outdated. Use https://github.com/OpusGang/awsmfunc instead.")
-
-
-def FixRowBrightnessProtect(*args, **kwargs):
-    raise vs.Error("havsfunc.FixRowBrightnessProtect outdated. Use https://github.com/OpusGang/awsmfunc instead.")
-
-
-def FixColumnBrightnessProtect2(*args, **kwargs):
-    raise vs.Error("havsfunc.FixColumnBrightnessProtect2 outdated. Use https://github.com/OpusGang/awsmfunc instead.")
-
-
-def FixRowBrightnessProtect2(*args, **kwargs):
-    raise vs.Error("havsfunc.FixRowBrightnessProtect2 outdated. Use https://github.com/OpusGang/awsmfunc instead.")
-
-
-#########################################################################################
-###                                                                                   ###
-###                      function Smooth Levels : SmoothLevels()                      ###
-###                                                                                   ###
-###                                v1.02 by "LaTo INV."                               ###
-###                                                                                   ###
-###                                  28 January 2009                                  ###
-###                                                                                   ###
-#########################################################################################
-###
-###
-### /!\ Needed filters : RGVS, neo_f3kdb
-### --------------------
-###
-###
-###
-### +---------+
-### | GENERAL |
-### +---------+
-###
-### Levels options:
-### ---------------
-### input_low, gamma, input_high, output_low, output_high [default: 0, 1.0, maximum value of input format, 0, maximum value of input format]
-### /!\ The value is not internally normalized on an 8-bit scale, and must be scaled to the bit depth of input format manually by users
-###
-### chroma [default: 50]
-### ---------------------
-### 0   = no chroma processing     (similar as Ylevels)
-### xx  = intermediary
-### 100 = normal chroma processing (similar as Levels)
-###
-### limiter [default: 0]
-### --------------------
-### 0 = no limiter             (similar as Ylevels)
-### 1 = input limiter
-### 2 = output limiter         (similar as Levels: coring=false)
-### 3 = input & output limiter (similar as Levels: coring=true)
-###
-###
-###
-### +----------+
-### | LIMITING |
-### +----------+
-###
-### Lmode [default: 0]
-### ------------------
-### 0 = no limit
-### 1 = limit conversion on dark & bright areas (apply conversion @0%   at luma=0 & @100% at luma=Ecenter & @0% at luma=255)
-### 2 = limit conversion on dark areas          (apply conversion @0%   at luma=0 & @100% at luma=255)
-### 3 = limit conversion on bright areas        (apply conversion @100% at luma=0 & @0%   at luma=255)
-###
-### DarkSTR [default: 100]
-### ----------------------
-### Strength for limiting: the higher, the more conversion are reduced on dark areas (for Lmode=1&2)
-###
-### BrightSTR [default: 100]
-### ------------------------
-### Strength for limiting: the higher, the more conversion are reduced on bright areas (for Lmode=1&3)
-###
-### Ecenter [default: median value of input format]
-### ----------------------
-### Center of expression for Lmode=1
-### /!\ The value is not internally normalized on an 8-bit scale, and must be scaled to the bit depth of input format manually by users
-###
-### protect [default: -1]
-### ---------------------
-### -1  = protect off
-### >=0 = pure black protection
-###       ---> don't apply conversion on pixels egal or below this value
-###            (ex: with 16, the black areas like borders and generic are untouched so they don't look washed out)
-### /!\ The value is not internally normalized on an 8-bit scale, and must be scaled to the bit depth of input format manually by users
-###
-### Ecurve [default: 0]
-### -------------------
-### Curve used for limit & protect:
-### 0 = use sine curve
-### 1 = use linear curve
-###
-###
-###
-### +-----------+
-### | SMOOTHING |
-### +-----------+
-###
-### Smode [default: -2]
-### -------------------
-### 2  = smooth on, maxdiff must be < to "255/Mfactor"
-### 1  = smooth on, maxdiff must be < to "128/Mfactor"
-### 0  = smooth off
-### -1 = smooth on if maxdiff < "128/Mfactor", else off
-### -2 = smooth on if maxdiff < "255/Mfactor", else off
-###
-### Mfactor [default: 2]
-### --------------------
-### The higher, the more precise but the less maxdiff allowed:
-### maxdiff=128/Mfactor for Smode1&-1 and maxdiff=255/Mfactor for Smode2&-2
-###
-### RGmode [default: 12]
-### --------------------
-### In strength order: + 19 > 12 >> 20 > 11 -
-###
-### useDB [default: false]
-### ---------------------
-### Use neo_f3kdb on top of removegrain: prevent posterize when doing levels conversion
-###
-###
-#########################################################################################
-def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, output_high=None, chroma=50, limiter=0, Lmode=0, DarkSTR=100, BrightSTR=100, Ecenter=None, protect=-1, Ecurve=0,
-                 Smode=-2, Mfactor=2, RGmode=12, useDB=False):
-    # sin(pi x / 2) for -1 < x < 1 using Taylor series
-    def _sine_expr(var):
-        return f'{-3.5988432352121e-6} {var} * {var} * {0.00016044118478736} + {var} * {var} * {-0.0046817541353187} + {var} * {var} * {0.079692626246167} + {var} * {var} * {-0.64596409750625} + {var} * {var} * {1.5707963267949} + {var} *'
-
-    if not isinstance(input, vs.VideoNode):
-        raise vs.Error('SmoothLevels: this is not a clip')
-
-    if input.format.color_family == vs.RGB:
-        raise vs.Error('SmoothLevels: RGB format is not supported')
-
-    isGray = (input.format.color_family == vs.GRAY)
-
-    if input.format.sample_type == vs.INTEGER:
-        neutral = [1 << (input.format.bits_per_sample - 1)] * 2
-        peak = (1 << input.format.bits_per_sample) - 1
-    else:
-        neutral = [0.5, 0.0]
-        peak = 1.0
-
-    if chroma <= 0 and not isGray:
-        input_orig = input
-        input = plane(input, 0)
-    else:
-        input_orig = None
-
-    if input_high is None:
-        input_high = peak
-
-    if output_high is None:
-        output_high = peak
-
-    if Ecenter is None:
-        Ecenter = neutral[0]
-
-    if gamma <= 0:
-        raise vs.Error('SmoothLevels: gamma must be greater than 0.0')
-
-    if Ecenter <= 0 or Ecenter >= peak:
-        raise vs.Error('SmoothLevels: Ecenter must be greater than 0 and less than maximum value of input format')
-
-    if Mfactor <= 0:
-        raise vs.Error('SmoothLevels: Mfactor must be greater than 0')
-
-    if RGmode == 4:
-        RemoveGrain = partial(core.std.Median)
-    elif RGmode in [11, 12]:
-        RemoveGrain = partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    elif RGmode == 19:
-        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
-    elif RGmode == 20:
-        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-    else:
-        RemoveGrain = partial(core.rgvs.RemoveGrain, mode=[RGmode])
-
-    ### EXPRESSION
-    exprY = f'x {input_low} - {input_high - input_low + (input_high == input_low)} / {1 / gamma} pow {output_high - output_low} * {output_low} +'
-
-    if chroma > 0 and not isGray:
-        scaleC = ((output_high - output_low) / (input_high - input_low + (input_high == input_low)) + 100 / chroma - 1) / (100 / chroma)
-        exprC = f'x {neutral[1]} - {scaleC} * {neutral[1]} +'
-
-    Dstr = DarkSTR / 100
-    Bstr = BrightSTR / 100
-
-    if Lmode <= 0:
-        exprL = '1'
-    elif Ecurve <= 0:
-        if Lmode == 1:
-            var_d = f'x {Ecenter} /'
-            var_b = f'{peak} x - {peak} {Ecenter} - /'
-            exprL = f'x {Ecenter} < ' + _sine_expr(var_d) + f' {Dstr} pow x {Ecenter} > ' + _sine_expr(var_b) + f' {Bstr} pow 1 ? ?'
-        elif Lmode == 2:
-            var_d = f'x {peak} /'
-            exprL = _sine_expr(var_d) + f' {Dstr} pow'
-        else:
-            var_b = f'{peak} x - {peak} /'
-            exprL = _sine_expr(var_b) + f' {Bstr} pow'
-    else:
-        if Lmode == 1:
-            exprL = f'x {Ecenter} < x {Ecenter} / abs {Dstr} pow x {Ecenter} > 1 x {Ecenter} - {peak - Ecenter} / abs - {Bstr} pow 1 ? ?'
-        elif Lmode == 2:
-            exprL = f'1 x {peak} - {peak} / abs - {Dstr} pow'
-        else:
-            exprL = f'x {peak} - {peak} / abs {Bstr} pow'
-
-    if protect <= -1:
-        exprP = '1'
-    elif Ecurve <= 0:
-        var_p = f'x {protect} - {scale_8bit(input, 16)} /'
-        exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 ' + _sine_expr(var_p) + f' ? ?'
-    else:
-        exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 x {protect} - {scale_8bit(input, 16)} / abs ? ?'
-
-    ### PROCESS
-    if limiter == 1 or limiter >= 3:
-        limitI = input.std.Expr(expr=[f'x {input_low} max {input_high} min'])
-    else:
-        limitI = input
-
-    expr = exprL + ' ' + exprP + ' * ' + exprY + ' x - * x +'
-    level = limitI.std.Expr(expr=[expr] if chroma <= 0 or isGray else [expr, exprC])
-    diff = core.std.Expr([limitI, level], expr=[f'x y - {Mfactor} * {neutral[1]} +'])
-    process = RemoveGrain(diff)
-    if useDB:
-        process = process.std.Expr(expr=[f'x {neutral[1]} - {Mfactor} / {neutral[1]} +']).neo_f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
-        smth = core.std.MakeDiff(limitI, process)
-    else:
-        smth = core.std.Expr([limitI, process], expr=[f'x y {neutral[1]} - {Mfactor} / -'])
-
-    level2 = core.std.Expr([limitI, diff], expr=[f'x y {neutral[1]} - {Mfactor} / -'])
-    diff2 = core.std.Expr([level2, level], expr=[f'x y - {Mfactor} * {neutral[1]} +'])
-    process2 = RemoveGrain(diff2)
-    if useDB:
-        process2 = process2.std.Expr(expr=[f'x {neutral[1]} - {Mfactor} / {neutral[1]} +']).neo_f3kdb.Deband(grainy=0, grainc=0, output_depth=input.format.bits_per_sample)
-        smth2 = core.std.MakeDiff(smth, process2)
-    else:
-        smth2 = core.std.Expr([smth, process2], expr=[f'x y {neutral[1]} - {Mfactor} / -'])
-
-    mask1 = core.std.Expr([limitI, level], expr=[f'x y - abs {neutral[0] / Mfactor} >= {peak} 0 ?'])
-    mask2 = core.std.Expr([limitI, level], expr=[f'x y - abs {peak / Mfactor} >= {peak} 0 ?'])
-
-    if Smode >= 2:
-        Slevel = smth2
-    elif Smode == 1:
-        Slevel = smth
-    elif Smode == -1:
-        Slevel = core.std.MaskedMerge(smth, level, mask1)
-    elif Smode <= -2:
-        Slevel = core.std.MaskedMerge(core.std.MaskedMerge(smth, smth2, mask1), level, mask2)
-    else:
-        Slevel = level
-
-    if limiter >= 2:
-        limitO = Slevel.std.Expr(expr=[f'x {output_low} max {output_high} min'])
-    else:
-        limitO = Slevel
-
-    if input_orig is not None:
-        limitO = core.std.ShufflePlanes([limitO, input_orig], planes=[0, 1, 2], colorfamily=input_orig.format.color_family)
-    return limitO
-
-
-##############################
-# FastLineDarken 1.4x MT MOD #
-##############################
-#
-# Written by Vectrangle    (http://forum.doom9.org/showthread.php?t=82125)
-# Didée: - Speed Boost, Updated: 11th May 2007
-# Dogway - added protection option. 12-May-2011
-#
-# Parameters are:
-#  strength (integer)   - Line darkening amount, 0-256. Default 48. Represents the _maximum_ amount
-#                         that the luma will be reduced by, weaker lines will be reduced by
-#                         proportionately less.
-#  protection (integer) - Prevents the darkest lines from being darkened. Protection acts as a threshold.
-#                         Values range from 0 (no prot) to ~50 (protect everything)
-#  luma_cap (integer)   - value from 0 (black) to 255 (white), used to stop the darkening
-#                         determination from being 'blinded' by bright pixels, and to stop grey
-#                         lines on white backgrounds being darkened. Any pixels brighter than
-#                         luma_cap are treated as only being as bright as luma_cap. Lowering
-#                         luma_cap tends to reduce line darkening. 255 disables capping. Default 191.
-#  threshold (integer)  - any pixels that were going to be darkened by an amount less than
-#                         threshold will not be touched. setting this to 0 will disable it, setting
-#                         it to 4 (default) is recommended, since often a lot of random pixels are
-#                         marked for very slight darkening and a threshold of about 4 should fix
-#                         them. Note if you set threshold too high, some lines will not be darkened
-#  thinning (integer)   - optional line thinning amount, 0-256. Setting this to 0 will disable it,
-#                         which is gives a _big_ speed increase. Note that thinning the lines will
-#                         inherently darken the remaining pixels in each line a little. Default 0.
-def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, thinning=0):
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('FastLineDarkenMOD: this is not a clip')
-
-    if c.format.color_family == vs.RGB:
-        raise vs.Error('FastLineDarkenMOD: RGB format is not supported')
-
-    peak = (1 << c.format.bits_per_sample) - 1 if c.format.sample_type == vs.INTEGER else 1.0
-
-    if c.format.color_family != vs.GRAY:
-        c_orig = c
-        c = plane(c, 0)
-    else:
-        c_orig = None
-
-    ## parameters ##
-    Str = strength / 128
-    lum = scale_8bit(c, luma_cap)
-    thr = scale_8bit(c, threshold)
-    thn = thinning / 16
-
-    ## filtering ##
-    exin = c.std.Maximum(threshold=peak / (protection + 1)).std.Minimum()
-    thick = core.std.Expr([c, exin], expr=[f'y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {Str} * x +'])
-    if thinning <= 0:
-        last = thick
-    else:
-        diff = core.std.Expr([c, exin], expr=[f'y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale_8bit(c, 127)} +'])
-        linemask = diff.std.Minimum().std.Expr(expr=[f'x {scale_8bit(c, 127)} - {thn} * {peak} +']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-        thin = core.std.Expr([c.std.Maximum(), diff], expr=[f'x y {scale_8bit(c, 127)} - {Str} 1 + * +'])
-        last = core.std.MaskedMerge(thin, thick, linemask)
-
-    if c_orig is not None:
-        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
-    return last
-
-
 #####################
 ## Toon v0.82 edit ##
 #####################
@@ -3550,784 +4214,100 @@ def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
     return last
 
 
-################################################################################################
-###                                                                                          ###
-###                       LimitedSharpenFaster MOD : function LSFmod()                       ###
-###                                                                                          ###
-###                                Modded Version by LaTo INV.                               ###
-###                                                                                          ###
-###                                  v1.9 - 05 October 2009                                  ###
-###                                                                                          ###
-################################################################################################
-###
-### +--------------+
-### | DEPENDENCIES |
-### +--------------+
-###
-### -> RGVS
-### -> CAS
-###
-###
-###
-### +---------+
-### | GENERAL |
-### +---------+
-###
-### strength [int]
-### --------------
-### Strength of the sharpening
-###
-### Smode [int: 1,2,3]
-### ----------------------
-### Sharpen mode:
-###    =1 : Range sharpening
-###    =2 : Nonlinear sharpening (corrected version)
-###    =3 : Contrast Adaptive Sharpening
-###
-### Smethod [int: 1,2,3]
-### --------------------
-### Sharpen method: (only used in Smode=1,2)
-###    =1 : 3x3 kernel
-###    =2 : Min/Max
-###    =3 : Min/Max + 3x3 kernel
-###
-### kernel [int: 11,12,19,20]
-### -------------------------
-### Kernel used in Smethod=1&3
-### In strength order: + 19 > 12 >> 20 > 11 -
-###
-###
-###
-### +---------+
-### | SPECIAL |
-### +---------+
-###
-### preblur [int: 0,1,2,3]
-### --------------------------------
-### Mode to avoid noise sharpening & ringing:
-###    =-1 : No preblur
-###    = 0 : MinBlur(0)
-###    = 1 : MinBlur(1)
-###    = 2 : MinBlur(2)
-###    = 3 : DFTTest
-###
-### secure [bool]
-### -------------
-### Mode to avoid banding & oil painting (or face wax) effect of sharpening
-###
-### source [clip]
-### -------------
-### If source is defined, LSFmod doesn't sharp more a denoised clip than this source clip
-### In this mode, you can safely set Lmode=0 & PP=off
-###    Usage:   denoised.LSFmod(source=source)
-###    Example: last.FFT3DFilter().LSFmod(source=last,Lmode=0,soft=0)
-###
-###
-###
-### +----------------------+
-### | NONLINEAR SHARPENING |
-### +----------------------+
-###
-### Szrp [int]
-### ----------
-### Zero Point:
-###    - differences below Szrp are amplified (overdrive sharpening)
-###    - differences above Szrp are reduced   (reduced sharpening)
-###
-### Spwr [int]
-### ----------
-### Power: exponent for sharpener
-###
-### SdmpLo [int]
-### ------------
-### Damp Low: reduce sharpening for small changes [0:disable]
-###
-### SdmpHi [int]
-### ------------
-### Damp High: reduce sharpening for big changes [0:disable]
-###
-###
-###
-### +----------+
-### | LIMITING |
-### +----------+
-###
-### Lmode [int: ...,0,1,2,3,4]
-### --------------------------
-### Limit mode:
-###    <0 : Limit with repair (ex: Lmode=-1 --> repair(1), Lmode=-5 --> repair(5)...)
-###    =0 : No limit
-###    =1 : Limit to over/undershoot
-###    =2 : Limit to over/undershoot on edges and no limit on not-edges
-###    =3 : Limit to zero on edges and to over/undershoot on not-edges
-###    =4 : Limit to over/undershoot on edges and to over/undershoot2 on not-edges
-###
-### overshoot [int]
-### ---------------
-### Limit for pixels that get brighter during sharpening
-###
-### undershoot [int]
-### ----------------
-### Limit for pixels that get darker during sharpening
-###
-### overshoot2 [int]
-### ----------------
-### Same as overshoot, only for Lmode=4
-###
-### undershoot2 [int]
-### -----------------
-### Same as undershoot, only for Lmode=4
-###
-###
-###
-### +-----------------+
-### | POST-PROCESSING |
-### +-----------------+
-###
-### soft [int: -2,-1,0...100]
-### -------------------------
-### Soft the sharpening effect (-1 = old autocalculate, -2 = new autocalculate)
-###
-### soothe [bool]
-### -------------
-###    =True  : Enable soothe temporal stabilization
-###    =False : Disable soothe temporal stabilization
-###
-### keep [int: 0...100]
-### -------------------
-### Minimum percent of the original sharpening to keep (only with soothe=True)
-###
-###
-###
-### +-------+
-### | EDGES |
-### +-------+
-###
-### edgemode [int: -1,0,1,2]
-### ------------------------
-###    =-1 : Show edgemask
-###    = 0 : Sharpening all
-###    = 1 : Sharpening only edges
-###    = 2 : Sharpening only not-edges
-###
-### edgemaskHQ [bool]
-### -----------------
-###    =True  : Original edgemask
-###    =False : Faster edgemask
-###
-###
-###
-### +------------+
-### | UPSAMPLING |
-### +------------+
-###
-### ss_x ; ss_y [float]
-### -------------------
-### Supersampling factor (reduce aliasing on edges)
-###
-### dest_x ; dest_y [int]
-### ---------------------
-### Output resolution after sharpening (avoid a resizing step)
-###
-###
-###
-### +----------+
-### | SETTINGS |
-### +----------+
-###
-### defaults [string: "old" or "slow" or "fast"]
-### --------------------------------------------
-###    = "old"  : Reset settings to original version (output will be THE SAME AS LSF)
-###    = "slow" : Enable SLOW modded version settings
-###    = "fast" : Enable FAST modded version settings
-###  --> /!\ [default:"fast"]
-###
-###
-### defaults="old" :  - strength    = 100
-### ----------------  - Smode       = 1
-###                   - Smethod     = Smode==1?2:1
-###                   - kernel      = 11
-###
-###                   - preblur     = -1
-###                   - secure      = false
-###                   - source      = undefined
-###
-###                   - Szrp        = 16
-###                   - Spwr        = 2
-###                   - SdmpLo      = strength/25
-###                   - SdmpHi      = 0
-###
-###                   - Lmode       = 1
-###                   - overshoot   = 1
-###                   - undershoot  = overshoot
-###                   - overshoot2  = overshoot*2
-###                   - undershoot2 = overshoot2
-###
-###                   - soft        = 0
-###                   - soothe      = false
-###                   - keep        = 25
-###
-###                   - edgemode    = 0
-###                   - edgemaskHQ  = true
-###
-###                   - ss_x        = Smode==1?1.50:1.25
-###                   - ss_y        = ss_x
-###                   - dest_x      = ox
-###                   - dest_y      = oy
-###
-###
-### defaults="slow" : - strength    = 100
-### ----------------- - Smode       = 2
-###                   - Smethod     = 3
-###                   - kernel      = 11
-###
-###                   - preblur     = -1
-###                   - secure      = true
-###                   - source      = undefined
-###
-###                   - Szrp        = 16
-###                   - Spwr        = 4
-###                   - SdmpLo      = 4
-###                   - SdmpHi      = 48
-###
-###                   - Lmode       = 4
-###                   - overshoot   = strength/100
-###                   - undershoot  = overshoot
-###                   - overshoot2  = overshoot*2
-###                   - undershoot2 = overshoot2
-###
-###                   - soft        = -2
-###                   - soothe      = true
-###                   - keep        = 20
-###
-###                   - edgemode    = 0
-###                   - edgemaskHQ  = true
-###
-###                   - ss_x        = Smode==3?1.00:1.50
-###                   - ss_y        = ss_x
-###                   - dest_x      = ox
-###                   - dest_y      = oy
-###
-###
-### defaults="fast" : - strength    = 80
-### ----------------- - Smode       = 3
-###                   - Smethod     = 2
-###                   - kernel      = 11
-###
-###                   - preblur     = 0
-###                   - secure      = true
-###                   - source      = undefined
-###
-###                   - Szrp        = 16
-###                   - Spwr        = 4
-###                   - SdmpLo      = 4
-###                   - SdmpHi      = 48
-###
-###                   - Lmode       = 0
-###                   - overshoot   = strength/100
-###                   - undershoot  = overshoot
-###                   - overshoot2  = overshoot*2
-###                   - undershoot2 = overshoot2
-###
-###                   - soft        = 0
-###                   - soothe      = false
-###                   - keep        = 20
-###
-###                   - edgemode    = 0
-###                   - edgemaskHQ  = false
-###
-###                   - ss_x        = Smode==3?1.00:1.25
-###                   - ss_y        = ss_x
-###                   - dest_x      = ox
-###                   - dest_y      = oy
-###
-################################################################################################
-def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=None, secure=None, source=None, Szrp=16, Spwr=None, SdmpLo=None, SdmpHi=None, Lmode=None, overshoot=None, undershoot=None,
-           overshoot2=None, undershoot2=None, soft=None, soothe=None, keep=None, edgemode=0, edgemaskHQ=None, ss_x=None, ss_y=None, dest_x=None, dest_y=None, defaults='fast'):
-    if not isinstance(input, vs.VideoNode):
-        raise vs.Error('LSFmod: this is not a clip')
-
-    if input.format.color_family == vs.RGB:
-        raise vs.Error('LSFmod: RGB format is not supported')
-
-    if source is not None and (not isinstance(source, vs.VideoNode) or source.format.id != input.format.id):
-        raise vs.Error("LSFmod: 'source' must be the same format as input")
-
-    isGray = (input.format.color_family == vs.GRAY)
-    isInteger = (input.format.sample_type == vs.INTEGER)
-
-    if isInteger:
-        neutral = 1 << (input.format.bits_per_sample - 1)
-        peak = (1 << input.format.bits_per_sample) - 1
-        factor = 1 << (input.format.bits_per_sample - 8)
-    else:
-        neutral = 0.0
-        peak = 1.0
-        factor = 255.0
-
-    ### DEFAULTS
-    try:
-        num = ['old', 'slow', 'fast'].index(defaults.lower())
-    except:
-        raise vs.Error('LSFmod: defaults must be "old" or "slow" or "fast"')
-
-    ox = input.width
-    oy = input.height
-
-    if strength is None:
-        strength = [100, 100, 80][num]
-    if Smode is None:
-        Smode = [1, 2, 3][num]
-    if Smethod is None:
-        Smethod = [2 if Smode == 1 else 1, 3, 2][num]
-    if preblur is None:
-        preblur = [-1, -1, 0][num]
-    if secure is None:
-        secure = [False, True, True][num]
-    if Spwr is None:
-        Spwr = [2, 4, 4][num]
-    if SdmpLo is None:
-        SdmpLo = [strength // 25, 4, 4][num]
-    if SdmpHi is None:
-        SdmpHi = [0, 48, 48][num]
-    if Lmode is None:
-        Lmode = [1, 4, 0][num]
-    if overshoot is None:
-        overshoot = [1, strength // 100, strength // 100][num]
-    if undershoot is None:
-        undershoot = overshoot
-    if overshoot2 is None:
-        overshoot2 = overshoot * 2
-    if undershoot2 is None:
-        undershoot2 = overshoot2
-    if soft is None:
-        soft = [0, -2, 0][num]
-    if soothe is None:
-        soothe = [False, True, False][num]
-    if keep is None:
-        keep = [25, 20, 20][num]
-    if edgemaskHQ is None:
-        edgemaskHQ = [True, True, False][num]
-    if ss_x is None:
-        ss_x = [1.5 if Smode == 1 else 1.25, 1.0 if Smode == 3 else 1.5, 1.0 if Smode == 3 else 1.25][num]
-    if ss_y is None:
-        ss_y = ss_x
-    if dest_x is None:
-        dest_x = ox
-    if dest_y is None:
-        dest_y = oy
-
-    if kernel == 4:
-        RemoveGrain = partial(core.std.Median)
-    elif kernel in [11, 12]:
-        RemoveGrain = partial(core.std.Convolution, matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    elif kernel == 19:
-        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
-    elif kernel == 20:
-        RemoveGrain = partial(core.std.Convolution, matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-    else:
-        RemoveGrain = partial(core.rgvs.RemoveGrain, mode=[kernel])
-
-    if soft == -1:
-        soft = math.sqrt(((ss_x + ss_y) / 2 - 1) * 100) * 10
-    elif soft <= -2:
-        soft = int((1 + 2 / (ss_x + ss_y)) * math.sqrt(strength))
-    soft = min(soft, 100)
-
-    xxs = cround(ox * ss_x / 8) * 8
-    yys = cround(oy * ss_y / 8) * 8
-
-    Str = strength / 100
-
-    ### SHARP
-    if ss_x > 1 or ss_y > 1:
-        tmp = input.resize.Spline36(xxs, yys)
-    else:
-        tmp = input
-
-    if not isGray:
-        tmp_orig = tmp
-        tmp = plane(tmp, 0)
-
-    if preblur <= -1:
-        pre = tmp
-    elif preblur >= 3:
-        expr = 'x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?'.format(i=scale_8bit(input, 16), j=scale_8bit(input, 75), peak=peak)
-        pre = core.std.MaskedMerge(tmp.dfttest.DFTTest(tbsize=1, slocation=[0.0,4.0, 0.2,9.0, 1.0,15.0]), tmp, tmp.std.Expr(expr=[expr]))
-    else:
-        pre = min_blur(tmp, preblur)
-
-    dark_limit = pre.std.Minimum()
-    bright_limit = pre.std.Maximum()
-
-    if Smode < 3:
-        if Smethod <= 1:
-            method = RemoveGrain(pre)
-        elif Smethod == 2:
-            method = core.std.Merge(dark_limit, bright_limit)
-        else:
-            method = RemoveGrain(core.std.Merge(dark_limit, bright_limit))
-
-        if secure:
-            method = core.std.Expr([method, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale_8bit(input, 1))])
-
-        if preblur > -1:
-            method = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, method))
-
-        if Smode <= 1:
-            normsharp = core.std.Expr([tmp, method], expr=[f'x x y - {Str} * +'])
-        else:
-            tmpScaled = tmp.std.Expr(expr=[f'x {1 / factor if isInteger else factor} *'], format=tmp.format.replace(sample_type=vs.FLOAT, bits_per_sample=32))
-            methodScaled = method.std.Expr(expr=[f'x {1 / factor if isInteger else factor} *'], format=method.format.replace(sample_type=vs.FLOAT, bits_per_sample=32))
-            expr = f'x y = x x x y - abs {Szrp} / {1 / Spwr} pow {Szrp} * {Str} * x y - dup abs / * x y - dup * {Szrp * Szrp} {SdmpLo} + * x y - dup * {SdmpLo} + {Szrp * Szrp} * / * 1 {SdmpHi} 0 = 0 {(Szrp / SdmpHi) ** 4} ? + 1 {SdmpHi} 0 = 0 x y - abs {SdmpHi} / 4 pow ? + / * + ? {factor if isInteger else 1 / factor} *'
-            normsharp = core.std.Expr([tmpScaled, methodScaled], expr=[expr], format=tmp.format)
-    else:
-        normsharp = pre.cas.CAS(sharpness=min(Str, 1))
-
-        if secure:
-            normsharp = core.std.Expr([normsharp, pre], expr=['x y < x {i} + x y > x {i} - x ? ?'.format(i=scale_8bit(input, 1))])
-
-        if preblur > -1:
-            normsharp = core.std.MakeDiff(tmp, core.std.MakeDiff(pre, normsharp))
-
-    ### LIMIT
-    normal = mt_clamp(normsharp, bright_limit, dark_limit, scale_8bit(input, overshoot), scale_8bit(input, undershoot))
-    second = mt_clamp(normsharp, bright_limit, dark_limit, scale_8bit(input, overshoot2), scale_8bit(input, undershoot2))
-    zero = mt_clamp(normsharp, bright_limit, dark_limit, 0, 0)
-
-    if edgemaskHQ:
-        edge = tmp.std.Sobel(scale=2)
-    else:
-        edge = core.std.Expr([tmp.std.Maximum(), tmp.std.Minimum()], expr=['x y -'])
-    edge = edge.std.Expr(expr=[f'x {1 / factor if isInteger else factor} * {128 if edgemaskHQ else 32} / 0.86 pow 255 * {factor if isInteger else 1 / factor} *'])
-
-    if Lmode < 0:
-        limit1 = core.rgvs.Repair(normsharp, tmp, mode=[abs(Lmode)])
-    elif Lmode == 0:
-        limit1 = normsharp
-    elif Lmode == 1:
-        limit1 = normal
-    elif Lmode == 2:
-        limit1 = core.std.MaskedMerge(normsharp, normal, edge.std.Inflate())
-    elif Lmode == 3:
-        limit1 = core.std.MaskedMerge(normal, zero, edge.std.Inflate())
-    else:
-        limit1 = core.std.MaskedMerge(second, normal, edge.std.Inflate())
-
-    if edgemode <= 0:
-        limit2 = limit1
-    elif edgemode == 1:
-        limit2 = core.std.MaskedMerge(tmp, limit1, edge.std.Inflate().std.Inflate().std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
-    else:
-        limit2 = core.std.MaskedMerge(limit1, tmp, edge.std.Inflate().std.Inflate().std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1]))
-
-    ### SOFT
-    if soft == 0:
-        PP1 = limit2
-    else:
-        sharpdiff = core.std.MakeDiff(tmp, limit2)
-        sharpdiff = core.std.Expr([sharpdiff, sharpdiff.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])], expr=[f'x {neutral} - abs y {neutral} - abs > y {soft} * x {100 - soft} * + 100 / x ?'])
-        PP1 = core.std.MakeDiff(tmp, sharpdiff)
-
-    ### SOOTHE
-    if soothe:
-        diff = core.std.MakeDiff(tmp, PP1)
-        diff = core.std.Expr([diff, average_frames(diff, weights=[1] * 3, scenechange=32 / 255)],
-                             expr=[f'x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {100 - keep} * + 100 / x ? ?'])
-        PP2 = core.std.MakeDiff(tmp, diff)
-    else:
-        PP2 = PP1
-
-    ### OUTPUT
-    if dest_x != ox or dest_y != oy:
-        if not isGray:
-            PP2 = core.std.ShufflePlanes([PP2, tmp_orig], planes=[0, 1, 2], colorfamily=input.format.color_family)
-        out = PP2.resize.Spline36(dest_x, dest_y)
-    elif ss_x > 1 or ss_y > 1:
-        out = PP2.resize.Spline36(dest_x, dest_y)
-        if not isGray:
-            out = core.std.ShufflePlanes([out, input], planes=[0, 1, 2], colorfamily=input.format.color_family)
-    elif not isGray:
-        out = core.std.ShufflePlanes([PP2, input], planes=[0, 1, 2], colorfamily=input.format.color_family)
-    else:
-        out = PP2
-
-    if edgemode <= -1:
-        return edge.resize.Spline36(dest_x, dest_y, format=input.format)
-    elif source is not None:
-        if dest_x != ox or dest_y != oy:
-            src = source.resize.Spline36(dest_x, dest_y)
-            In = input.resize.Spline36(dest_x, dest_y)
-        else:
-            src = source
-            In = input
-
-        shrpD = core.std.MakeDiff(In, out, planes=[0])
-        expr = f'x {neutral} - abs y {neutral} - abs < x y ?'
-        shrpL = core.std.Expr([core.rgvs.Repair(shrpD, core.std.MakeDiff(In, src, planes=[0]), mode=[1] if isGray else [1, 0]), shrpD], expr=[expr] if isGray else [expr, ''])
-        return core.std.MakeDiff(In, shrpL, planes=[0])
-    else:
-        return out
-
-
-def average_frames(
-    clip: vs.VideoNode, weights: float | Sequence[float], scenechange: float | None = None, planes: PlanesT = None
-) -> vs.VideoNode:
-    assert check_variable(clip, average_frames)
-    planes = normalize_planes(clip, planes)
-
-    if scenechange:
-        clip = scdetect(clip, scenechange)
-    return clip.std.AverageFrames(weights=weights, scenechange=scenechange, planes=planes)
-
-
-def avs_prewitt(clip: vs.VideoNode, planes: PlanesT = None) -> vs.VideoNode:
-    assert check_variable(clip, avs_prewitt)
-    planes = normalize_planes(clip, planes)
-
-    matrices = [
-        [1, 1, 0, 1, 0, -1, 0, -1, -1],
-        [1, 1, 1, 0, 0, 0, -1, -1, -1],
-        [1, 0, -1, 1, 0, -1, 1, 0, -1],
-        [0, -1, -1, 1, 0, -1, 1, 1, 0],
-    ]
-    clips = [clip.std.Convolution(matrix=matrix, planes=planes, saturate=False) for matrix in matrices]
-    return norm_expr(clips, "x y max z max a max", planes)
+def bbmod(*args, **kwargs):
+    raise vs.Error("havsfunc.bbmod outdated. Use https://github.com/OpusGang/awsmfunc instead.")
 
 
 def ChangeFPS(*args, **kwargs):
     raise vs.Error("havsfunc.ChangeFPS outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
 
 
+def ContraSharpening(*args, **kwargs):
+    raise vs.Error("havsfunc.ContraSharpening outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
+
+
+def dec_txt60mc(*args, **kwargs):
+    raise vs.Error("havsfunc.dec_txt60mc outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
+
+
+def DeHalo_alpha(*args, **kwargs):
+    raise vs.Error("havsfunc.DeHalo_alpha outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+
+
+def DitherLumaRebuild(*args, **kwargs):
+    raise vs.Error("havsfunc.DitherLumaRebuild outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-denoise instead.")
+
+
+def EdgeCleaner(*args, **kwargs):
+    raise vs.Error("havsfunc.EdgeCleaner outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+
+
+def FineDehalo(*args, **kwargs):
+    raise vs.Error("havsfunc.FineDehalo outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+
+
+def FineDehalo_contrasharp(*args, **kwargs):
+    raise vs.Error("havsfunc.FineDehalo_contrasharp outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
+
+
+def FineDehalo2(*args, **kwargs):
+    raise vs.Error("havsfunc.FineDehalo2 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+
+
+def FixColumnBrightness(*args, **kwargs):
+    raise vs.Error("havsfunc.FixColumnBrightness outdated. Use https://github.com/OpusGang/awsmfunc instead.")
+
+
+def FixRowBrightness(*args, **kwargs):
+    raise vs.Error("havsfunc.FixRowBrightness outdated. Use https://github.com/OpusGang/awsmfunc instead.")
+
+
+def FixColumnBrightnessProtect(*args, **kwargs):
+    raise vs.Error("havsfunc.FixColumnBrightnessProtect outdated. Use https://github.com/OpusGang/awsmfunc instead.")
+
+
+def FixRowBrightnessProtect(*args, **kwargs):
+    raise vs.Error("havsfunc.FixRowBrightnessProtect outdated. Use https://github.com/OpusGang/awsmfunc instead.")
+
+
+def FixColumnBrightnessProtect2(*args, **kwargs):
+    raise vs.Error("havsfunc.FixColumnBrightnessProtect2 outdated. Use https://github.com/OpusGang/awsmfunc instead.")
+
+
+def FixRowBrightnessProtect2(*args, **kwargs):
+    raise vs.Error("havsfunc.FixRowBrightnessProtect2 outdated. Use https://github.com/OpusGang/awsmfunc instead.")
+
+
 def Gauss(*args, **kwargs):
     raise vs.Error("havsfunc.Gauss outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
 
 
-def mt_clamp(
-    clip: vs.VideoNode,
-    bright: vs.VideoNode,
-    dark: vs.VideoNode,
-    overshoot: int = 0,
-    undershoot: int = 0,
-    planes: PlanesT = None,
-) -> vs.VideoNode:
-    """clamp the value of the clip between bright + overshoot and dark - undershoot"""
-    check_ref_clip(clip, bright, mt_clamp)
-    check_ref_clip(clip, dark, mt_clamp)
-    planes = normalize_planes(clip, planes)
+def GrainFactory3(*args, **kwargs):
+    raise vs.Error("havsfunc.GrainFactory3 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deband instead.")
 
-    if complexpr_available:
-        expr = f"x z {undershoot} - y {overshoot} + clamp"
-    else:
-        expr = f"x z {undershoot} - max y {overshoot} + min"
-    return norm_expr([clip, bright, dark], expr, planes)
+
+def HQDeringmod(*args, **kwargs):
+    raise vs.Error("havsfunc.HQDeringmod outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
+
+
+def ivtc_txt30mc(*args, **kwargs):
+    raise vs.Error("havsfunc.ivtc_txt30mc outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
+
+
+def ivtc_txt60mc(*args, **kwargs):
+    raise vs.Error("havsfunc.ivtc_txt60mc outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
 
 
 def KNLMeansCL(*args, **kwargs):
     raise vs.Error("havsfunc.KNLMeansCL outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-denoise instead.")
 
 
-def Overlay(
-    base: vs.VideoNode,
-    overlay: vs.VideoNode,
-    x: int = 0,
-    y: int = 0,
-    mask: Optional[vs.VideoNode] = None,
-    opacity: float = 1.0,
-    mode: str = 'normal',
-    planes: Optional[Union[int, Sequence[int]]] = None,
-    mask_first_plane: bool = True,
-) -> vs.VideoNode:
-    '''
-    Puts clip overlay on top of clip base using different blend modes, and with optional x,y positioning, masking and opacity.
-
-    Parameters:
-        base: This clip will be the base, determining the size and all other video properties of the result.
-
-        overlay: This is the image that will be placed on top of the base clip.
-
-        x, y: Define the placement of the overlay image on the base clip, in pixels. Can be positive or negative.
-
-        mask: Optional transparency mask. Must be the same size as overlay. Where mask is darker, overlay will be more transparent.
-
-        opacity: Set overlay transparency. The value is from 0.0 to 1.0, where 0.0 is transparent and 1.0 is fully opaque.
-            This value is multiplied by mask luminance to form the final opacity.
-
-        mode: Defines how your overlay should be blended with your base image. Available blend modes are:
-            addition, average, burn, darken, difference, divide, dodge, exclusion, extremity, freeze, glow, grainextract, grainmerge, hardlight, hardmix, heat,
-            lighten, linearlight, multiply, negation, normal, overlay, phoenix, pinlight, reflect, screen, softlight, subtract, vividlight
-
-        planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
-
-        mask_first_plane: If true, only the mask's first plane will be used for transparency.
-    '''
-    if not (isinstance(base, vs.VideoNode) and isinstance(overlay, vs.VideoNode)):
-        raise vs.Error('Overlay: this is not a clip')
-
-    if mask is not None:
-        if not isinstance(mask, vs.VideoNode):
-            raise vs.Error('Overlay: mask is not a clip')
-
-        if mask.width != overlay.width or mask.height != overlay.height or get_depth(mask) != get_depth(overlay):
-            raise vs.Error('Overlay: mask must have the same dimensions and bit depth as overlay')
-
-    if base.format.sample_type == vs.INTEGER:
-        bits = get_depth(base)
-        neutral = 1 << (bits - 1)
-        peak = (1 << bits) - 1
-        factor = 1 << bits
-    else:
-        neutral = 0.5
-        peak = factor = 1.0
-
-    plane_range = range(base.format.num_planes)
-
-    if planes is None:
-        planes = list(plane_range)
-    elif isinstance(planes, int):
-        planes = [planes]
-
-    if base.format.subsampling_w > 0 or base.format.subsampling_h > 0:
-        base_orig = base
-        base = base.resize.Point(format=base.format.replace(subsampling_w=0, subsampling_h=0))
-    else:
-        base_orig = None
-
-    if overlay.format.id != base.format.id:
-        overlay = overlay.resize.Point(format=base.format)
-
-    if mask is None:
-        mask = overlay.std.BlankClip(format=overlay.format.replace(color_family=vs.GRAY, subsampling_w=0, subsampling_h=0), color=peak)
-    elif mask.format.id != overlay.format.id and mask.format.color_family != vs.GRAY:
-        mask = mask.resize.Point(format=overlay.format, range_s='full')
-
-    opacity = min(max(opacity, 0.0), 1.0)
-    mode = mode.lower()
-
-    # Calculate padding sizes
-    l, r = x, base.width - overlay.width - x
-    t, b = y, base.height - overlay.height - y
-
-    # Split into crop and padding values
-    cl, pl = min(l, 0) * -1, max(l, 0)
-    cr, pr = min(r, 0) * -1, max(r, 0)
-    ct, pt = min(t, 0) * -1, max(t, 0)
-    cb, pb = min(b, 0) * -1, max(b, 0)
-
-    # Crop and padding
-    overlay = overlay.std.Crop(left=cl, right=cr, top=ct, bottom=cb)
-    overlay = overlay.std.AddBorders(left=pl, right=pr, top=pt, bottom=pb)
-    mask = mask.std.Crop(left=cl, right=cr, top=ct, bottom=cb)
-    mask = mask.std.AddBorders(left=pl, right=pr, top=pt, bottom=pb, color=[0] * mask.format.num_planes)
-
-    if opacity < 1:
-        mask = mask.std.Expr(expr=f'x {opacity} *')
-
-    if mode == 'normal':
-        pass
-    elif mode == 'addition':
-        expr = f'x y +'
-    elif mode == 'average':
-        expr = f'x y + 2 /'
-    elif mode == 'burn':
-        expr = f'x 0 <= x {peak} {peak} y - {factor} * x / - ?'
-    elif mode == 'darken':
-        expr = f'x y min'
-    elif mode == 'difference':
-        expr = f'x y - abs'
-    elif mode == 'divide':
-        expr = f'y 0 <= {peak} {peak} x * y / ?'
-    elif mode == 'dodge':
-        expr = f'x {peak} >= x y {factor} * {peak} x - / ?'
-    elif mode == 'exclusion':
-        expr = f'x y + 2 x * y * {peak} / -'
-    elif mode == 'extremity':
-        expr = f'{peak} x - y - abs'
-    elif mode == 'freeze':
-        expr = f'y 0 <= 0 {peak} {peak} x - dup * y / {peak} min - ?'
-    elif mode == 'glow':
-        expr = f'x {peak} >= x y y * {peak} x - / ?'
-    elif mode == 'grainextract':
-        expr = f'x y - {neutral} +'
-    elif mode == 'grainmerge':
-        expr = f'x y + {neutral} -'
-    elif mode == 'hardlight':
-        expr = f'y {neutral} < 2 y x * {peak} / * {peak} 2 {peak} y - {peak} x - * {peak} / * - ?'
-    elif mode == 'hardmix':
-        expr = f'x {peak} y - < 0 {peak} ?'
-    elif mode == 'heat':
-        expr = f'x 0 <= 0 {peak} {peak} y - dup * x / {peak} min - ?'
-    elif mode == 'lighten':
-        expr = f'x y max'
-    elif mode == 'linearlight':
-        expr = f'y {neutral} < y 2 x * + {peak} - y 2 x {neutral} - * + ?'
-    elif mode == 'multiply':
-        expr = f'x y * {peak} /'
-    elif mode == 'negation':
-        expr = f'{peak} {peak} x - y - abs -'
-    elif mode == 'overlay':
-        expr = f'x {neutral} < 2 x y * {peak} / * {peak} 2 {peak} x - {peak} y - * {peak} / * - ?'
-    elif mode == 'phoenix':
-        expr = f'x y min x y max - {peak} +'
-    elif mode == 'pinlight':
-        expr = f'y {neutral} < x 2 y * min x 2 y {neutral} - * max ?'
-    elif mode == 'reflect':
-        expr = f'y {peak} >= y x x * {peak} y - / ?'
-    elif mode == 'screen':
-        expr = f'{peak} {peak} x - {peak} y - * {peak} / -'
-    elif mode == 'softlight':
-        expr = f'x {neutral} > y {peak} y - x {neutral} - * {neutral} / 0.5 y {neutral} - abs {peak} / - * + y y {neutral} x - {neutral} / * 0.5 y {neutral} - abs {peak} / - * - ?'
-    elif mode == 'subtract':
-        expr = f'x y -'
-    elif mode == 'vividlight':
-        expr = f'x {neutral} < x 0 <= 2 x * {peak} {peak} y - {factor} * 2 x * / - ? 2 x {neutral} - * {peak} >= 2 x {neutral} - * y {factor} * {peak} 2 x {neutral} - * - / ? ?'
-    else:
-        raise vs.Error('Overlay: invalid mode specified')
-
-    if mode != 'normal':
-        overlay = core.std.Expr([overlay, base], expr=[expr if i in planes else '' for i in plane_range])
-
-    # Return padded clip
-    last = core.std.MaskedMerge(base, overlay, mask, planes=planes, first_plane=mask_first_plane)
-    if base_orig is not None:
-        last = last.resize.Point(format=base_orig.format)
-    return last
-
-
-def Padding(*args, **kwargs):
-    raise vs.Error("havsfunc.Padding outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
-
-
-def scdetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
-    def _copy_property(n: int, f: list[vs.VideoFrame]) -> vs.VideoFrame:
-        fout = f[0].copy()
-        fout.props["_SceneChangePrev"] = f[1].props["_SceneChangePrev"]
-        fout.props["_SceneChangeNext"] = f[1].props["_SceneChangeNext"]
-        return fout
-
-    assert check_variable(clip, scdetect)
-
-    sc = clip
-    if clip.format.color_family == vs.RGB:
-        sc = clip.resize.Point(format=vs.GRAY8, matrix_s="709")
-
-    sc = sc.misc.SCDetect(threshold)
-    if clip.format.color_family == vs.RGB:
-        sc = clip.std.ModifyFrame([clip, sc], _copy_property)
-
-    return sc
-
-
-def ContraSharpening(*args, **kwargs):
-    raise vs.Error("havsfunc.ContraSharpening outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
+def m4(*args, **kwargs):
+    raise vs.Error("havsfunc.m4 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
 
 
 def MinBlur(*args, **kwargs):
     raise vs.Error("havsfunc.MinBlur outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
-
-
-def DitherLumaRebuild(*args, **kwargs):
-    raise vs.Error("havsfunc.DitherLumaRebuild outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-denoise instead.")
 
 
 def mt_expand_multi(*args, **kwargs):
@@ -4346,9 +4326,29 @@ def mt_deflate_multi(*args, **kwargs):
     raise vs.Error("havsfunc.mt_deflate_multi outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-masktools instead.")
 
 
-def m4(*args, **kwargs):
-    raise vs.Error("havsfunc.m4 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
+def Padding(*args, **kwargs):
+    raise vs.Error("havsfunc.Padding outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
+
+
+def santiag(*args, **kwargs):
+    raise vs.Error("havsfunc.santiag outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-aa instead.")
 
 
 def scale(*args, **kwargs):
     raise vs.Error("havsfunc.scale outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
+
+
+def SMDegrain(*args, **kwargs):
+    raise vs.Error("havsfunc.SMDegrain outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-denoise instead.")
+
+
+def Vinverse(*args, **kwargs):
+    raise vs.Error("havsfunc.Vinverse outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
+
+
+def Vinverse2(*args, **kwargs):
+    raise vs.Error("havsfunc.Vinverse2 outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
+
+
+def YAHR(*args, **kwargs):
+    raise vs.Error("havsfunc.YAHR outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-dehalo instead.")
