@@ -17,6 +17,7 @@ from vstools import (
     check_ref_clip,
     check_variable,
     core,
+    cround,
     depth,
     fallback,
     get_depth,
@@ -4467,10 +4468,6 @@ def mt_inflate_multi(*args, **kwargs):
 
 def mt_deflate_multi(*args, **kwargs):
     raise vs.Error("havsfunc.mt_deflate_multi outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-masktools instead.")
-
-
-def cround(x: float) -> int:
-    return math.floor(x + 0.5) if x > 0 else math.ceil(x - 0.5)
 
 
 def m4(x: Union[float, int]) -> int:
