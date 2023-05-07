@@ -29,6 +29,7 @@ __all__ = [
     "Toon",
     "LSFmod",
     "Overlay",
+    "average_frames",
 ]
 
 
@@ -927,9 +928,9 @@ def QTGMC(
     # Create linear weightings of neighbors first                                                  -2    -1    0     1     2
     if not isinstance(srchClip, vs.VideoNode):
         if TR0 > 0:
-            ts1 = AverageFrames(bobbed, weights=[1] * 3, scenechange=28 / 255, planes=CMplanes)  # 0.00  0.33  0.33  0.33  0.00
+            ts1 = average_frames(bobbed, weights=[1] * 3, scenechange=28 / 255, planes=CMplanes)  # 0.00  0.33  0.33  0.33  0.00
         if TR0 > 1:
-            ts2 = AverageFrames(bobbed, weights=[1] * 5, scenechange=28 / 255, planes=CMplanes)  # 0.20  0.20  0.20  0.20  0.20
+            ts2 = average_frames(bobbed, weights=[1] * 5, scenechange=28 / 255, planes=CMplanes)  # 0.20  0.20  0.20  0.20  0.20
 
     # Combine linear weightings to give binomial weightings - TR0=0: (1), TR0=1: (1:2:1), TR0=2: (1:4:6:4:1)
     if isinstance(srchClip, vs.VideoNode):
@@ -2407,8 +2408,8 @@ def Stab(clp, dxmax=4, dymax=4, mirror=0):
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('Stab: this is not a clip')
 
-    temp = AverageFrames(clp, weights=[1] * 15, scenechange=25 / 255)
-    inter = core.std.Interleave([core.rgvs.Repair(temp, AverageFrames(clp, weights=[1] * 3, scenechange=25 / 255), mode=[1]), clp])
+    temp = average_frames(clp, weights=[1] * 15, scenechange=25 / 255)
+    inter = core.std.Interleave([core.rgvs.Repair(temp, average_frames(clp, weights=[1] * 3, scenechange=25 / 255), mode=[1]), clp])
     mdata = inter.mv.DepanEstimate(trust=0, dxmax=dxmax, dymax=dymax)
     last = inter.mv.DepanCompensate(data=mdata, offset=-1, mirror=mirror)
     return last[::2]
@@ -4134,7 +4135,7 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
     ### SOOTHE
     if soothe:
         diff = core.std.MakeDiff(tmp, PP1)
-        diff = core.std.Expr([diff, AverageFrames(diff, weights=[1] * 3, scenechange=32 / 255)],
+        diff = core.std.Expr([diff, average_frames(diff, weights=[1] * 3, scenechange=32 / 255)],
                              expr=[f'x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {100 - keep} * + 100 / x ? ?'])
         PP2 = core.std.MakeDiff(tmp, diff)
     else:
@@ -4172,14 +4173,14 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
         return out
 
 
-def AverageFrames(
-    clip: vs.VideoNode, weights: Union[float, Sequence[float]], scenechange: Optional[float] = None, planes: Optional[Union[int, Sequence[int]]] = None
+def average_frames(
+    clip: vs.VideoNode, weights: float | Sequence[float], scenechange: float | None = None, planes: PlanesT = None
 ) -> vs.VideoNode:
-    if not isinstance(clip, vs.VideoNode):
-        raise vs.Error('AverageFrames: this is not a clip')
+    assert check_variable(clip, average_frames)
+    planes = normalize_planes(clip, planes)
 
     if scenechange:
-        clip = SCDetect(clip, threshold=scenechange)
+        clip = SCDetect(clip, scenechange)
     return clip.std.AverageFrames(weights=weights, scenechange=scenechange, planes=planes)
 
 
