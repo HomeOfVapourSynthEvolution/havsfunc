@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from fractions import Fraction
 from functools import partial
 from typing import Any, Mapping, Optional, Sequence, Union
 
@@ -10,6 +11,7 @@ from vsrgtools.util import mean_matrix, wmean_matrix
 from vstools import (
     DitherType,
     PlanesT,
+    change_fps,
     check_variable,
     core,
     depth,
@@ -2182,7 +2184,7 @@ def srestore(source, frate=None, omode=6, speed=None, mode=2, thresh=16, dclip=N
     last = source.std.FrameEval(eval=srestore_inside, prop_src=[bclpYStats, dclpYStats, dclipYStats])
 
     ###### final decimation ######
-    return ChangeFPS(last.std.Cache(make_linear=True), source.fps_num * numr, source.fps_den * denm)
+    return change_fps(last.std.Cache(make_linear=True), Fraction(source.fps_num * numr, source.fps_den * denm))
 
 
 def dec_txt60mc(*args, **kwargs):
@@ -4213,19 +4215,8 @@ def avs_prewitt(clip: vs.VideoNode, planes: PlanesT = None) -> vs.VideoNode:
     return norm_expr(clips, "x y max z max a max", planes)
 
 
-def ChangeFPS(clip: vs.VideoNode, fpsnum: int, fpsden: int = 1) -> vs.VideoNode:
-    if not isinstance(clip, vs.VideoNode):
-        raise vs.Error('ChangeFPS: this is not a clip')
-
-    factor = (fpsnum / fpsden) * (clip.fps_den / clip.fps_num)
-
-    def frame_adjuster(n: int) -> vs.VideoNode:
-        real_n = math.floor(n / factor)
-        one_frame_clip = clip[real_n] * (len(clip) + 100)
-        return one_frame_clip
-
-    attribute_clip = clip.std.BlankClip(length=math.floor(len(clip) * factor), fpsnum=fpsnum, fpsden=fpsden)
-    return attribute_clip.std.FrameEval(eval=frame_adjuster)
+def ChangeFPS(*args, **kwargs):
+    raise vs.Error("havsfunc.ChangeFPS outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
 
 
 def Gauss(clip: vs.VideoNode, p: Optional[float] = None, sigma: Optional[float] = None, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
