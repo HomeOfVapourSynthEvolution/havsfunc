@@ -5,6 +5,7 @@ from fractions import Fraction
 from functools import partial
 from typing import Any, Mapping, Optional, Sequence, Union
 
+from vsdenoise import nl_means
 from vsexprtools import norm_expr
 from vsrgtools import gauss_blur, repair
 from vsrgtools.util import mean_matrix, wmean_matrix
@@ -1102,10 +1103,7 @@ def QTGMC(
         elif Denoiser == 'dfttest':
             dnWindow = noiseWindow.dfttest.DFTTest(sigma=Sigma * 4, tbsize=noiseTD, planes=CNplanes)
         elif Denoiser in ['knlm', 'knlmeanscl']:
-            if ChromaNoise and not is_gray:
-                dnWindow = KNLMeansCL(noiseWindow, d=NoiseTR, h=Sigma)
-            else:
-                dnWindow = noiseWindow.knlm.KNLMeansCL(d=NoiseTR, h=Sigma)
+            dnWindow = nl_means(noiseWindow, strength=Sigma, tr=NoiseTR, planes=CNplanes)
         else:
             dnWindow = noiseWindow.fft3dfilter.FFT3DFilter(sigma=Sigma, planes=CNplanes, bt=noiseTD, ncpu=FftThreads)
 
@@ -4247,29 +4245,8 @@ def mt_clamp(
     return core.std.Expr([clip, bright_limit, dark_limit], expr=[f'x y {overshoot} + min z {undershoot} - max' if i in planes else '' for i in plane_range])
 
 
-def KNLMeansCL(
-    clip: vs.VideoNode,
-    d: Optional[int] = None,
-    a: Optional[int] = None,
-    s: Optional[int] = None,
-    h: Optional[float] = None,
-    wmode: Optional[int] = None,
-    wref: Optional[float] = None,
-    device_type: Optional[str] = None,
-    device_id: Optional[int] = None,
-) -> vs.VideoNode:
-    if not isinstance(clip, vs.VideoNode):
-        raise vs.Error('KNLMeansCL: this is not a clip')
-
-    if clip.format.color_family != vs.YUV:
-        raise vs.Error('KNLMeansCL: this wrapper is intended to be used only for YUV format')
-
-    if clip.format.subsampling_w > 0 or clip.format.subsampling_h > 0:
-        return clip.knlm.KNLMeansCL(d=d, a=a, s=s, h=h, wmode=wmode, wref=wref, device_type=device_type, device_id=device_id).knlm.KNLMeansCL(
-            d=d, a=a, s=s, h=h, channels='UV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id
-        )
-    else:
-        return clip.knlm.KNLMeansCL(d=d, a=a, s=s, h=h, channels='YUV', wmode=wmode, wref=wref, device_type=device_type, device_id=device_id)
+def KNLMeansCL(*args, **kwargs):
+    raise vs.Error("havsfunc.KNLMeansCL outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-denoise instead.")
 
 
 def Overlay(
