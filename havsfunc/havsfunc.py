@@ -5,7 +5,7 @@ from fractions import Fraction
 from functools import partial
 from typing import Any, Mapping, Optional, Sequence, Union
 
-from vsdenoise import nl_means
+from vsdenoise import nl_means, prefilter_to_full_range
 from vsexprtools import complexpr_available, norm_expr
 from vsrgtools import gauss_blur, min_blur, repair, sbr
 from vsrgtools.util import mean_matrix, wmean_matrix
@@ -990,7 +990,7 @@ def QTGMC(
             tweaked = core.std.Expr([repair0, bobbed], expr=expr if ChromaMotion or is_gray else [expr, ''])
             expr = 'x {i7} + y < x {i2} + x {i7} - y > x {i2} - x 51 * y 49 * + 100 / ? ?'.format(i7=scale_value(7, 8, bits), i2=scale_value(2, 8, bits))
             srchClip = core.std.Expr([spatialBlur, tweaked], expr=expr if ChromaMotion or is_gray else [expr, ''])
-        srchClip = DitherLumaRebuild(srchClip, s0=Str, c=Amp, chroma=ChromaMotion)
+        srchClip = prefilter_to_full_range(srchClip, Str, CMplanes)
         if bits > 8 and FastMA:
             srchClip = depth(srchClip, 8, dither_type=DitherType.NONE)
 
@@ -2508,7 +2508,7 @@ def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, pla
     dif_nr = core.std.MakeDiff(input, pre_nr, planes=planes)
 
     # Kernel: MC Grain Stabilize
-    psuper = DitherLumaRebuild(pre_nr, s0=1, chroma=chromamv).mv.Super(pel=1, chroma=chromamv)
+    psuper = prefilter_to_full_range(pre_nr, 2, planes).mv.Super(pel=1, chroma=chromamv)
     difsuper = dif_nr.mv.Super(pel=1, levels=1, chroma=chromamv)
 
     analyse_args = dict(blksize=blksize, chroma=chromamv, truemotion=False, global_=True, overlap=overlap)
@@ -2851,7 +2851,7 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
         p = min_blur(i, pfMode, planes)
 
     pD = core.std.MakeDiff(i, p, planes=planes)
-    p = DitherLumaRebuild(p, s0=1, chroma=chroma)
+    p = prefilter_to_full_range(p, 2, planes)
 
     ### DEBLOCKING
     crop_args = dict(left=xf // 2, right=xf // 2, top=yf // 2, bottom=yf // 2)
@@ -4460,24 +4460,8 @@ def MinBlur(*args, **kwargs):
     raise vs.Error("havsfunc.MinBlur outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-rgtools instead.")
 
 
-def DitherLumaRebuild(src: vs.VideoNode, s0: float = 2.0, c: float = 0.0625, chroma: bool = True) -> vs.VideoNode:
-    '''Converts luma (and chroma) to PC levels, and optionally allows tweaking for pumping up the darks. (for the clip to be fed to motion search only)'''
-    if not isinstance(src, vs.VideoNode):
-        raise vs.Error('DitherLumaRebuild: this is not a clip')
-
-    if src.format.color_family == vs.RGB:
-        raise vs.Error('DitherLumaRebuild: RGB format is not supported')
-
-    is_gray = src.format.color_family == vs.GRAY
-    is_integer = src.format.sample_type == vs.INTEGER
-
-    bits = get_depth(src)
-    neutral = 1 << (bits - 1)
-
-    k = (s0 - 1) * c
-    t = f'x {scale_value(16, 8, bits)} - {scale_value(219, 8, bits)} / 0 max 1 min' if is_integer else 'x 0 max 1 min'
-    e = f'{k} {1 + c} {(1 + c) * c} {t} {c} + / - * {t} 1 {k} - * + ' + (f'{scale_value(256, 8, bits)} *' if is_integer else '')
-    return src.std.Expr(expr=e if is_gray else [e, f'x {neutral} - 128 * 112 / {neutral} +' if chroma and is_integer else ''])
+def DitherLumaRebuild(*args, **kwargs):
+    raise vs.Error("havsfunc.DitherLumaRebuild outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-denoise instead.")
 
 
 def mt_expand_multi(src: vs.VideoNode, mode: str = 'rectangle', planes: Optional[Union[int, Sequence[int]]] = None, sw: int = 1, sh: int = 1) -> vs.VideoNode:
