@@ -4,11 +4,26 @@ import math
 from functools import partial
 from typing import Any, Mapping, Optional, Sequence, Union
 
+from vsexprtools import norm_expr
 from vsrgtools import repair
 from vsrgtools.util import mean_matrix, wmean_matrix
-from vstools import DitherType, PlanesT, check_variable, core, depth, fallback, get_depth, join, plane, scale_value, vs
+from vstools import (
+    DitherType,
+    PlanesT,
+    check_variable,
+    core,
+    depth,
+    fallback,
+    get_depth,
+    join,
+    normalize_planes,
+    plane,
+    scale_value,
+    vs,
+)
 
 __all__ = [
+    "avs_prewitt",
     "daa",
     "daa3mod",
     "mcdaa3",
@@ -3009,7 +3024,7 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
 
     ### EDGECLEANING
     if edgeclean:
-        mP = AvsPrewitt(plane(smP, 0))
+        mP = avs_prewitt(plane(smP, 0))
         mS = mt_expand_multi(mP, sw=ECrad, sh=ECrad).std.Inflate()
         mD = core.std.Expr([mS, mP.std.Inflate()], expr=[f'x y - {ECthr} <= 0 x y - ?']).std.Inflate().std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
         smP = core.std.MaskedMerge(smP, DeHalo_alpha(smP.dfttest.DFTTest(tbsize=1, planes=planes), darkstr=0), mD, planes=planes)
@@ -3017,7 +3032,7 @@ def MCTemporalDenoise(i, radius=None, pfMode=3, sigma=None, twopass=None, useTTm
     ### STABILIZING
     if stabilize:
         # mM = core.std.Merge(plane(SAD_f1m, 0), plane(SAD_b1m, 0)).std.Lut(function=lambda x: min(cround(x ** 1.6), peak))
-        mE = AvsPrewitt(plane(smP, 0)).std.Lut(function=lambda x: min(cround(x ** 1.8), peak)).std.Median().std.Inflate()
+        mE = avs_prewitt(plane(smP, 0)).std.Lut(function=lambda x: min(cround(x ** 1.8), peak)).std.Median().std.Inflate()
         # mF = core.std.Expr([mM, mE], expr=['x y max']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
         mF = mE.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
         TTc = smP.ttmpsm.TTempSmooth(maxr=maxr, mdiff=[255], strength=TTstr, planes=planes)
@@ -4184,26 +4199,18 @@ def average_frames(
     return clip.std.AverageFrames(weights=weights, scenechange=scenechange, planes=planes)
 
 
-def AvsPrewitt(clip: vs.VideoNode, planes: Optional[Union[int, Sequence[int]]] = None) -> vs.VideoNode:
-    if not isinstance(clip, vs.VideoNode):
-        raise vs.Error('AvsPrewitt: this is not a clip')
+def avs_prewitt(clip: vs.VideoNode, planes: PlanesT = None) -> vs.VideoNode:
+    assert check_variable(clip, avs_prewitt)
+    planes = normalize_planes(clip, planes)
 
-    plane_range = range(clip.format.num_planes)
-
-    if planes is None:
-        planes = list(plane_range)
-    elif isinstance(planes, int):
-        planes = [planes]
-
-    return core.std.Expr(
-        [
-            clip.std.Convolution(matrix=[1, 1, 0, 1, 0, -1, 0, -1, -1], planes=planes, saturate=False),
-            clip.std.Convolution(matrix=[1, 1, 1, 0, 0, 0, -1, -1, -1], planes=planes, saturate=False),
-            clip.std.Convolution(matrix=[1, 0, -1, 1, 0, -1, 1, 0, -1], planes=planes, saturate=False),
-            clip.std.Convolution(matrix=[0, -1, -1, 1, 0, -1, 1, 1, 0], planes=planes, saturate=False),
-        ],
-        expr=['x y max z max a max' if i in planes else '' for i in plane_range],
-    )
+    matrices = [
+        [1, 1, 0, 1, 0, -1, 0, -1, -1],
+        [1, 1, 1, 0, 0, 0, -1, -1, -1],
+        [1, 0, -1, 1, 0, -1, 1, 0, -1],
+        [0, -1, -1, 1, 0, -1, 1, 1, 0],
+    ]
+    clips = [clip.std.Convolution(matrix=matrix, planes=planes, saturate=False) for matrix in matrices]
+    return norm_expr(clips, "x y max z max a max", planes)
 
 
 def ChangeFPS(clip: vs.VideoNode, fpsnum: int, fpsden: int = 1) -> vs.VideoNode:
