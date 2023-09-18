@@ -5,7 +5,7 @@ from fractions import Fraction
 from functools import partial
 from typing import Any, Mapping, Optional, Sequence, Union
 
-from vsdenoise import nl_means, prefilter_to_full_range
+from vsdenoise import BM3D, nl_means, prefilter_to_full_range
 from vsexprtools import complexpr_available, norm_expr
 from vsmasktools import Morpho
 from vsrgtools import gauss_blur, min_blur, repair, sbr
@@ -2690,8 +2690,7 @@ def QTGMC(
                 ]
             )
         if Denoiser == 'bm3d':
-            import mvsfunc as mvf
-            dnWindow = mvf.BM3D(noiseWindow, radius1=NoiseTR, sigma=[Sigma if plane in CNplanes else 0 for plane in range(3)])
+            dnWindow = BM3D(noiseWindow, radius=NoiseTR, sigma=[Sigma if plane in CNplanes else 0 for plane in range(3)])
         elif Denoiser == 'dfttest':
             dnWindow = noiseWindow.dfttest.DFTTest(sigma=Sigma * 4, tbsize=noiseTD, planes=CNplanes)
         elif Denoiser in ['knlm', 'knlmeanscl']:
