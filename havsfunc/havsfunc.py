@@ -2690,7 +2690,7 @@ def QTGMC(
                 ]
             )
         if Denoiser == 'bm3d':
-            dnWindow = BM3D(noiseWindow, radius=NoiseTR, sigma=[Sigma if plane in CNplanes else 0 for plane in range(3)])
+            dnWindow = BM3D.denoise(noiseWindow, Sigma, NoiseTR, planes=CNplanes)
         elif Denoiser == 'dfttest':
             dnWindow = noiseWindow.dfttest.DFTTest(sigma=Sigma * 4, tbsize=noiseTD, planes=CNplanes)
         elif Denoiser in ['knlm', 'knlmeanscl']:
