@@ -2763,7 +2763,8 @@ def QTGMC(
         else:
             edi = edi1
     else:
-        inputTypeBlend = core.mv.Mask(srchClip, bVec1, kind=1, ml=ProgSADMask)
+        inputTypeBlend = core.mv.Mask(depth(srchClip, 8, dither_type=DitherType.NONE), bVec1, kind=1, ml=ProgSADMask)
+        inputTypeBlend = depth(inputTypeBlend, srchClip.format.bits_per_sample, dither_type=DitherType.NONE)
         edi = core.std.MaskedMerge(innerClip, edi1, inputTypeBlend, planes=0)
 
     # Get the max/min value for each pixel over neighboring motion-compensated frames - used for temporal sharpness limiting
@@ -3007,7 +3008,8 @@ def QTGMC(
     elif SBlurLimit <= 0:
         sblurred = sblur
     else:
-        sbMotionMask = core.mv.Mask(srchClip, bVec1, kind=0, ml=SBlurLimit)
+        sbMotionMask = core.mv.Mask(depth(srchClip, 8, dither_type=DitherType.NONE), bVec1, kind=0, ml=SBlurLimit)
+        sbMotionMask = depth(sbMotionMask, srchClip.format.bits_per_sample, dither_type=DitherType.NONE)
         sblurred = core.std.MaskedMerge(addNoise2, sblur, sbMotionMask)
 
     # Reduce frame rate
