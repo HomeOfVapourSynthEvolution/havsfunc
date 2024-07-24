@@ -2,8 +2,6 @@
 
 ## Dependent scripts
 - [adjust](https://github.com/dubhater/vapoursynth-adjust)
-- [mvsfunc](https://github.com/HomeOfVapourSynthEvolution/mvsfunc)
-- [nnedi3_resample](https://github.com/HomeOfVapourSynthEvolution/nnedi3_resample)
 - [vsrgtools](https://github.com/Irrational-Encoding-Wizardry/vs-rgtools)
 - [vstools](https://github.com/Irrational-Encoding-Wizardry/vs-tools)
 
@@ -28,7 +26,5 @@
 - [neo_f3kdb](https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb)
 - [NNEDI3CL](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL)
 - [RGVS](https://github.com/vapoursynth/vs-removegrain)
-- [SangNom](https://bitbucket.org/James1201/vapoursynth-sangnom)
-- [SVP](https://www.svp-team.com/wiki/Main_Page)
 - [TTempSmooth](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth)
 - [ZNEDI3](https://github.com/sekrit-twc/znedi3)
