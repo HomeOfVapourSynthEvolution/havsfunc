@@ -44,7 +44,6 @@ __all__ = [
     "Overlay",
     "QTGMC",
     "scdetect",
-    "smartfademod",
     "SmoothLevels",
     "Stab",
     "STPresso",
@@ -2931,42 +2930,6 @@ def scdetect(clip: vs.VideoNode, threshold: float = 0.1) -> vs.VideoNode:
     return sc
 
 
-def smartfademod(clip: vs.VideoNode, threshold: float = 0.4, show: bool = False, tff: Optional[bool] = None) -> vs.VideoNode:
-    '''
-    Aimed at removing interlaced fades in anime. Uses luma difference between two fields as activation threshold.
-
-    Parameters:
-        clip: Clip to process.
-
-        threshold: Threshold for fade detection.
-
-        show: Displays luma difference between fields without processing anything.
-
-        tff: Since VapourSynth only has a weak notion of field order internally, tff may have to be set. Setting tff to true means top field first and false
-            means bottom field first. Note that the _FieldBased frame property, if present, takes precedence over tff.
-    '''
-
-    def frame_eval(n: int, f: Sequence[vs.VideoFrame], orig: vs.VideoNode, defade: vs.VideoNode) -> vs.VideoNode:
-        diff = abs(f[0].props['PlaneStatsAverage'] - f[1].props['PlaneStatsAverage']) * 255
-        if show:
-            return orig.text.Text(text=diff)
-        return defade if diff > threshold else orig
-
-    if not isinstance(clip, vs.VideoNode):
-        raise vs.Error('smartfademod: this is not a clip')
-
-    if tff is None:
-        with clip.get_frame(0) as f:
-            if f.props.get('_FieldBased') not in [1, 2]:
-                raise vs.Error('smartfademod: tff was not specified and field order could not be determined from frame properties')
-
-    sep = clip.std.SeparateFields(tff=tff)
-    even = sep[::2].std.PlaneStats()
-    odd = sep[1::2].std.PlaneStats()
-    defade = daa(clip)
-    return clip.std.FrameEval(eval=partial(frame_eval, orig=clip, defade=defade), prop_src=[even, odd], clip_src=[clip, defade])
-
-
 #########################################################################################
 ###                                                                                   ###
 ###                      function Smooth Levels : SmoothLevels()                      ###
@@ -3510,6 +3473,10 @@ def santiag(*args, **kwargs):
 
 def scale(*args, **kwargs):
     raise vs.Error("havsfunc.scale outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-tools instead.")
+
+
+def smartfademod(*args, **kwargs):
+    raise vs.Error("havsfunc.smartfademod outdated. Use https://github.com/Irrational-Encoding-Wizardry/vs-deinterlace instead.")
 
 
 def SMDegrain(*args, **kwargs):
