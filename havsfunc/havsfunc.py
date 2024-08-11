@@ -95,8 +95,8 @@ def deblock_qed(
     quant1: int = 24,
     quant2: int = 26,
     aOff1: int = 1,
-    bOff1: int = 1,
-    aOff2: int = 2,
+    bOff1: int = 2,
+    aOff2: int = 1,
     bOff2: int = 2,
     uv: int = 3,
 ) -> vs.VideoNode:
