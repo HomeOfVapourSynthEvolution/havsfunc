@@ -31,7 +31,6 @@ from vstools import (
 )
 
 __all__ = [
-    "average_frames",
     "avs_prewitt",
     "daa",
     "daa3mod",
@@ -52,17 +51,6 @@ __all__ = [
     "STPresso",
     "Toon",
 ]
-
-
-def average_frames(
-    clip: vs.VideoNode, weights: float | Sequence[float], scenechange: float | None = None, planes: PlanesT = None
-) -> vs.VideoNode:
-    assert check_variable(clip, average_frames)
-    planes = normalize_planes(clip, planes)
-
-    if scenechange:
-        clip = scdetect(clip, scenechange)
-    return clip.std.AverageFrames(weights=weights, scenechange=scenechange, planes=planes)
 
 
 def avs_prewitt(clip: vs.VideoNode, planes: PlanesT = None) -> vs.VideoNode:
@@ -950,7 +938,8 @@ def LSFmod(input, strength=None, Smode=None, Smethod=None, kernel=11, preblur=No
     ### SOOTHE
     if soothe:
         diff = core.std.MakeDiff(tmp, PP1)
-        diff = core.std.Expr([diff, average_frames(diff, weights=[1] * 3, scenechange=32 / 255)],
+        diff = scdetect(diff, 32 / 255)
+        diff = core.std.Expr([diff, diff.misc.AverageFrames([1] * 3, scenechange=True)],
                              expr=[f'x {neutral} - y {neutral} - * 0 < x {neutral} - 100 / {keep} * {neutral} + x {neutral} - abs y {neutral} - abs > x {keep} * y {100 - keep} * + 100 / x ? ?'])
         PP2 = core.std.MakeDiff(tmp, diff)
     else:
@@ -2032,12 +2021,13 @@ def QTGMC(
     # The bobbed clip will shimmer due to being derived from alternating fields. Temporally smooth over the neighboring frames using a binomial kernel. Binomial
     # kernels give equal weight to even and odd frames and hence average away the shimmer. The two kernels used are [1 2 1] and [1 4 6 4 1] for radius 1 and 2.
     # These kernels are approximately Gaussian kernels, which work well as a prefilter before motion analysis (hence the original name for this script)
-    # Create linear weightings of neighbors first                                                  -2    -1    0     1     2
+    # Create linear weightings of neighbors first
     if not isinstance(srchClip, vs.VideoNode):
-        if TR0 > 0:
-            ts1 = average_frames(bobbed, weights=[1] * 3, scenechange=28 / 255, planes=CMplanes)  # 0.00  0.33  0.33  0.33  0.00
+        bobbed = scdetect(bobbed, 28 / 255)
+        if TR0 > 0:                                                                         # -2    -1    0     1     2
+            ts1 = bobbed.misc.AverageFrames([1] * 3, scenechange=True, planes=CMplanes)     # 0.00  0.33  0.33  0.33  0.00
         if TR0 > 1:
-            ts2 = average_frames(bobbed, weights=[1] * 5, scenechange=28 / 255, planes=CMplanes)  # 0.20  0.20  0.20  0.20  0.20
+            ts2 = bobbed.misc.AverageFrames([1] * 5, scenechange=True, planes=CMplanes)     # 0.20  0.20  0.20  0.20  0.20
 
     # Combine linear weightings to give binomial weightings - TR0=0: (1), TR0=1: (1:2:1), TR0=2: (1:4:6:4:1)
     if isinstance(srchClip, vs.VideoNode):
@@ -3187,8 +3177,9 @@ def Stab(clp, dxmax=4, dymax=4, mirror=0):
     if not isinstance(clp, vs.VideoNode):
         raise vs.Error('Stab: this is not a clip')
 
-    temp = average_frames(clp, weights=[1] * 15, scenechange=25 / 255)
-    inter = core.std.Interleave([core.rgvs.Repair(temp, average_frames(clp, weights=[1] * 3, scenechange=25 / 255), mode=[1]), clp])
+    clp = scdetect(clp, 25 / 255)
+    temp = clp.misc.AverageFrames([1] * 15, scenechange=True)
+    inter = core.std.Interleave([core.rgvs.Repair(temp, clp.misc.AverageFrames([1] * 3, scenechange=True), mode=[1]), clp])
     mdata = inter.mv.DepanEstimate(trust=0, dxmax=dxmax, dymax=dymax)
     last = inter.mv.DepanCompensate(data=mdata, offset=-1, mirror=mirror)
     return last[::2]
