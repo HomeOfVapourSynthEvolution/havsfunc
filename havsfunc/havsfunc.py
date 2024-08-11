@@ -48,7 +48,6 @@ __all__ = [
     "SmoothLevels",
     "Stab",
     "STPresso",
-    "Toon",
 ]
 
 
@@ -3269,56 +3268,6 @@ def STPresso(
         expr = f'x {back} + y < x {back} + x {back} - y > x {back} - y ? ?'
         last = core.std.Expr([last, clp], expr=[expr if i in planes else '' for i in plane_range])
 
-    return last
-
-
-#####################
-## Toon v0.82 edit ##
-#####################
-#
-# function created by mf
-#   support by Soulhunter ;-)
-#   ported to masktools v2 and optimized by Didee (0.82)
-#   added parameters and smaller changes by MOmonster (0.82 edited)
-#
-# toon v0.8 is the newest light-weight build of mf´s nice line darken function mf_toon
-#
-# Parameters:
-#  str (float) - Strength of the line darken. Default is 1.0
-#  l_thr (int) - Lower threshold for the linemask. Default is 2
-#  u_thr (int) - Upper threshold for the linemask. Default is 12
-#  blur (int)  - "blur" parameter of AWarpSharp2. Default is 2
-#  depth (int) - "depth" parameter of AWarpSharp2. Default is 32
-def Toon(input, str=1.0, l_thr=2, u_thr=12, blur=2, depth=32):
-    if not isinstance(input, vs.VideoNode):
-        raise vs.Error('Toon: this is not a clip')
-
-    if input.format.color_family == vs.RGB:
-        raise vs.Error('Toon: RGB format is not supported')
-
-    neutral = 1 << (input.format.bits_per_sample - 1)
-    peak = (1 << input.format.bits_per_sample) - 1
-    multiple = peak / 255
-
-    if input.format.color_family != vs.GRAY:
-        input_orig = input
-        input = plane(input, 0)
-    else:
-        input_orig = None
-
-    lthr = neutral + scale_8bit(input, l_thr)
-    lthr8 = lthr / multiple
-    uthr = neutral + scale_8bit(input, u_thr)
-    uthr8 = uthr / multiple
-    ludiff = u_thr - l_thr
-
-    last = core.std.MakeDiff(input.std.Maximum().std.Minimum(), input)
-    last = core.std.Expr([last, padder(last, 6, 6, 6, 6).warp.AWarpSharp2(blur=blur, depth=depth).std.Crop(6, 6, 6, 6)], expr=['x y min'])
-    expr = f'y {lthr} <= {neutral} y {uthr} >= x {uthr8} y {multiple} / - 128 * x {multiple} / y {multiple} / {lthr8} - * + {ludiff} / {multiple} * ? {neutral} - {str} * {neutral} + ?'
-    last = core.std.MakeDiff(input, core.std.Expr([last, last.std.Maximum()], expr=[expr]))
-
-    if input_orig is not None:
-        last = core.std.ShufflePlanes([last, input_orig], planes=[0, 1, 2], colorfamily=input_orig.format.color_family)
     return last
 
 
