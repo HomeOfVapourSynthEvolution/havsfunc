@@ -34,7 +34,7 @@ __all__ = [
     "daa",
     "daa3mod",
     "deblock_qed",
-    "FastLineDarkenMOD",
+    "fast_line_darken_mod",
     "FixChromaBleedingMod",
     "GSMC",
     "LSFmod",
@@ -74,7 +74,7 @@ def daa(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **k
     nn = nnedi3(clip, field=3, **kwargs)
     dbl = nn[::2].std.Merge(nn[1::2])
     dblD = clip.std.MakeDiff(dbl)
-    shrpD = dbl.std.MakeDiff(dbl.std.Convolution(matrix=mean_matrix if clip.width > 1100 else wmean_matrix))
+    shrpD = dbl.std.MakeDiff(dbl.std.Convolution(mean_matrix if clip.width > 1100 else wmean_matrix))
     DD = repair(shrpD, dblD, 13)
     return dbl.std.MergeDiff(DD)
 
@@ -192,67 +192,68 @@ def deblock_qed(
     return deblocked.std.Crop(right=padX, bottom=padY)
 
 
-##############################
-# FastLineDarken 1.4x MT MOD #
-##############################
-#
-# Written by Vectrangle    (http://forum.doom9.org/showthread.php?t=82125)
-# Didée: - Speed Boost, Updated: 11th May 2007
-# Dogway - added protection option. 12-May-2011
-#
-# Parameters are:
-#  strength (integer)   - Line darkening amount, 0-256. Default 48. Represents the _maximum_ amount
-#                         that the luma will be reduced by, weaker lines will be reduced by
-#                         proportionately less.
-#  protection (integer) - Prevents the darkest lines from being darkened. Protection acts as a threshold.
-#                         Values range from 0 (no prot) to ~50 (protect everything)
-#  luma_cap (integer)   - value from 0 (black) to 255 (white), used to stop the darkening
-#                         determination from being 'blinded' by bright pixels, and to stop grey
-#                         lines on white backgrounds being darkened. Any pixels brighter than
-#                         luma_cap are treated as only being as bright as luma_cap. Lowering
-#                         luma_cap tends to reduce line darkening. 255 disables capping. Default 191.
-#  threshold (integer)  - any pixels that were going to be darkened by an amount less than
-#                         threshold will not be touched. setting this to 0 will disable it, setting
-#                         it to 4 (default) is recommended, since often a lot of random pixels are
-#                         marked for very slight darkening and a threshold of about 4 should fix
-#                         them. Note if you set threshold too high, some lines will not be darkened
-#  thinning (integer)   - optional line thinning amount, 0-256. Setting this to 0 will disable it,
-#                         which is gives a _big_ speed increase. Note that thinning the lines will
-#                         inherently darken the remaining pixels in each line a little. Default 0.
-def FastLineDarkenMOD(c, strength=48, protection=5, luma_cap=191, threshold=4, thinning=0):
-    if not isinstance(c, vs.VideoNode):
-        raise vs.Error('FastLineDarkenMOD: this is not a clip')
+def fast_line_darken_mod(
+    clip: vs.VideoNode,
+    strength: int = 48,
+    protection: int = 5,
+    luma_cap: int = 191,
+    threshold: int = 4,
+    thinning: int = 0,
+) -> vs.VideoNode:
+    """
+    :param strength:    Line darkening amount, 0-256. Represents the maximum amount that the luma will be reduced by,
+                        weaker lines will be reduced by proportionately less.
+    :param protection:  Prevents the darkest lines from being darkened. Protection acts as a threshold. Values range
+                        from 0 (no prot) to ~50 (protect everything).
+    :param luma_cap:    Value from 0 (black) to 255 (white), used to stop the darkening determination from being
+                        'blinded' by bright pixels, and to stop grey lines on white backgrounds being darkened. Any
+                        pixels brighter than luma_cap are treated as only being as bright as luma_cap. Lowering luma_cap
+                        tends to reduce line darkening. 255 disables capping.
+    :param threshold:   Any pixels that were going to be darkened by an amount less than threshold will not be touched.
+                        Setting this to 0 will disable it, setting it to 4 (default) is recommended, since often a lot
+                        of random pixels are marked for very slight darkening and a threshold of about 4 should fix
+                        them. Note if you set threshold too high, some lines will not be darkened.
+    :param thinning:    Optional line thinning amount, 0-256. Setting this to 0 will disable it, which gives a big speed
+                        increase. Note that thinning the lines will inherently darken the remaining pixels in each line
+                        a little.
+    """
+    assert check_variable(clip, fast_line_darken_mod)
 
-    if c.format.color_family == vs.RGB:
-        raise vs.Error('FastLineDarkenMOD: RGB format is not supported')
+    fmt = get_video_format(clip)
+    peak = get_peak_value(fmt)
 
-    peak = (1 << c.format.bits_per_sample) - 1 if c.format.sample_type == vs.INTEGER else 1.0
+    if fmt.color_family == vs.RGB:
+        raise vs.Error("fast_line_darken_mod: RGB format is not supported")
 
-    if c.format.color_family != vs.GRAY:
-        c_orig = c
-        c = plane(c, 0)
+    if fmt.color_family != vs.GRAY:
+        clip_orig = clip
+        clip = plane(clip, 0)
     else:
-        c_orig = None
+        clip_orig = None
 
-    ## parameters ##
+    # parameters
     Str = strength / 128
-    lum = scale_8bit(c, luma_cap)
-    thr = scale_8bit(c, threshold)
+    lum = scale_8bit(clip, luma_cap)
+    thr = scale_8bit(clip, threshold)
     thn = thinning / 16
 
-    ## filtering ##
-    exin = c.std.Maximum(threshold=peak / (protection + 1)).std.Minimum()
-    thick = core.std.Expr([c, exin], expr=[f'y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {Str} * x +'])
-    if thinning <= 0:
+    # filtering
+    exin = clip.std.Maximum(threshold=peak / (protection + 1)).std.Minimum()
+    thick = core.std.Expr([clip, exin], f"y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {Str} * x +")
+    if thinning == 0:
         last = thick
     else:
-        diff = core.std.Expr([c, exin], expr=[f'y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale_8bit(c, 127)} +'])
-        linemask = diff.std.Minimum().std.Expr(expr=[f'x {scale_8bit(c, 127)} - {thn} * {peak} +']).std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1])
-        thin = core.std.Expr([c.std.Maximum(), diff], expr=[f'x y {scale_8bit(c, 127)} - {Str} 1 + * +'])
-        last = core.std.MaskedMerge(thin, thick, linemask)
+        diff = core.std.Expr(
+            [clip, exin], f"y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale_8bit(clip, 127)} +"
+        )
+        linemask = (
+            diff.std.Minimum().std.Expr(f"x {scale_8bit(clip, 127)} - {thn} * {peak} +").std.Convolution(mean_matrix)
+        )
+        thin = core.std.Expr([clip.std.Maximum(), diff], f"x y {scale_8bit(clip, 127)} - {Str} 1 + * +")
+        last = thin.std.MaskedMerge(thick, linemask)
 
-    if c_orig is not None:
-        last = core.std.ShufflePlanes([last, c_orig], planes=[0, 1, 2], colorfamily=c_orig.format.color_family)
+    if clip_orig is not None:
+        last = core.std.ShufflePlanes([last, clip_orig], planes=[0, 1, 2], colorfamily=fmt.color_family)
     return last
 
 
