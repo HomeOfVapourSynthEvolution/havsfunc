@@ -31,7 +31,6 @@ from vstools import (
 )
 
 __all__ = [
-    "avs_prewitt",
     "daa",
     "daa3mod",
     "deblock_qed",
@@ -51,20 +50,6 @@ __all__ = [
     "STPresso",
     "Toon",
 ]
-
-
-def avs_prewitt(clip: vs.VideoNode, planes: PlanesT = None) -> vs.VideoNode:
-    assert check_variable(clip, avs_prewitt)
-    planes = normalize_planes(clip, planes)
-
-    matrices = [
-        [1, 1, 0, 1, 0, -1, 0, -1, -1],
-        [1, 1, 1, 0, 0, 0, -1, -1, -1],
-        [1, 0, -1, 1, 0, -1, 1, 0, -1],
-        [0, -1, -1, 1, 0, -1, 1, 1, 0],
-    ]
-    clips = [clip.std.Convolution(matrix=matrix, planes=planes, saturate=False) for matrix in matrices]
-    return norm_expr(clips, "x y max z max a max", planes)
 
 
 def daa(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **kwargs: Any) -> vs.VideoNode:
