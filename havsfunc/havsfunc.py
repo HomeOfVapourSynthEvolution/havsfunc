@@ -35,7 +35,6 @@ __all__ = [
     "daa3mod",
     "deblock_qed",
     "fast_line_darken_mod",
-    "FixChromaBleedingMod",
     "GSMC",
     "LSFmod",
     "LUTDeCrawl",
@@ -254,74 +253,6 @@ def fast_line_darken_mod(
     if clip_orig is not None:
         last = core.std.ShufflePlanes([last, clip_orig], planes=[0, 1, 2], colorfamily=fmt.color_family)
     return last
-
-
-def FixChromaBleedingMod(input: vs.VideoNode, cx: int = 4, cy: int = 4, thr: float = 4.0, strength: float = 0.8, blur: bool = False) -> vs.VideoNode:
-    '''
-    FixChromaBleedingMod v1.36
-    A script to reduce color bleeding, over-saturation, and color shifting mainly in red and blue areas.
-
-    Parameters:
-        input: Clip to process.
-
-        cx: Horizontal chroma shift. Positive value shifts chroma to the left, negative value shifts chroma to the right.
-
-        cy: Vertical chroma shift. Positive value shifts chroma upwards, negative value shifts chroma downwards.
-
-        thr: Masking threshold, higher values treat more areas as color bleed.
-
-        strength: Saturation strength in clip to be merged with the original chroma.
-            Values below 1.0 reduce the saturation, a value of 1.0 leaves the saturation intact.
-
-        blur: Set to true to blur the mask clip.
-    '''
-    from adjust import Tweak
-
-    if not isinstance(input, vs.VideoNode):
-        raise vs.Error('FixChromaBleedingMod: this is not a clip')
-
-    if input.format.color_family != vs.YUV or input.format.sample_type != vs.INTEGER:
-        raise vs.Error('FixChromaBleedingMod: only YUV format with integer sample type is supported')
-
-    # prepare to work on the V channel and filter noise
-    vch = plane(Tweak(input, sat=thr), 2)
-    if blur:
-        area = vch.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    else:
-        area = vch
-
-    bits = get_depth(input)
-    i16 = scale_value(16, 8, bits)
-    i25 = scale_value(25, 8, bits)
-    i231 = scale_value(231, 8, bits)
-    i235 = scale_value(235, 8, bits)
-    i240 = scale_value(240, 8, bits)
-
-    # select and normalize both extremes of the scale
-    red = area.std.Levels(min_in=i235, max_in=i235, min_out=i235, max_out=i16)
-    blue = area.std.Levels(min_in=i16, max_in=i16, min_out=i16, max_out=i235)
-
-    # merge both masks
-    mask = core.std.Merge(red, blue)
-    if not blur:
-        mask = mask.std.Convolution(matrix=[1, 2, 1, 2, 4, 2, 1, 2, 1])
-    mask = mask.std.Levels(min_in=i231, max_in=i231, min_out=i235, max_out=i16)
-
-    # expand to cover beyond the bleeding areas and shift to compensate the resizing
-    mask = mask.std.Convolution(matrix=[0, 0, 0, 1, 0, 0, 0, 0, 0], divisor=1, saturate=False).std.Convolution(
-        matrix=[1, 1, 1, 1, 1, 1, 0, 0, 0], divisor=8, saturate=False
-    )
-
-    # binarize (also a trick to expand)
-    mask = mask.std.Levels(min_in=i25, max_in=i25, min_out=i16, max_out=i240).std.Inflate()
-
-    # prepare a version of the image that has its chroma shifted and less saturated
-    input_c = Tweak(input.resize.Spline16(src_left=cx, src_top=cy), sat=strength)
-
-    # combine both images using the mask
-    fu = core.std.MaskedMerge(plane(input, 1), plane(input_c, 1), mask)
-    fv = core.std.MaskedMerge(plane(input, 2), plane(input_c, 2), mask)
-    return join([input, fu, fv])
 
 
 ######

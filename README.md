@@ -1,7 +1,6 @@
 # HAvsFunc
 
 ## Dependent scripts
-- [adjust](https://github.com/dubhater/vapoursynth-adjust)
 - [vsdenoise](https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise)
 - [vsexprtools](https://github.com/Jaded-Encoding-Thaumaturgy/vs-exprtools)
 - [vsmasktools](https://github.com/Jaded-Encoding-Thaumaturgy/vs-masktools)
