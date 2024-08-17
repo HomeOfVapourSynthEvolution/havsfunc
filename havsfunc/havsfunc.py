@@ -6,7 +6,7 @@ from typing import Any, Mapping, Optional, Sequence, Union
 
 from vsdenoise import BM3D, nl_means, prefilter_to_full_range
 from vsexprtools import complexpr_available, norm_expr
-from vsrgtools import gauss_blur, min_blur, repair, sbr
+from vsrgtools import gauss_blur, min_blur, repair
 from vsrgtools.util import mean_matrix, wmean_matrix
 from vstools import (
     DitherType,
@@ -35,7 +35,6 @@ __all__ = [
     "daa3mod",
     "deblock_qed",
     "fast_line_darken_mod",
-    "GSMC",
     "LSFmod",
     "LUTDeCrawl",
     "LUTDeRainbow",
@@ -253,123 +252,6 @@ def fast_line_darken_mod(
     if clip_orig is not None:
         last = core.std.ShufflePlanes([last, clip_orig], planes=[0, 1, 2], colorfamily=fmt.color_family)
     return last
-
-
-######
-###
-### GrainStabilizeMC v1.0      by mawen1250      2014.03.22
-###
-### Requirements: MVTools, RGVS
-###
-### Temporal-only on-top grain stabilizer
-### Only stabilize the difference ( on-top grain ) between source clip and spatial-degrained clip
-###
-### Parameters:
-###  nrmode (int)   - Mode to get grain/noise from input clip. 0: 3x3 Average Blur, 1: 3x3 SBR, 2: 5x5 SBR, 3: 7x7 SBR. Or define your own denoised clip "p". Default is 2 for HD / 1 for SD
-###  radius (int)   - Temporal radius of MDegrain for grain stabilize (1-3). Default is 1
-###  adapt (int)    - Threshold for luma-adaptative mask. -1: off, 0: source, 255: invert. Or define your own luma mask clip "Lmask". Default is -1
-###  rep (int)      - Mode of repair to avoid artifacts, set 0 to turn off this operation. Default is 13
-###  planes (int[]) - Whether to process the corresponding plane. The other planes will be passed through unchanged.
-###
-######
-def GSMC(input, p=None, Lmask=None, nrmode=None, radius=1, adapt=-1, rep=13, planes=None, thSAD=300, thSADC=None, thSCD1=300, thSCD2=100, limit=None, limitc=None):
-    if not isinstance(input, vs.VideoNode):
-        raise vs.Error('GSMC: this is not a clip')
-
-    if p is not None and (not isinstance(p, vs.VideoNode) or p.format.id != input.format.id):
-        raise vs.Error("GSMC: 'p' must be the same format as input")
-
-    if Lmask is not None and not isinstance(Lmask, vs.VideoNode):
-        raise vs.Error("GSMC: 'Lmask' is not a clip")
-
-    neutral = 1 << (input.format.bits_per_sample - 1)
-    peak = (1 << input.format.bits_per_sample) - 1
-
-    if planes is None:
-        planes = list(range(input.format.num_planes))
-    elif isinstance(planes, int):
-        planes = [planes]
-
-    HD = input.width > 1024 or input.height > 576
-
-    if nrmode is None:
-        nrmode = 2 if HD else 1
-    if thSADC is None:
-        thSADC = thSAD // 2
-    if limit is not None:
-        limit = scale_8bit(input, limit)
-    if limitc is not None:
-        limitc = scale_8bit(input, limitc)
-
-    Y = 0 in planes
-    U = 1 in planes
-    V = 2 in planes
-
-    chromamv = U or V
-    blksize = 32 if HD else 16
-    overlap = blksize // 4
-    if not Y:
-        if not U:
-            plane = 2
-        elif not V:
-            plane = 1
-        else:
-            plane = 3
-    elif not (U or V):
-        plane = 0
-    else:
-        plane = 4
-
-    # Kernel: Spatial Noise Dumping
-    if p is not None:
-        pre_nr = p
-    elif nrmode <= 0:
-        pre_nr = input.std.Convolution(matrix=[1, 1, 1, 1, 1, 1, 1, 1, 1], planes=planes)
-    else:
-        pre_nr = sbr(input, nrmode, planes=planes)
-    dif_nr = core.std.MakeDiff(input, pre_nr, planes=planes)
-
-    # Kernel: MC Grain Stabilize
-    psuper = prefilter_to_full_range(pre_nr, 2, planes).mv.Super(pel=1, chroma=chromamv)
-    difsuper = dif_nr.mv.Super(pel=1, levels=1, chroma=chromamv)
-
-    analyse_args = dict(blksize=blksize, chroma=chromamv, truemotion=False, global_=True, overlap=overlap)
-    fv1 = psuper.mv.Analyse(isb=False, delta=1, **analyse_args)
-    bv1 = psuper.mv.Analyse(isb=True, delta=1, **analyse_args)
-    if radius >= 2:
-        fv2 = psuper.mv.Analyse(isb=False, delta=2, **analyse_args)
-        bv2 = psuper.mv.Analyse(isb=True, delta=2, **analyse_args)
-    if radius >= 3:
-        fv3 = psuper.mv.Analyse(isb=False, delta=3, **analyse_args)
-        bv3 = psuper.mv.Analyse(isb=True, delta=3, **analyse_args)
-
-    degrain_args = dict(thsad=thSAD, thsadc=thSADC, plane=plane, limit=limit, limitc=limitc, thscd1=thSCD1, thscd2=thSCD2)
-    if radius <= 1:
-        dif_sb = core.mv.Degrain1(dif_nr, difsuper, bv1, fv1, **degrain_args)
-    elif radius == 2:
-        dif_sb = core.mv.Degrain2(dif_nr, difsuper, bv1, fv1, bv2, fv2, **degrain_args)
-    else:
-        dif_sb = core.mv.Degrain3(dif_nr, difsuper, bv1, fv1, bv2, fv2, bv3, fv3, **degrain_args)
-
-    # Post-Process: Luma-Adaptive Mask Merging & Repairing
-    stable = core.std.MergeDiff(pre_nr, dif_sb, planes=planes)
-    if rep > 0:
-        stable = core.rgvs.Repair(stable, input, mode=[rep if i in planes else 0 for i in range(input.format.num_planes)])
-
-    if Lmask is not None:
-        return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
-    elif adapt <= -1:
-        return stable
-    else:
-        input_y = plane(input, 0)
-        if adapt == 0:
-            Lmask = input_y.std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
-        elif adapt >= 255:
-            Lmask = input_y.std.Invert().std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
-        else:
-            expr = 'x {adapt} - abs {peak} * {adapt} {neutral} - abs {neutral} + /'.format(adapt=scale_8bit(input, adapt), peak=peak, neutral=neutral)
-            Lmask = input_y.std.Expr(expr=[expr]).std.Convolution(matrix=[1, 1, 1, 1, 0, 1, 1, 1, 1])
-        return core.std.MaskedMerge(input, stable, Lmask, planes=planes)
 
 
 ################################################################################################
