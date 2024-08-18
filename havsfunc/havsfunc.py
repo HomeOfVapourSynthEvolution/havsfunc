@@ -37,7 +37,7 @@ __all__ = [
     "deblock_qed",
     "fast_line_darken_mod",
     "lut_decrawl",
-    "LUTDeRainbow",
+    "lut_derainbow",
     "mcdaa3",
     "mt_clamp",
     "Overlay",
@@ -274,7 +274,7 @@ def lut_decrawl(
     :param maxdiff:     This is the maximum difference allowed between the luma values of the pixel in the CURRENT frame
                         and in each of its neighbour frames (so, the upper limit to what fluctuations are considered dot
                         crawl). Lower values will reduce artifacts but may cause the filter to miss some dot crawl.
-                        Obviously, this should never be lower than ythresh. Meaningless if usemaxdiff = False.
+                        Obviously, this should never be lower than ythresh. Meaningless if usemaxdiff=False.
     :param scnchg:      Scene change detection threshold. Any frame with total luma difference between it and the
                         previous/next frame greater than this value will not be processed.
     :param usemaxdiff:  Whether or not to reject luma fluctuations higher than maxdiff. Setting this to False is not
@@ -299,7 +299,7 @@ def lut_decrawl(
         raise vs.Error("lut_decrawl: only YUV format is supported")
 
     ythresh = scale_8bit(clip, ythresh)
-    cthresh = scale_8bit(clip, cthresh)
+    cthresh = scale_8bit(clip, cthresh, chroma=True)
     maxdiff = scale_8bit(clip, maxdiff)
 
     clip_minus = shift_clip(clip, -1)
@@ -334,105 +334,70 @@ def lut_decrawl(
     return themask if mask else output
 
 
-#####################################################
-#                                                   #
-# LUTDeRainbow, a derainbowing script by Scintilla  #
-# Last updated 2022-10-08                           #
-#                                                   #
-#####################################################
-#
-# Requires YUV input, frame-based only.
-# Is of reasonable speed (faster than aWarpSharp, slower than DeGrainMedian).
-# Suggestions for improvement welcome: scintilla@aquilinestudios.org
-#
-# Arguments:
-#
-# cthresh (int, default=10) - This determines how close the chroma values of the
-#   pixel in the previous and next frames have to be for the pixel to
-#   be hit.  Higher values (within reason) should catch more rainbows,
-#   but may introduce unwanted artifacts.  Probably shouldn't be set
-#   above 20 or so.
-#
-# ythresh (int, default=10) - If the y parameter is set true, then this
-#   determines how close the luma values of the pixel in the previous
-#   and next frames have to be for the pixel to be hit.  Just as with
-#   cthresh.
-#
-# y (bool, default=True) - Determines whether luma difference will be considered
-#   in determining which pixels to hit and which to leave alone.
-#
-# linkUV (bool, default=True) - Determines whether both chroma channels are
-#   considered in determining which pixels in each channel to hit.
-#   When set true, only pixels that meet the thresholds for both U and
-#   V will be hit; when set false, the U and V channels are masked
-#   separately (so a pixel could have its U hit but not its V, or vice
-#   versa).
-#
-# mask (bool, default=False) - When set true, the function will return the mask
-#   (for combined U/V) instead of the image.  Formerly used to find the
-#   best values of cthresh and ythresh.  If linkUV=false, then this
-#   mask won't actually be used anyway (because each chroma channel
-#   will have its own mask).
-#
-###################
-def LUTDeRainbow(input, cthresh=10, ythresh=10, y=True, linkUV=True, mask=False):
-    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 16:
-        raise vs.Error('LUTDeRainbow: This is not an 8-16 bit YUV clip')
+def lut_derainbow(
+    clip: vs.VideoNode, cthresh: int = 10, ythresh: int = 10, y: bool = True, linkUV: bool = True, mask: bool = False
+) -> vs.VideoNode:
+    """
+    :param clip:    Clip to process.
+    :param cthresh: This determines how close the chroma values of the pixel in the previous and next frames have to be
+                    for the pixel to be hit. Higher values (within reason) should catch more rainbows, but may introduce
+                    unwanted artifacts. Probably shouldn't be set above 20 or so.
+    :param ythresh: If the y parameter is set True, then this determines how close the luma values of the pixel in the
+                    previous and next frames have to be for the pixel to be hit. Just as with cthresh.
+    :param y:       Determines whether luma difference will be considered in determining which pixels to hit and which
+                    to leave alone.
+    :param linkUV:  Determines whether both chroma channels are considered in determining which pixels in each channel
+                    to hit. When set True, only pixels that meet the thresholds for both U and V will be hit; when set
+                    False, the U and V channels are masked separately (so a pixel could have its U hit but not its V, or
+                    vice versa).
+    :param mask:    When set True, the function will return the mask (for combined U/V) instead of the image. Formerly
+                    used to find the best values of cthresh and ythresh. If linkUV=False, then this mask won't actually
+                    be used anyway (because each chroma channel will have its own mask).
+    """
+    assert check_variable(clip, lut_derainbow)
 
-    # Since LUT2 can't handle clips with more than 10 bits, we default to using
-    # Expr and MaskedMerge to handle the same logic for higher bit depths.
-    useExpr = input.format.bits_per_sample > 10
+    fmt = get_video_format(clip)
+    peak = get_peak_value(fmt)
 
-    shift = input.format.bits_per_sample - 8
-    peak = (1 << input.format.bits_per_sample) - 1
+    if fmt.color_family != vs.YUV:
+        raise vs.Error("lut_derainbow: only YUV format is supported")
 
-    cthresh = scale_8bit(input, cthresh)
-    ythresh = scale_8bit(input, ythresh)
+    cthresh = scale_8bit(clip, cthresh, chroma=True)
+    ythresh = scale_8bit(clip, ythresh)
 
-    input_minus = input.std.DuplicateFrames(frames=[0])
-    input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
+    clip_minus = shift_clip(clip, -1)
+    clip_plus = shift_clip(clip, 1)
 
-    input_u = plane(input, 1)
-    input_v = plane(input, 2)
-    input_minus_y = plane(input_minus, 0)
-    input_minus_u = plane(input_minus, 1)
-    input_minus_v = plane(input_minus, 2)
-    input_plus_y = plane(input_plus, 0)
-    input_plus_u = plane(input_plus, 1)
-    input_plus_v = plane(input_plus, 2)
+    clip_u = plane(clip, 1)
+    clip_v = plane(clip, 2)
+    clip_minus_y, clip_minus_u, clip_minus_v = clip_minus.std.SplitPlanes()
+    clip_plus_y, clip_plus_u, clip_plus_v = clip_plus.std.SplitPlanes()
 
-    average_y = core.std.Expr([input_minus_y, input_plus_y], expr=[f'x y - abs {ythresh} < {peak} 0 ?']).resize.Bilinear(input_u.width, input_u.height)
-    average_u = core.std.Expr([input_minus_u, input_plus_u], expr=[f'x y - abs {cthresh} < x y + 2 / 0 ?'])
-    average_v = core.std.Expr([input_minus_v, input_plus_v], expr=[f'x y - abs {cthresh} < x y + 2 / 0 ?'])
+    average_y = core.std.Expr([clip_minus_y, clip_plus_y], f"x y - abs {ythresh} < {peak} 0 ?")
+    average_y = average_y.resize.Bilinear(clip_u.width, clip_u.height)
+    average_u = core.std.Expr([clip_minus_u, clip_plus_u], f"x y - abs {cthresh} < x y + 2 / 0 ?")
+    average_v = core.std.Expr([clip_minus_v, clip_plus_v], f"x y - abs {cthresh} < x y + 2 / 0 ?")
 
-    umask = average_u.std.Binarize(threshold=21 << shift)
-    vmask = average_v.std.Binarize(threshold=21 << shift)
+    umask = average_u.std.Binarize(scale_8bit(clip, 21, chroma=True))
+    vmask = average_v.std.Binarize(scale_8bit(clip, 21, chroma=True))
+    themask = core.std.Expr([umask, vmask], f"x y + {peak + 1} < 0 {peak} ?")
+    if y:
+        blank = average_y.std.BlankClip(keep=True)
+        umask = blank.std.MaskedMerge(average_y, umask)
+        vmask = blank.std.MaskedMerge(average_y, vmask)
+        themask = blank.std.MaskedMerge(average_y, themask)
 
-    if useExpr:
-        themask = core.std.Expr([umask, vmask], expr=[f'x y + {peak + 1} < 0 {peak} ?'])
-        if y:
-            umask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, umask)
-            vmask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, vmask)
-            themask = core.std.MaskedMerge(core.std.BlankClip(average_y), average_y, themask)
-    else:
-        themask = core.std.Lut2(umask, vmask, function=lambda x, y: x & y)
-        if y:
-            umask = core.std.Lut2(umask, average_y, function=lambda x, y: x & y)
-            vmask = core.std.Lut2(vmask, average_y, function=lambda x, y: x & y)
-            themask = core.std.Lut2(themask, average_y, function=lambda x, y: x & y)
+    fixed_u = average_u.std.Merge(clip_u)
+    fixed_v = average_v.std.Merge(clip_v)
 
-    fixed_u = core.std.Merge(average_u, input_u)
-    fixed_v = core.std.Merge(average_v, input_v)
+    output_u = clip_u.std.MaskedMerge(fixed_u, themask if linkUV else umask)
+    output_v = clip_v.std.MaskedMerge(fixed_v, themask if linkUV else vmask)
 
-    output_u = core.std.MaskedMerge(input_u, fixed_u, themask if linkUV else umask)
-    output_v = core.std.MaskedMerge(input_v, fixed_v, themask if linkUV else vmask)
-
-    output = core.std.ShufflePlanes([input, output_u, output_v], planes=[0, 0, 0], colorfamily=input.format.color_family)
+    output = core.std.ShufflePlanes([clip, output_u, output_v], planes=[0, 0, 0], colorfamily=fmt.color_family)
 
     if mask:
-        return themask.resize.Point(input.width, input.height)
-    else:
-        return output
+        return themask.resize.Point(clip.width, clip.height)
+    return output
 
 
 def mcdaa3(clip: vs.VideoNode, opencl: bool = False, device: int | None = None, **kwargs: Any) -> vs.VideoNode:
