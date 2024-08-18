@@ -27,6 +27,7 @@ from vstools import (
     plane,
     scale_8bit,
     scale_value,
+    shift_clip,
     vs,
 )
 
@@ -35,7 +36,7 @@ __all__ = [
     "daa3mod",
     "deblock_qed",
     "fast_line_darken_mod",
-    "LUTDeCrawl",
+    "lut_decrawl",
     "LUTDeRainbow",
     "mcdaa3",
     "mt_clamp",
@@ -197,6 +198,7 @@ def fast_line_darken_mod(
     thinning: int = 0,
 ) -> vs.VideoNode:
     """
+    :param clip:        Clip to process.
     :param strength:    Line darkening amount, 0-256. Represents the maximum amount that the luma will be reduced by,
                         weaker lines will be reduced by proportionately less.
     :param protection:  Prevents the darkest lines from being darkened. Protection acts as a threshold. Values range
@@ -253,113 +255,83 @@ def fast_line_darken_mod(
     return last
 
 
-########################################################
-#                                                      #
-# LUTDeCrawl, a dot crawl removal script by Scintilla  #
-# Created 10/3/08                                      #
-# Last updated 10/3/08                                 #
-#                                                      #
-########################################################
-#
-# Requires YUV input, frame-based only.
-# Is of average speed (faster than VagueDenoiser, slower than HQDN3D).
-# Suggestions for improvement welcome: scintilla@aquilinestudios.org
-#
-# Arguments:
-#
-# ythresh (int, default=10) - This determines how close the luma values of the
-#   pixel in the previous and next frames have to be for the pixel to
-#   be hit.  Higher values (within reason) should catch more dot crawl,
-#   but may introduce unwanted artifacts.  Probably shouldn't be set
-#   above 20 or so.
-#
-# cthresh (int, default=10) - This determines how close the chroma values of the
-#   pixel in the previous and next frames have to be for the pixel to
-#   be hit.  Just as with ythresh.
-#
-# maxdiff (int, default=50) - This is the maximum difference allowed between the
-#   luma values of the pixel in the CURRENT frame and in each of its
-#   neighbour frames (so, the upper limit to what fluctuations are
-#   considered dot crawl).  Lower values will reduce artifacts but may
-#   cause the filter to miss some dot crawl.  Obviously, this should
-#   never be lower than ythresh.  Meaningless if usemaxdiff = false.
-#
-# scnchg (int, default=25) - Scene change detection threshold.  Any frame with
-#   total luma difference between it and the previous/next frame greater
-#   than this value will not be processed.
-#
-# usemaxdiff (bool, default=True) - Whether or not to reject luma fluctuations
-#   higher than maxdiff.  Setting this to false is not recommended, as
-#   it may introduce artifacts; but on the other hand, it produces a
-#   30% speed boost.  Test on your particular source.
-#
-# mask (bool, default=False) - When set true, the function will return the mask
-#   instead of the image.  Use to find the best values of cthresh,
-#   ythresh, and maxdiff.
-#   (The scene change threshold, scnchg, is not reflected in the mask.)
-#
-###################
-def LUTDeCrawl(input, ythresh=10, cthresh=10, maxdiff=50, scnchg=25, usemaxdiff=True, mask=False):
-    def YDifferenceFromPrevious(n, f, clips):
-        if f.props['_SceneChangePrev']:
+def lut_decrawl(
+    clip: vs.VideoNode,
+    ythresh: int = 10,
+    cthresh: int = 10,
+    maxdiff: int = 50,
+    scnchg: int = 25,
+    usemaxdiff: bool = True,
+    mask: bool = False,
+) -> vs.VideoNode:
+    """
+    :param clip:        Clip to process.
+    :param ythresh:     This determines how close the luma values of the pixel in the previous and next frames have to
+                        be for the pixel to be hit. Higher values (within reason) should catch more dot crawl, but may
+                        introduce unwanted artifacts. Probably shouldn't be set above 20 or so.
+    :param cthresh:     This determines how close the chroma values of the pixel in the previous and next frames have to
+                        be for the pixel to be hit. Just as with ythresh.
+    :param maxdiff:     This is the maximum difference allowed between the luma values of the pixel in the CURRENT frame
+                        and in each of its neighbour frames (so, the upper limit to what fluctuations are considered dot
+                        crawl). Lower values will reduce artifacts but may cause the filter to miss some dot crawl.
+                        Obviously, this should never be lower than ythresh. Meaningless if usemaxdiff = False.
+    :param scnchg:      Scene change detection threshold. Any frame with total luma difference between it and the
+                        previous/next frame greater than this value will not be processed.
+    :param usemaxdiff:  Whether or not to reject luma fluctuations higher than maxdiff. Setting this to False is not
+                        recommended, as it may introduce artifacts; but on the other hand, it produces a 30% speed
+                        boost. Test on your particular source.
+    :param mask:        When set True, the function will return the mask instead of the image. Use to find the best
+                        values of ythresh, cthresh, and maxdiff.
+    """
+
+    def _scene_change(n: int, f: vs.VideoFrame, clips: list[vs.VideoNode]) -> vs.VideoNode:
+        if f.props["_SceneChangePrev"] or f.props["_SceneChangeNext"]:
             return clips[0]
         else:
             return clips[1]
 
-    def YDifferenceToNext(n, f, clips):
-        if f.props['_SceneChangeNext']:
-            return clips[0]
-        else:
-            return clips[1]
+    assert check_variable(clip, lut_decrawl)
 
-    if not isinstance(input, vs.VideoNode) or input.format.color_family != vs.YUV or input.format.bits_per_sample > 10:
-        raise vs.Error('LUTDeCrawl: This is not an 8-10 bit YUV clip')
+    fmt = get_video_format(clip)
+    peak = get_peak_value(fmt)
 
-    shift = input.format.bits_per_sample - 8
-    peak = (1 << input.format.bits_per_sample) - 1
+    if fmt.color_family != vs.YUV:
+        raise vs.Error("lut_decrawl: only YUV format is supported")
 
-    ythresh = scale_8bit(input, ythresh)
-    cthresh = scale_8bit(input, cthresh)
-    maxdiff = scale_8bit(input, maxdiff)
+    ythresh = scale_8bit(clip, ythresh)
+    cthresh = scale_8bit(clip, cthresh)
+    maxdiff = scale_8bit(clip, maxdiff)
 
-    input_minus = input.std.DuplicateFrames(frames=[0])
-    input_plus = input.std.Trim(first=1) + input.std.Trim(first=input.num_frames - 1)
+    clip_minus = shift_clip(clip, -1)
+    clip_plus = shift_clip(clip, 1)
 
-    input_y = plane(input, 0)
-    input_minus_y = plane(input_minus, 0)
-    input_minus_u = plane(input_minus, 1)
-    input_minus_v = plane(input_minus, 2)
-    input_plus_y = plane(input_plus, 0)
-    input_plus_u = plane(input_plus, 1)
-    input_plus_v = plane(input_plus, 2)
+    clip_y = plane(clip, 0)
+    clip_minus_y, clip_minus_u, clip_minus_v = clip_minus.std.SplitPlanes()
+    clip_plus_y, clip_plus_u, clip_plus_v = clip_plus.std.SplitPlanes()
 
-    average_y = core.std.Expr([input_minus_y, input_plus_y], expr=[f'x y - abs {ythresh} < x y + 2 / 0 ?'])
-    average_u = core.std.Expr([input_minus_u, input_plus_u], expr=[f'x y - abs {cthresh} < {peak} 0 ?'])
-    average_v = core.std.Expr([input_minus_v, input_plus_v], expr=[f'x y - abs {cthresh} < {peak} 0 ?'])
+    average_y = core.std.Expr([clip_minus_y, clip_plus_y], f"x y - abs {ythresh} < x y + 2 / 0 ?")
+    average_u = core.std.Expr([clip_minus_u, clip_plus_u], f"x y - abs {cthresh} < {peak} 0 ?")
+    average_v = core.std.Expr([clip_minus_v, clip_plus_v], f"x y - abs {cthresh} < {peak} 0 ?")
 
-    ymask = average_y.std.Binarize(threshold=1 << shift)
+    ymask = average_y.std.Binarize(scale_8bit(clip, 1))
     if usemaxdiff:
-        diffplus_y = core.std.Expr([input_plus_y, input_y], expr=[f'x y - abs {maxdiff} < {peak} 0 ?'])
-        diffminus_y = core.std.Expr([input_minus_y, input_y], expr=[f'x y - abs {maxdiff} < {peak} 0 ?'])
-        diffs_y = core.std.Lut2(diffplus_y, diffminus_y, function=lambda x, y: x & y)
-        ymask = core.std.Lut2(ymask, diffs_y, function=lambda x, y: x & y)
-    cmask = core.std.Lut2(average_u.std.Binarize(threshold=129 << shift), average_v.std.Binarize(threshold=129 << shift), function=lambda x, y: x & y)
-    cmask = cmask.resize.Point(input.width, input.height)
+        diffplus_y = core.std.Expr([clip_plus_y, clip_y], f"x y - abs {maxdiff} < {peak} 0 ?")
+        diffminus_y = core.std.Expr([clip_minus_y, clip_y], f"x y - abs {maxdiff} < {peak} 0 ?")
+        diffs_y = core.std.Expr([diffplus_y, diffminus_y], f"x y + {peak + 1} < 0 {peak} ?")
+        ymask = core.std.Expr([ymask, diffs_y], f"x y + {peak + 1} < 0 {peak} ?")
+    cmask = core.std.Expr([average_u, average_v], f"x y + {peak + 1} < 0 {peak} ?")
+    cmask = cmask.resize.Point(clip.width, clip.height)
 
-    themask = core.std.Lut2(ymask, cmask, function=lambda x, y: x & y)
+    themask = core.std.Expr([ymask, cmask], f"x y + {peak + 1} < 0 {peak} ?")
 
-    fixed_y = core.std.Merge(average_y, input_y)
+    fixed_y = average_y.std.Merge(clip_y)
 
-    output = core.std.ShufflePlanes([core.std.MaskedMerge(input_y, fixed_y, themask), input], planes=[0, 1, 2], colorfamily=input.format.color_family)
+    output = clip_y.std.MaskedMerge(fixed_y, themask)
+    output = core.std.ShufflePlanes([output, clip], planes=[0, 1, 2], colorfamily=fmt.color_family)
+    sc = scdetect(clip, scnchg / 255)
+    output = output.std.FrameEval(partial(_scene_change, clips=[clip, output]), prop_src=sc, clip_src=[clip, output])
 
-    input = scdetect(input, scnchg / 255)
-    output = output.std.FrameEval(eval=partial(YDifferenceFromPrevious, clips=[input, output]), prop_src=input)
-    output = output.std.FrameEval(eval=partial(YDifferenceToNext, clips=[input, output]), prop_src=input)
-
-    if mask:
-        return themask
-    else:
-        return output
+    return themask if mask else output
 
 
 #####################################################
