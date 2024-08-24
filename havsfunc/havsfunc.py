@@ -140,7 +140,7 @@ def deblock_qed(
     block = core.std.StackVertical([block for _ in range(h // 8)])
     if not is_gray:
         blockc = block.std.CropAbs(width=w >> fmt.subsampling_w, height=h >> fmt.subsampling_h)
-        block = join(block, blockc, blockc, family=fmt.color_family)
+        block = join(block, blockc, blockc)
     block = block * clip.num_frames
 
     # create normal deblocking (for block borders) and strong deblocking (for block interiour)
@@ -251,7 +251,7 @@ def fast_line_darken_mod(
         last = thin.std.MaskedMerge(thick, linemask)
 
     if clip_orig is not None:
-        last = core.std.ShufflePlanes([last, clip_orig], planes=[0, 1, 2], colorfamily=fmt.color_family)
+        last = join(last, clip_orig)
     return last
 
 
@@ -327,7 +327,7 @@ def lut_decrawl(
     fixed_y = average_y.std.Merge(clip_y)
 
     output = clip_y.std.MaskedMerge(fixed_y, themask)
-    output = core.std.ShufflePlanes([output, clip], planes=[0, 1, 2], colorfamily=fmt.color_family)
+    output = join(output, clip)
     sc = scdetect(clip, scnchg / 255)
     output = output.std.FrameEval(partial(_scene_change, clips=[clip, output]), prop_src=sc, clip_src=[clip, output])
 
@@ -393,7 +393,7 @@ def lut_derainbow(
     output_u = clip_u.std.MaskedMerge(fixed_u, themask if linkUV else umask)
     output_v = clip_v.std.MaskedMerge(fixed_v, themask if linkUV else vmask)
 
-    output = core.std.ShufflePlanes([clip, output_u, output_v], planes=[0, 0, 0], colorfamily=fmt.color_family)
+    output = join(clip, output_u, output_v)
 
     if mask:
         return themask.resize.Point(clip.width, clip.height)
