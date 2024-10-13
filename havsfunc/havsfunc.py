@@ -9,6 +9,7 @@ from vsexprtools import complexpr_available, norm_expr
 from vsrgtools import gauss_blur, repair
 from vsrgtools.util import mean_matrix, wmean_matrix
 from vstools import (
+    ColorRange,
     DitherType,
     PlanesT,
     check_ref_clip,
@@ -25,7 +26,6 @@ from vstools import (
     normalize_planes,
     padder,
     plane,
-    scale_8bit,
     scale_value,
     shift_clip,
     vs,
@@ -231,8 +231,8 @@ def fast_line_darken_mod(
 
     # parameters
     Str = strength / 128
-    lum = scale_8bit(clip, luma_cap)
-    thr = scale_8bit(clip, threshold)
+    lum = scale_value(luma_cap, 8, clip, ColorRange.FULL)
+    thr = scale_value(threshold, 8, clip, ColorRange.FULL)
     thn = thinning / 16
 
     # filtering
@@ -241,13 +241,14 @@ def fast_line_darken_mod(
     if thinning == 0:
         last = thick
     else:
+        scale_127 = scale_value(127, 8, clip, ColorRange.FULL)
         diff = core.std.Expr(
-            [clip, exin], f"y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale_8bit(clip, 127)} +"
+            [clip, exin], f"y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale_127} +"
         )
         linemask = (
-            diff.std.Minimum().std.Expr(f"x {scale_8bit(clip, 127)} - {thn} * {peak} +").std.Convolution(mean_matrix)
+            diff.std.Minimum().std.Expr(f"x {scale_127} - {thn} * {peak} +").std.Convolution(mean_matrix)
         )
-        thin = core.std.Expr([clip.std.Maximum(), diff], f"x y {scale_8bit(clip, 127)} - {Str} 1 + * +")
+        thin = core.std.Expr([clip.std.Maximum(), diff], f"x y {scale_127} - {Str} 1 + * +")
         last = thin.std.MaskedMerge(thick, linemask)
 
     if clip_orig is not None:
@@ -298,9 +299,9 @@ def lut_decrawl(
     if fmt.color_family != vs.YUV:
         raise vs.Error("lut_decrawl: only YUV format is supported")
 
-    ythresh = scale_8bit(clip, ythresh)
-    cthresh = scale_8bit(clip, cthresh, chroma=True)
-    maxdiff = scale_8bit(clip, maxdiff)
+    ythresh = scale_value(ythresh, 8, clip, ColorRange.FULL)
+    cthresh = scale_value(cthresh, 8, clip, ColorRange.FULL, chroma=True)
+    maxdiff = scale_value(maxdiff, 8, clip, ColorRange.FULL)
 
     clip_minus = shift_clip(clip, -1)
     clip_plus = shift_clip(clip, 1)
@@ -313,7 +314,7 @@ def lut_decrawl(
     average_u = core.std.Expr([clip_minus_u, clip_plus_u], f"x y - abs {cthresh} < {peak} 0 ?")
     average_v = core.std.Expr([clip_minus_v, clip_plus_v], f"x y - abs {cthresh} < {peak} 0 ?")
 
-    ymask = average_y.std.Binarize(scale_8bit(clip, 1))
+    ymask = average_y.std.Binarize(scale_value(1, 8, clip, ColorRange.FULL))
     if usemaxdiff:
         diffplus_y = core.std.Expr([clip_plus_y, clip_y], f"x y - abs {maxdiff} < {peak} 0 ?")
         diffminus_y = core.std.Expr([clip_minus_y, clip_y], f"x y - abs {maxdiff} < {peak} 0 ?")
@@ -362,8 +363,8 @@ def lut_derainbow(
     if fmt.color_family != vs.YUV:
         raise vs.Error("lut_derainbow: only YUV format is supported")
 
-    cthresh = scale_8bit(clip, cthresh, chroma=True)
-    ythresh = scale_8bit(clip, ythresh)
+    cthresh = scale_value(cthresh, 8, clip, ColorRange.FULL, chroma=True)
+    ythresh = scale_value(ythresh, 8, clip, ColorRange.FULL)
 
     clip_minus = shift_clip(clip, -1)
     clip_plus = shift_clip(clip, 1)
@@ -378,8 +379,9 @@ def lut_derainbow(
     average_u = core.std.Expr([clip_minus_u, clip_plus_u], f"x y - abs {cthresh} < x y + 2 / 0 ?")
     average_v = core.std.Expr([clip_minus_v, clip_plus_v], f"x y - abs {cthresh} < x y + 2 / 0 ?")
 
-    umask = average_u.std.Binarize(scale_8bit(clip, 21, chroma=True))
-    vmask = average_v.std.Binarize(scale_8bit(clip, 21, chroma=True))
+    scale_21 = scale_value(21, 8, clip, ColorRange.FULL, chroma=True)
+    umask = average_u.std.Binarize(scale_21)
+    vmask = average_v.std.Binarize(scale_21)
     themask = core.std.Expr([umask, vmask], f"x y + {peak + 1} < 0 {peak} ?")
     if y:
         blank = average_y.std.BlankClip(keep=True)
@@ -2328,10 +2330,12 @@ def SmoothLevels(input, input_low=0, gamma=1.0, input_high=None, output_low=0, o
     if protect <= -1:
         exprP = '1'
     elif Ecurve <= 0:
-        var_p = f'x {protect} - {scale_8bit(input, 16)} /'
-        exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 ' + _sine_expr(var_p) + f' ? ?'
+        scale_16 = scale_value(16, 8, input, ColorRange.FULL)
+        var_p = f'x {protect} - {scale_16} /'
+        exprP = f'x {protect} <= 0 x {protect + scale_16} >= 1 ' + _sine_expr(var_p) + f' ? ?'
     else:
-        exprP = f'x {protect} <= 0 x {protect + scale_8bit(input, 16)} >= 1 x {protect} - {scale_8bit(input, 16)} / abs ? ?'
+        scale_16 = scale_value(16, 8, input, ColorRange.FULL)
+        exprP = f'x {protect} <= 0 x {protect + scale_16} >= 1 x {protect} - {scale_16} / abs ? ?'
 
     ### PROCESS
     if limiter == 1 or limiter >= 3:
