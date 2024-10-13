@@ -24,7 +24,6 @@ from vstools import (
     get_video_format,
     join,
     normalize_planes,
-    padder,
     plane,
     scale_value,
     shift_clip,
@@ -34,7 +33,6 @@ from vstools import (
 __all__ = [
     "daa",
     "daa3mod",
-    "deblock_qed",
     "fast_line_darken_mod",
     "lut_decrawl",
     "lut_derainbow",
@@ -86,107 +84,6 @@ def daa3mod(clip: vs.VideoNode, opencl: bool = False, device: int | None = None,
 
     c = clip.resize.Spline36(clip.width, clip.height * 3 // 2)
     return daa(c, opencl, device, **kwargs).resize.Spline36(clip.width, clip.height)
-
-
-def deblock_qed(
-    clip: vs.VideoNode,
-    quant1: int = 24,
-    quant2: int = 26,
-    aOff1: int = 1,
-    bOff1: int = 2,
-    aOff2: int = 1,
-    bOff2: int = 2,
-    uv: int = 3,
-) -> vs.VideoNode:
-    """
-    A postprocessed Deblock: Uses full frequencies of Deblock's changes on block borders, but DCT-lowpassed changes on
-    block interiours.
-
-    :param clip:    Clip to process.
-    :param quant1:  Strength of block edge deblocking.
-    :param quant2:  Strength of block internal deblocking.
-    :param aOff1:   Halfway "sensitivity" and halfway a strength modifier for borders.
-    :param bOff1:   "Sensitivity to detect blocking" for borders.
-    :param aOff2:   Halfway "sensitivity" and halfway a strength modifier for block interiors.
-    :param bOff2:   "Sensitivity to detect blocking" for block interiors.
-    :param uv:      3 = use proposed method for chroma deblocking
-                    2 = no chroma deblocking at all (fastest method)
-                    1 = directly use chroma debl. from the normal Deblock
-                    -1 = directly use chroma debl. from the strong Deblock
-    """
-    assert check_variable(clip, deblock_qed)
-
-    fmt = get_video_format(clip)
-    neutral = get_neutral_value(fmt, chroma=True)
-    peak = get_peak_value(fmt)
-
-    is_gray = fmt.color_family == vs.GRAY
-    planes = [0, 1, 2] if uv == 3 and not is_gray else 0
-
-    # add borders if clip is not mod 8
-    w = clip.width
-    h = clip.height
-    padX = 8 - w % 8 if w & 7 else 0
-    padY = 8 - h % 8 if h & 7 else 0
-    if padX or padY:
-        clip = padder.MIRROR(clip, right=padX, bottom=padY)
-
-    # block
-    block = clip.std.BlankClip(
-        width=6, height=6, format=fmt.replace(color_family=vs.GRAY, subsampling_w=0, subsampling_h=0), length=1, color=0
-    )
-    block = block.std.AddBorders(1, 1, 1, 1, color=peak)
-    block = core.std.StackHorizontal([block for _ in range(w // 8)])
-    block = core.std.StackVertical([block for _ in range(h // 8)])
-    if not is_gray:
-        blockc = block.std.CropAbs(width=w >> fmt.subsampling_w, height=h >> fmt.subsampling_h)
-        block = join(block, blockc, blockc)
-    block = block * clip.num_frames
-
-    # create normal deblocking (for block borders) and strong deblocking (for block interiour)
-    normal = clip.deblock.Deblock(quant1, aOff1, bOff1, planes=[0, 1, 2] if uv != 2 and not is_gray else 0)
-    strong = clip.deblock.Deblock(quant2, aOff2, bOff2, planes=[0, 1, 2] if uv != 2 and not is_gray else 0)
-
-    # build difference maps of both
-    normalD = clip.std.MakeDiff(normal, planes=planes)
-    strongD = clip.std.MakeDiff(strong, planes=planes)
-
-    # separate border values of the difference maps
-    expr = f"y {peak} = x {neutral} ?"
-    normalD2 = norm_expr([normalD, block], expr, planes)
-    strongD2 = norm_expr([strongD, block], expr, planes)
-
-    # interpolate the border values over the whole block: DCTFilter can do it. (Kiss to Tom Barry!)
-    # (Note: this is not fully accurate, but a reasonable approximation.)
-    # add borders if clip is not mod 16
-    sw = strongD2.width
-    sh = strongD2.height
-    remX = 16 - sw % 16 if sw & 15 else 0
-    remY = 16 - sh % 16 if sh & 15 else 0
-    if remX or remY:
-        strongD2 = padder.MIRROR(strongD2, right=remX, bottom=remY)
-    strongD3 = (
-        norm_expr(strongD2, f"x {neutral} - 1.01 * {neutral} +", planes)
-        .dctf.DCTFilter([1, 1, 0, 0, 0, 0, 0, 0], planes=planes)
-        .std.Crop(right=remX, bottom=remY)
-    )
-
-    # apply compensation from "normal" deblocking to the borders of the full-block-compensations calculated from
-    # "strong" deblocking ...
-    strongD4 = norm_expr([strongD3, normalD2], f"y {neutral} = x y ?", planes)
-
-    # ... and apply it.
-    deblocked = clip.std.MakeDiff(strongD4, planes=planes)
-
-    # simple decisions how to treat chroma
-    if not is_gray:
-        if uv == -1:
-            deblocked = core.std.ShufflePlanes([deblocked, strong], planes=[0, 1, 2], colorfamily=fmt.color_family)
-        elif uv == 1:
-            deblocked = core.std.ShufflePlanes([deblocked, normal], planes=[0, 1, 2], colorfamily=fmt.color_family)
-
-    # remove mod 8 borders
-    return deblocked.std.Crop(right=padX, bottom=padY)
 
 
 def fast_line_darken_mod(
@@ -2513,6 +2410,10 @@ def ChangeFPS(*args, **kwargs):
 
 def ContraSharpening(*args, **kwargs):
     raise vs.Error("havsfunc.ContraSharpening outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-rgtools instead.")
+
+
+def deblock_qed(*args, **kwargs):
+    raise vs.Error("havsfunc.deblock_qed outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise instead.")
 
 
 def dec_txt60mc(*args, **kwargs):
