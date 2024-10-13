@@ -139,12 +139,8 @@ def fast_line_darken_mod(
         last = thick
     else:
         scale_127 = scale_value(127, 8, clip, ColorRange.FULL)
-        diff = core.std.Expr(
-            [clip, exin], f"y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale_127} +"
-        )
-        linemask = (
-            diff.std.Minimum().std.Expr(f"x {scale_127} - {thn} * {peak} +").std.Convolution(mean_matrix)
-        )
+        diff = core.std.Expr([clip, exin], f"y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale_127} +")
+        linemask = diff.std.Minimum().std.Expr(f"x {scale_127} - {thn} * {peak} +").std.Convolution(mean_matrix)
         thin = core.std.Expr([clip.std.Maximum(), diff], f"x y {scale_127} - {Str} 1 + * +")
         last = thin.std.MaskedMerge(thick, linemask)
 
@@ -2409,27 +2405,39 @@ def ChangeFPS(*args, **kwargs):
 
 
 def ContraSharpening(*args, **kwargs):
-    raise vs.Error("havsfunc.ContraSharpening outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-rgtools instead.")
+    raise vs.Error(
+        "havsfunc.ContraSharpening outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-rgtools instead."
+    )
 
 
 def deblock_qed(*args, **kwargs):
-    raise vs.Error("havsfunc.deblock_qed outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise instead.")
+    raise vs.Error(
+        "havsfunc.deblock_qed outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise instead."
+    )
 
 
 def dec_txt60mc(*args, **kwargs):
-    raise vs.Error("havsfunc.dec_txt60mc outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead.")
+    raise vs.Error(
+        "havsfunc.dec_txt60mc outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead."
+    )
 
 
 def DeHalo_alpha(*args, **kwargs):
-    raise vs.Error("havsfunc.DeHalo_alpha outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-dehalo instead.")
+    raise vs.Error(
+        "havsfunc.DeHalo_alpha outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-dehalo instead."
+    )
 
 
 def DitherLumaRebuild(*args, **kwargs):
-    raise vs.Error("havsfunc.DitherLumaRebuild outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise instead.")
+    raise vs.Error(
+        "havsfunc.DitherLumaRebuild outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise instead."
+    )
 
 
 def EdgeCleaner(*args, **kwargs):
-    raise vs.Error("havsfunc.EdgeCleaner outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-dehalo instead.")
+    raise vs.Error(
+        "havsfunc.EdgeCleaner outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-dehalo instead."
+    )
 
 
 def FineDehalo(*args, **kwargs):
@@ -2437,11 +2445,15 @@ def FineDehalo(*args, **kwargs):
 
 
 def FineDehalo_contrasharp(*args, **kwargs):
-    raise vs.Error("havsfunc.FineDehalo_contrasharp outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-rgtools instead.")
+    raise vs.Error(
+        "havsfunc.FineDehalo_contrasharp outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-rgtools instead."
+    )
 
 
 def FineDehalo2(*args, **kwargs):
-    raise vs.Error("havsfunc.FineDehalo2 outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-dehalo instead.")
+    raise vs.Error(
+        "havsfunc.FineDehalo2 outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-dehalo instead."
+    )
 
 
 def FixColumnBrightness(*args, **kwargs):
@@ -2473,23 +2485,33 @@ def Gauss(*args, **kwargs):
 
 
 def GrainFactory3(*args, **kwargs):
-    raise vs.Error("havsfunc.GrainFactory3 outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deband instead.")
+    raise vs.Error(
+        "havsfunc.GrainFactory3 outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deband instead."
+    )
 
 
 def HQDeringmod(*args, **kwargs):
-    raise vs.Error("havsfunc.HQDeringmod outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-dehalo instead.")
+    raise vs.Error(
+        "havsfunc.HQDeringmod outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-dehalo instead."
+    )
 
 
 def ivtc_txt30mc(*args, **kwargs):
-    raise vs.Error("havsfunc.ivtc_txt30mc outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead.")
+    raise vs.Error(
+        "havsfunc.ivtc_txt30mc outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead."
+    )
 
 
 def ivtc_txt60mc(*args, **kwargs):
-    raise vs.Error("havsfunc.ivtc_txt60mc outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead.")
+    raise vs.Error(
+        "havsfunc.ivtc_txt60mc outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead."
+    )
 
 
 def KNLMeansCL(*args, **kwargs):
-    raise vs.Error("havsfunc.KNLMeansCL outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise instead.")
+    raise vs.Error(
+        "havsfunc.KNLMeansCL outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise instead."
+    )
 
 
 def m4(*args, **kwargs):
@@ -2497,7 +2519,9 @@ def m4(*args, **kwargs):
 
 
 def MCTemporalDenoise(*args, **kwargs):
-    raise vs.Error("havsfunc.MCTemporalDenoise outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise instead.")
+    raise vs.Error(
+        "havsfunc.MCTemporalDenoise outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise instead."
+    )
 
 
 def MinBlur(*args, **kwargs):
@@ -2505,19 +2529,27 @@ def MinBlur(*args, **kwargs):
 
 
 def mt_expand_multi(*args, **kwargs):
-    raise vs.Error("havsfunc.mt_expand_multi outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-masktools instead.")
+    raise vs.Error(
+        "havsfunc.mt_expand_multi outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-masktools instead."
+    )
 
 
 def mt_inpand_multi(*args, **kwargs):
-    raise vs.Error("havsfunc.mt_inpand_multi outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-masktools instead.")
+    raise vs.Error(
+        "havsfunc.mt_inpand_multi outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-masktools instead."
+    )
 
 
 def mt_inflate_multi(*args, **kwargs):
-    raise vs.Error("havsfunc.mt_inflate_multi outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-masktools instead.")
+    raise vs.Error(
+        "havsfunc.mt_inflate_multi outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-masktools instead."
+    )
 
 
 def mt_deflate_multi(*args, **kwargs):
-    raise vs.Error("havsfunc.mt_deflate_multi outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-masktools instead.")
+    raise vs.Error(
+        "havsfunc.mt_deflate_multi outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-masktools instead."
+    )
 
 
 def Padding(*args, **kwargs):
@@ -2533,7 +2565,9 @@ def scale(*args, **kwargs):
 
 
 def smartfademod(*args, **kwargs):
-    raise vs.Error("havsfunc.smartfademod outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead.")
+    raise vs.Error(
+        "havsfunc.smartfademod outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead."
+    )
 
 
 def SMDegrain(*args, **kwargs):
@@ -2545,11 +2579,15 @@ def srestore(*args, **kwargs):
 
 
 def Vinverse(*args, **kwargs):
-    raise vs.Error("havsfunc.Vinverse outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead.")
+    raise vs.Error(
+        "havsfunc.Vinverse outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead."
+    )
 
 
 def Vinverse2(*args, **kwargs):
-    raise vs.Error("havsfunc.Vinverse2 outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead.")
+    raise vs.Error(
+        "havsfunc.Vinverse2 outdated. Use https://github.com/Jaded-Encoding-Thaumaturgy/vs-deinterlace instead."
+    )
 
 
 def YAHR(*args, **kwargs):
