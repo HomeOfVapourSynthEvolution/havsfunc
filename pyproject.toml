@@ -24,11 +24,7 @@ classifiers = [
 ]
 dependencies = [
   "VapourSynth>=66",
-  "vsdenoise",
-  "vsexprtools",
-  "vsmasktools",
-  "vsrgtools",
-  "vstools",
+  "vsjetpack",
 ]
 
 [project.urls]
