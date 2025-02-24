@@ -1,11 +1,7 @@
 # HAvsFunc
 
 ## Dependent scripts
-- [vsdenoise](https://github.com/Jaded-Encoding-Thaumaturgy/vs-denoise)
-- [vsexprtools](https://github.com/Jaded-Encoding-Thaumaturgy/vs-exprtools)
-- [vsmasktools](https://github.com/Jaded-Encoding-Thaumaturgy/vs-masktools)
-- [vsrgtools](https://github.com/Irrational-Encoding-Wizardry/vs-rgtools)
-- [vstools](https://github.com/Irrational-Encoding-Wizardry/vs-tools)
+- [vs-jetpack](https://github.com/Jaded-Encoding-Thaumaturgy/vs-jetpack)
 
 ## Dependent plugins
 - [AddGrain](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain)
