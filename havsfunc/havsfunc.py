@@ -1174,7 +1174,7 @@ def QTGMC(
             tweaked = core.std.Expr([repair0, bobbed], expr=expr if ChromaMotion or is_gray else [expr, ''])
             expr = 'x {i7} + y < x {i2} + x {i7} - y > x {i2} - x 51 * y 49 * + 100 / ? ?'.format(i7=scale_value(7, 8, bits), i2=scale_value(2, 8, bits))
             srchClip = core.std.Expr([spatialBlur, tweaked], expr=expr if ChromaMotion or is_gray else [expr, ''])
-        srchClip = prefilter_to_full_range(srchClip, Str, CMplanes)
+        srchClip = prefilter_to_full_range(srchClip, range_conversion=Str, planes=CMplanes)
         if bits > 8 and FastMA:
             srchClip = depth(srchClip, 8, dither_type=DitherType.NONE)
 
