@@ -18,6 +18,7 @@ from vstools import (
     join,
     normalize_planes,
     plane,
+    scale_delta,
     scale_value,
     shift_clip,
     vs,
@@ -122,8 +123,8 @@ def fast_line_darken_mod(
 
     # parameters
     Str = strength / 128
-    lum = scale_value(luma_cap, 8, clip, ColorRange.FULL)
-    thr = scale_value(threshold, 8, clip, ColorRange.FULL)
+    lum = scale_delta(luma_cap, 8, clip)
+    thr = scale_delta(threshold, 8, clip)
     thn = thinning / 16
 
     # filtering
@@ -132,7 +133,7 @@ def fast_line_darken_mod(
     if thinning == 0:
         last = thick
     else:
-        scale_127 = scale_value(127, 8, clip, ColorRange.FULL)
+        scale_127 = scale_delta(127, 8, clip)
         diff = core.std.Expr([clip, exin], f"y {lum} < y {lum} ? x {thr} + > x y {lum} < y {lum} ? - 0 ? {scale_127} +")
         linemask = BlurMatrix.MEAN()(diff.std.Minimum().std.Expr(f"x {scale_127} - {thn} * {peak} +"))
         thin = core.std.Expr([clip.std.Maximum(), diff], f"x y {scale_127} - {Str} 1 + * +")
