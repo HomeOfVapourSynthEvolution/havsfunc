@@ -214,71 +214,71 @@ def overlay(
         case OverlayMode.AVERAGE:
             expr = "x y + 2 /"
         case OverlayMode.BLEACH:
-            expr = "range_max y - range_max x - + range_max -"
+            expr = "plane_max y - plane_max x - + plane_max -"
         case OverlayMode.BURN:
-            expr = "x 0 <= x range_max range_max y - range_size * x / - ?"
+            expr = "x 0 <= x plane_max plane_max y - range_size * x / - ?"
         case OverlayMode.DARKEN:
             expr = "x y min"
         case OverlayMode.DIFFERENCE:
             expr = "x y - abs"
         case OverlayMode.DIVIDE:
-            expr = "y 0 <= range_max range_max x * y / ?"
+            expr = "y 0 <= plane_max plane_max x * y / ?"
         case OverlayMode.DODGE:
-            expr = "x range_max >= x y range_size * range_max x - / ?"
+            expr = "x plane_max >= x y range_size * plane_max x - / ?"
         case OverlayMode.EXCLUSION:
-            expr = "x y + 2 x * y * range_max / -"
+            expr = "x y + 2 x * y * plane_max / -"
         case OverlayMode.EXTREMITY:
-            expr = "range_max x - y - abs"
+            expr = "plane_max x - y - abs"
         case OverlayMode.FREEZE:
-            expr = "y 0 <= 0 range_max range_max x - dup * y / range_max min - ?"
+            expr = "y 0 <= 0 plane_max plane_max x - dup * y / plane_max min - ?"
         case OverlayMode.GEOMETRIC:
             expr = "x 0 max y 0 max * sqrt"
         case OverlayMode.GLOW:
-            expr = "x range_max >= x y y * range_max x - / ?"
+            expr = "x plane_max >= x y y * plane_max x - / ?"
         case OverlayMode.GRAINEXTRACT:
             expr = "x y - neutral +"
         case OverlayMode.GRAINMERGE:
             expr = "x y + neutral -"
         case OverlayMode.HARDLIGHT:
-            expr = "y neutral < 2 y x * range_max / * range_max 2 range_max y - range_max x - * range_max / * - ?"
+            expr = "y neutral < 2 y x * plane_max / * plane_max 2 plane_max y - plane_max x - * plane_max / * - ?"
         case OverlayMode.HARDMIX:
-            expr = "x range_max y - < 0 range_max ?"
+            expr = "x plane_max y - < 0 plane_max ?"
         case OverlayMode.HARDOVERLAY:
-            expr = "x range_max >= range_max range_max y * 2 range_max * 2 x * - / x neutral > * 2 x * y * range_max / x neutral <= * + ?"
+            expr = "x plane_max >= plane_max plane_max y * 2 plane_max * 2 x * - / x neutral > * 2 x * y * plane_max / x neutral <= * + ?"
         case OverlayMode.HARMONIC:
             expr = "x 0 <= y 0 <= and 0 2 x * y * x y + / ?"
         case OverlayMode.HEAT:
-            expr = "x 0 <= 0 range_max range_max y - dup * x / range_max min - ?"
+            expr = "x 0 <= 0 plane_max plane_max y - dup * x / plane_max min - ?"
         case OverlayMode.INTERPOLATE:
-            expr = "range_max 2 x pi * range_max / cos - y pi * range_max / cos - * 0.25 *"
+            expr = "plane_max 2 x pi * plane_max / cos - y pi * plane_max / cos - * 0.25 *"
         case OverlayMode.LIGHTEN:
             expr = "x y max"
         case OverlayMode.LINEARLIGHT:
-            expr = "y neutral < y 2 x * + range_max - y 2 x neutral - * + ?"
+            expr = "y neutral < y 2 x * + plane_max - y 2 x neutral - * + ?"
         case OverlayMode.MULTIPLY:
-            expr = "x y * range_max /"
+            expr = "x y * plane_max /"
         case OverlayMode.NEGATION:
-            expr = "range_max range_max x - y - abs -"
+            expr = "plane_max plane_max x - y - abs -"
         case OverlayMode.OVERLAY:
-            expr = "x neutral < 2 x y * range_max / * range_max 2 range_max x - range_max y - * range_max / * - ?"
+            expr = "x neutral < 2 x y * plane_max / * plane_max 2 plane_max x - plane_max y - * plane_max / * - ?"
         case OverlayMode.PHOENIX:
-            expr = "x y min x y max - range_max +"
+            expr = "x y min x y max - plane_max +"
         case OverlayMode.PINLIGHT:
             expr = "y neutral < x 2 y * min x 2 y neutral - * max ?"
         case OverlayMode.REFLECT:
-            expr = "y range_max >= y x x * range_max y - / ?"
+            expr = "y plane_max >= y x x * plane_max y - / ?"
         case OverlayMode.SCREEN:
-            expr = "range_max range_max x - range_max y - * range_max / -"
+            expr = "plane_max plane_max x - plane_max y - * plane_max / -"
         case OverlayMode.SOFTDIFFERENCE:
-            expr = "x y > y range_max >= 0 x y - range_max * range_max y - / ? y 0 <= 0 y x - range_max * y / ? ?"
+            expr = "x y > y plane_max >= 0 x y - plane_max * plane_max y - / ? y 0 <= 0 y x - plane_max * y / ? ?"
         case OverlayMode.SOFTLIGHT:
-            expr = "x x * range_max / 2 y x range_max x - * range_max / * range_max / * +"
+            expr = "x x * plane_max / 2 y x plane_max x - * plane_max / * plane_max / * +"
         case OverlayMode.STAIN:
-            expr = "2 range_max * x - y -"
+            expr = "2 plane_max * x - y -"
         case OverlayMode.SUBTRACT:
             expr = "x y -"
         case OverlayMode.VIVIDLIGHT:
-            expr = "x neutral < x 0 <= 2 x * range_max range_max y - range_size * 2 x * / - ? 2 x neutral - * range_max >= 2 x neutral - * y range_size * range_max 2 x neutral - * - / ? ?"
+            expr = "x neutral < x 0 <= 2 x * plane_max plane_max y - range_size * 2 x * / - ? 2 x neutral - * plane_max >= 2 x neutral - * y range_size * plane_max 2 x neutral - * - / ? ?"
         case _:
             raise vs.Error("overlay: invalid mode specified")
 
