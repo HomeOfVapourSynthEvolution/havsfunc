@@ -16,6 +16,7 @@ from vstools import (
     normalize_planes,
     scale_value,
     scale_delta,
+    limiter,
     vs,
 )
 
@@ -66,9 +67,7 @@ def fast_line_darken_mod(
     thr = scale_delta(threshold, 8, clip)
     thn = thinning / 16
 
-    exin = norm_expr(
-        clip.std.Maximum(threshold=scale_delta(protection + 1, 8, 32)).std.Minimum(), "x {lum} min", lum=lum
-    )
+    exin = limiter(clip.std.Maximum(threshold=scale_delta(protection + 1, 8, 32)).std.Minimum(), max_val=lum)
     thick = norm_expr([clip, exin], "y x {thr} + > x y - 0 ? {Str} * x +", thr=thr, Str=Str)
     if thinning == 0:
         last = thick
