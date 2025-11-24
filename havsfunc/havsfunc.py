@@ -7,7 +7,6 @@ from vsrgtools import BlurMatrix
 from vstools import (
     Planes,
     check_variable,
-    core,
     get_depth,
     get_neutral_value,
     get_peak_value,
@@ -15,6 +14,7 @@ from vstools import (
     get_y,
     join,
     normalize_planes,
+    scale_value,
     scale_delta,
     vs,
 )
@@ -51,7 +51,6 @@ def fast_line_darken_mod(
     assert check_variable(clip, fast_line_darken_mod)
 
     fmt = get_video_format(clip)
-    peak = get_peak_value(fmt)
 
     if fmt.color_family is vs.RGB:
         raise vs.Error("fast_line_darken_mod: RGB format is not supported")
@@ -63,19 +62,20 @@ def fast_line_darken_mod(
         clip_orig = None
 
     Str = strength / 128
-    lum = scale_delta(luma_cap, 8, clip)
+    lum = scale_value(luma_cap, 8, clip)
     thr = scale_delta(threshold, 8, clip)
     thn = thinning / 16
 
-    exin = clip.std.Maximum(threshold=peak / (protection + 1)).std.Minimum()
-    thick = core.std.Expr([clip, exin], f"y {lum} min x {thr} + > x y {lum} min - 0 ? {Str} * x +")
+    exin = norm_expr(
+        clip.std.Maximum(threshold=scale_delta(protection + 1, 8, 32)).std.Minimum(), "x {lum} min", lum=lum
+    )
+    thick = norm_expr([clip, exin], "y x {thr} + > x y - 0 ? {Str} * x +", thr=thr, Str=Str)
     if thinning == 0:
         last = thick
     else:
-        scale_127 = scale_delta(127, 8, clip)
-        diff = core.std.Expr([clip, exin], f"y {lum} min x {thr} + > x y {lum} min - 0 ? {scale_127} +")
-        linemask = BlurMatrix.MEAN()(diff.std.Minimum().std.Expr(f"x {scale_127} - {thn} * {peak} +"))
-        thin = core.std.Expr([clip.std.Maximum(), diff], f"x y {scale_127} - {Str} 1 + * +")
+        diff = norm_expr([clip, exin], "y x {thr} + > x y - 0 ? neutral +", thr=thr)
+        linemask = BlurMatrix.MEAN()(norm_expr(diff.std.Minimum(), "x neutral - {thn} * plane_max +", thn=thn))
+        thin = norm_expr([clip.std.Maximum(), diff], "x y neutral - {Str} 1 + * +", Str=Str)
         last = thin.std.MaskedMerge(thick, linemask)
 
     if clip_orig is not None:
