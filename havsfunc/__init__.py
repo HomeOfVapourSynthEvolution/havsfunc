@@ -1,3 +1,3 @@
 from .havsfunc import *
 
-__version__ = "33"
+__version__ = "34"

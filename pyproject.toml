@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "havsfunc"
-version = "33"
+version = "34"
 description = "Holy's ported AviSynth functions for VapourSynth"
 readme = "README.md"
 requires-python = ">=3.11"
