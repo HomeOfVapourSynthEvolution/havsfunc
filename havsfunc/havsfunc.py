@@ -1,21 +1,25 @@
 from __future__ import annotations
 
-from typing import Optional, Sequence, Union
+from enum import StrEnum, auto, unique
 
+from vsexprtools import norm_expr
 from vsrgtools import BlurMatrix
 from vstools import (
+    Planes,
     check_variable,
     core,
     get_depth,
+    get_neutral_value,
     get_peak_value,
     get_video_format,
     get_y,
     join,
+    normalize_planes,
     scale_delta,
     vs,
 )
 
-__all__ = ["fast_line_darken_mod", "Overlay"]
+__all__ = ["fast_line_darken_mod", "overlay", "OverlayMode"]
 
 
 def fast_line_darken_mod(
@@ -79,168 +83,219 @@ def fast_line_darken_mod(
     return last
 
 
-def Overlay(
-    base: vs.VideoNode,
-    overlay: vs.VideoNode,
+@unique
+class OverlayMode(StrEnum):
+    ADDITION = auto()
+    AVERAGE = auto()
+    BLEACH = auto()
+    BURN = auto()
+    DARKEN = auto()
+    DIFFERENCE = auto()
+    DIVIDE = auto()
+    DODGE = auto()
+    EXCLUSION = auto()
+    EXTREMITY = auto()
+    FREEZE = auto()
+    GEOMETRIC = auto()
+    GLOW = auto()
+    GRAINEXTRACT = auto()
+    GRAINMERGE = auto()
+    HARDLIGHT = auto()
+    HARDMIX = auto()
+    HARDOVERLAY = auto()
+    HARMONIC = auto()
+    HEAT = auto()
+    INTERPOLATE = auto()
+    LIGHTEN = auto()
+    LINEARLIGHT = auto()
+    MULTIPLY = auto()
+    NEGATION = auto()
+    NORMAL = auto()
+    OVERLAY = auto()
+    PHOENIX = auto()
+    PINLIGHT = auto()
+    REFLECT = auto()
+    SCREEN = auto()
+    SOFTDIFFERENCE = auto()
+    SOFTLIGHT = auto()
+    STAIN = auto()
+    SUBTRACT = auto()
+    VIVIDLIGHT = auto()
+
+
+def overlay(
+    base_clip: vs.VideoNode,
+    overlay_clip: vs.VideoNode,
     x: int = 0,
     y: int = 0,
-    mask: Optional[vs.VideoNode] = None,
+    mask: vs.VideoNode | None = None,
     opacity: float = 1.0,
-    mode: str = 'normal',
-    planes: Optional[Union[int, Sequence[int]]] = None,
+    mode: OverlayMode = OverlayMode.NORMAL,
+    planes: Planes = None,
     mask_first_plane: bool = True,
 ) -> vs.VideoNode:
-    '''
-    Puts clip overlay on top of clip base using different blend modes, and with optional x,y positioning, masking and opacity.
+    """
+    Puts overlay clip on top of base clip using different blend modes, and with optional positioning, masking and
+    opacity.
 
-    Parameters:
-        base: This clip will be the base, determining the size and all other video properties of the result.
-
-        overlay: This is the image that will be placed on top of the base clip.
-
-        x, y: Define the placement of the overlay image on the base clip, in pixels. Can be positive or negative.
-
-        mask: Optional transparency mask. Must be the same size as overlay. Where mask is darker, overlay will be more transparent.
-
-        opacity: Set overlay transparency. The value is from 0.0 to 1.0, where 0.0 is transparent and 1.0 is fully opaque.
-            This value is multiplied by mask luminance to form the final opacity.
-
-        mode: Defines how your overlay should be blended with your base image. Available blend modes are:
-            addition, average, burn, darken, difference, divide, dodge, exclusion, extremity, freeze, glow, grainextract, grainmerge, hardlight, hardmix, heat,
-            lighten, linearlight, multiply, negation, normal, overlay, phoenix, pinlight, reflect, screen, softlight, subtract, vividlight
-
+    Args:
+        base_clip: This clip will be the base, determining the size and all other video properties of the result.
+        overlay_clip: This is the image that will be placed on top of the base clip.
+        x: Defines the x position of the overlay image on the base clip, in pixels. Can be positive or negative.
+        y: Defines the y position of the overlay image on the base clip, in pixels. Can be positive or negative.
+        mask: Optional transparency mask. Must be the same size as overlay. Where mask is darker, overlay will be more
+            transparent.
+        opacity: Sets overlay transparency. The value is from 0.0 to 1.0, where 0.0 is transparent and 1.0 is fully
+            opaque. This value is multiplied by mask luminance to form the final opacity.
+        mode: Defines how your overlay should be blended with your base image.
         planes: Specifies which planes will be processed. Any unprocessed planes will be simply copied.
+        mask_first_plane: If True, only the mask's first plane will be used for transparency.
+    """
+    assert check_variable(base_clip, overlay)
+    assert check_variable(overlay_clip, overlay)
 
-        mask_first_plane: If true, only the mask's first plane will be used for transparency.
-    '''
-    if not (isinstance(base, vs.VideoNode) and isinstance(overlay, vs.VideoNode)):
-        raise vs.Error('Overlay: this is not a clip')
-
-    if mask is not None:
-        if not isinstance(mask, vs.VideoNode):
-            raise vs.Error('Overlay: mask is not a clip')
-
-        if mask.width != overlay.width or mask.height != overlay.height or get_depth(mask) != get_depth(overlay):
-            raise vs.Error('Overlay: mask must have the same dimensions and bit depth as overlay')
-
-    if base.format.sample_type == vs.INTEGER:
-        bits = get_depth(base)
-        neutral = 1 << (bits - 1)
-        peak = (1 << bits) - 1
-        factor = 1 << bits
+    if base_clip.format.sample_type is vs.INTEGER:
+        neutral = get_neutral_value(base_clip)
+        peak = get_peak_value(base_clip)
+        factor = 1 << get_depth(base_clip)
     else:
         neutral = 0.5
         peak = factor = 1.0
 
-    plane_range = range(base.format.num_planes)
+    if mask is not None:
+        assert check_variable(mask, overlay)
 
-    if planes is None:
-        planes = list(plane_range)
-    elif isinstance(planes, int):
-        planes = [planes]
+        if (
+            mask.width != overlay_clip.width
+            or mask.height != overlay_clip.height
+            or get_depth(mask) != get_depth(overlay_clip)
+        ):
+            raise vs.Error("overlay: mask must have the same dimensions and bit depth as overlay")
 
-    if base.format.subsampling_w > 0 or base.format.subsampling_h > 0:
-        base_orig = base
-        base = base.resize.Point(format=base.format.replace(subsampling_w=0, subsampling_h=0))
+    opacity = min(max(opacity, 0.0), 1.0)
+    planes = normalize_planes(base_clip, planes)
+
+    if base_clip.format.subsampling_w > 0 or base_clip.format.subsampling_h > 0:
+        base_orig = base_clip
+        base_clip = base_clip.resize.Point(format=base_clip.format.replace(subsampling_w=0, subsampling_h=0))
     else:
         base_orig = None
 
-    if overlay.format.id != base.format.id:
-        overlay = overlay.resize.Point(format=base.format)
+    if overlay_clip.format.id != base_clip.format.id:
+        overlay_clip = overlay_clip.resize.Point(format=base_clip.format)
 
     if mask is None:
-        mask = overlay.std.BlankClip(format=overlay.format.replace(color_family=vs.GRAY, subsampling_w=0, subsampling_h=0), color=peak)
-    elif mask.format.id != overlay.format.id and mask.format.color_family != vs.GRAY:
-        mask = mask.resize.Point(format=overlay.format, range_s='full')
+        mask = overlay_clip.std.BlankClip(
+            format=overlay_clip.format.replace(color_family=vs.GRAY, subsampling_w=0, subsampling_h=0),
+            color=get_peak_value(overlay_clip, range_in=vs.ColorRange.RANGE_FULL),
+        )
+    elif mask.format.id != overlay_clip.format.id and mask.format.color_family is not vs.GRAY:
+        mask = mask.resize.Point(format=overlay_clip.format, range_s="full")
 
-    opacity = min(max(opacity, 0.0), 1.0)
-    mode = mode.lower()
+    left = x
+    right = base_clip.width - overlay_clip.width - x
+    top = y
+    bottom = base_clip.height - overlay_clip.height - y
 
-    # Calculate padding sizes
-    l, r = x, base.width - overlay.width - x
-    t, b = y, base.height - overlay.height - y
+    crop_left = min(left, 0) * -1
+    crop_right = min(right, 0) * -1
+    crop_top = min(top, 0) * -1
+    crop_bottom = min(bottom, 0) * -1
 
-    # Split into crop and padding values
-    cl, pl = min(l, 0) * -1, max(l, 0)
-    cr, pr = min(r, 0) * -1, max(r, 0)
-    ct, pt = min(t, 0) * -1, max(t, 0)
-    cb, pb = min(b, 0) * -1, max(b, 0)
+    pad_left = max(left, 0)
+    pad_right = max(right, 0)
+    pad_top = max(top, 0)
+    pad_bottom = max(bottom, 0)
 
-    # Crop and padding
-    overlay = overlay.std.Crop(left=cl, right=cr, top=ct, bottom=cb)
-    overlay = overlay.std.AddBorders(left=pl, right=pr, top=pt, bottom=pb)
-    mask = mask.std.Crop(left=cl, right=cr, top=ct, bottom=cb)
-    mask = mask.std.AddBorders(left=pl, right=pr, top=pt, bottom=pb, color=[0] * mask.format.num_planes)
+    overlay_clip = overlay_clip.std.Crop(crop_left, crop_right, crop_top, crop_bottom)
+    overlay_clip = overlay_clip.std.AddBorders(pad_left, pad_right, pad_top, pad_bottom)
+    mask = mask.std.Crop(crop_left, crop_right, crop_top, crop_bottom)
+    mask = mask.std.AddBorders(pad_left, pad_right, pad_top, pad_bottom, color=[0] * mask.format.num_planes)
 
     if opacity < 1:
-        mask = mask.std.Expr(expr=f'x {opacity} *')
+        mask = norm_expr(mask, f"x {opacity} *", 0 if mask_first_plane else planes)
 
-    if mode == 'normal':
-        pass
-    elif mode == 'addition':
-        expr = 'x y +'
-    elif mode == 'average':
-        expr = 'x y + 2 /'
-    elif mode == 'burn':
-        expr = f'x 0 <= x {peak} {peak} y - {factor} * x / - ?'
-    elif mode == 'darken':
-        expr = 'x y min'
-    elif mode == 'difference':
-        expr = 'x y - abs'
-    elif mode == 'divide':
-        expr = f'y 0 <= {peak} {peak} x * y / ?'
-    elif mode == 'dodge':
-        expr = f'x {peak} >= x y {factor} * {peak} x - / ?'
-    elif mode == 'exclusion':
-        expr = f'x y + 2 x * y * {peak} / -'
-    elif mode == 'extremity':
-        expr = f'{peak} x - y - abs'
-    elif mode == 'freeze':
-        expr = f'y 0 <= 0 {peak} {peak} x - dup * y / {peak} min - ?'
-    elif mode == 'glow':
-        expr = f'x {peak} >= x y y * {peak} x - / ?'
-    elif mode == 'grainextract':
-        expr = f'x y - {neutral} +'
-    elif mode == 'grainmerge':
-        expr = f'x y + {neutral} -'
-    elif mode == 'hardlight':
-        expr = f'y {neutral} < 2 y x * {peak} / * {peak} 2 {peak} y - {peak} x - * {peak} / * - ?'
-    elif mode == 'hardmix':
-        expr = f'x {peak} y - < 0 {peak} ?'
-    elif mode == 'heat':
-        expr = f'x 0 <= 0 {peak} {peak} y - dup * x / {peak} min - ?'
-    elif mode == 'lighten':
-        expr = 'x y max'
-    elif mode == 'linearlight':
-        expr = f'y {neutral} < y 2 x * + {peak} - y 2 x {neutral} - * + ?'
-    elif mode == 'multiply':
-        expr = f'x y * {peak} /'
-    elif mode == 'negation':
-        expr = f'{peak} {peak} x - y - abs -'
-    elif mode == 'overlay':
-        expr = f'x {neutral} < 2 x y * {peak} / * {peak} 2 {peak} x - {peak} y - * {peak} / * - ?'
-    elif mode == 'phoenix':
-        expr = f'x y min x y max - {peak} +'
-    elif mode == 'pinlight':
-        expr = f'y {neutral} < x 2 y * min x 2 y {neutral} - * max ?'
-    elif mode == 'reflect':
-        expr = f'y {peak} >= y x x * {peak} y - / ?'
-    elif mode == 'screen':
-        expr = f'{peak} {peak} x - {peak} y - * {peak} / -'
-    elif mode == 'softlight':
-        expr = f'x {neutral} > y {peak} y - x {neutral} - * {neutral} / 0.5 y {neutral} - abs {peak} / - * + y y {neutral} x - {neutral} / * 0.5 y {neutral} - abs {peak} / - * - ?'
-    elif mode == 'subtract':
-        expr = 'x y -'
-    elif mode == 'vividlight':
-        expr = f'x {neutral} < x 0 <= 2 x * {peak} {peak} y - {factor} * 2 x * / - ? 2 x {neutral} - * {peak} >= 2 x {neutral} - * y {factor} * {peak} 2 x {neutral} - * - / ? ?'
-    else:
-        raise vs.Error('Overlay: invalid mode specified')
+    match mode:
+        case OverlayMode.NORMAL:
+            pass
+        case OverlayMode.ADDITION:
+            expr = "x y +"
+        case OverlayMode.AVERAGE:
+            expr = "x y + 2 /"
+        case OverlayMode.BLEACH:
+            expr = f"{peak} y - {peak} x - + {peak} -"
+        case OverlayMode.BURN:
+            expr = f"x 0 <= x {peak} {peak} y - {factor} * x / - ?"
+        case OverlayMode.DARKEN:
+            expr = "x y min"
+        case OverlayMode.DIFFERENCE:
+            expr = "x y - abs"
+        case OverlayMode.DIVIDE:
+            expr = f"y 0 <= {peak} {peak} x * y / ?"
+        case OverlayMode.DODGE:
+            expr = f"x {peak} >= x y {factor} * {peak} x - / ?"
+        case OverlayMode.EXCLUSION:
+            expr = f"x y + 2 x * y * {peak} / -"
+        case OverlayMode.EXTREMITY:
+            expr = f"{peak} x - y - abs"
+        case OverlayMode.FREEZE:
+            expr = f"y 0 <= 0 {peak} {peak} x - dup * y / {peak} min - ?"
+        case OverlayMode.GEOMETRIC:
+            expr = "x 0 max y 0 max * sqrt"
+        case OverlayMode.GLOW:
+            expr = f"x {peak} >= x y y * {peak} x - / ?"
+        case OverlayMode.GRAINEXTRACT:
+            expr = f"x y - {neutral} +"
+        case OverlayMode.GRAINMERGE:
+            expr = f"x y + {neutral} -"
+        case OverlayMode.HARDLIGHT:
+            expr = f"y {neutral} < 2 y x * {peak} / * {peak} 2 {peak} y - {peak} x - * {peak} / * - ?"
+        case OverlayMode.HARDMIX:
+            expr = f"x {peak} y - < 0 {peak} ?"
+        case OverlayMode.HARDOVERLAY:
+            expr = f"x {peak} >= {peak} {peak} y * 2 {peak} * 2 x * - / x {neutral} > * 2 x * y * {peak} / x {neutral} <= * + ?"
+        case OverlayMode.HARMONIC:
+            expr = "x 0 <= y 0 <= and 0 2 x * y * x y + / ?"
+        case OverlayMode.HEAT:
+            expr = f"x 0 <= 0 {peak} {peak} y - dup * x / {peak} min - ?"
+        case OverlayMode.INTERPOLATE:
+            pi = 3.14159265358979323846
+            expr = f"{peak} 2 x {pi} * {peak} / cos - y {pi} * {peak} / cos - * 0.25 *"
+        case OverlayMode.LIGHTEN:
+            expr = "x y max"
+        case OverlayMode.LINEARLIGHT:
+            expr = f"y {neutral} < y 2 x * + {peak} - y 2 x {neutral} - * + ?"
+        case OverlayMode.MULTIPLY:
+            expr = f"x y * {peak} /"
+        case OverlayMode.NEGATION:
+            expr = f"{peak} {peak} x - y - abs -"
+        case OverlayMode.OVERLAY:
+            expr = f"x {neutral} < 2 x y * {peak} / * {peak} 2 {peak} x - {peak} y - * {peak} / * - ?"
+        case OverlayMode.PHOENIX:
+            expr = f"x y min x y max - {peak} +"
+        case OverlayMode.PINLIGHT:
+            expr = f"y {neutral} < x 2 y * min x 2 y {neutral} - * max ?"
+        case OverlayMode.REFLECT:
+            expr = f"y {peak} >= y x x * {peak} y - / ?"
+        case OverlayMode.SCREEN:
+            expr = f"{peak} {peak} x - {peak} y - * {peak} / -"
+        case OverlayMode.SOFTDIFFERENCE:
+            expr = f"x y > y {peak} >= 0 x y - {peak} * {peak} y - / ? y 0 <= 0 y x - {peak} * y / ? ?"
+        case OverlayMode.SOFTLIGHT:
+            expr = f"x x * {peak} / 2 y x {peak} x - * {peak} / * {peak} / * +"
+        case OverlayMode.STAIN:
+            expr = f"2 {peak} * x - y -"
+        case OverlayMode.SUBTRACT:
+            expr = "x y -"
+        case OverlayMode.VIVIDLIGHT:
+            expr = f"x {neutral} < x 0 <= 2 x * {peak} {peak} y - {factor} * 2 x * / - ? 2 x {neutral} - * {peak} >= 2 x {neutral} - * y {factor} * {peak} 2 x {neutral} - * - / ? ?"
+        case _:
+            raise vs.Error("overlay: invalid mode specified")
 
-    if mode != 'normal':
-        overlay = core.std.Expr([overlay, base], expr=[expr if i in planes else '' for i in plane_range])
+    if mode != OverlayMode.NORMAL:
+        overlay_clip = norm_expr([overlay_clip, base_clip], expr, planes)
 
-    # Return padded clip
-    last = core.std.MaskedMerge(base, overlay, mask, planes=planes, first_plane=mask_first_plane)
+    last = base_clip.std.MaskedMerge(overlay_clip, mask, planes, mask_first_plane)
     if base_orig is not None:
         last = last.resize.Point(format=base_orig.format)
     return last

@@ -7,7 +7,7 @@ name = "havsfunc"
 version = "33"
 description = "Holy's ported AviSynth functions for VapourSynth"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license-files = { paths = ["LICENSE"] }
 authors = [
   { name = "HolyWu", email = "holywu@gmail.com" },
