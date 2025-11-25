@@ -14,6 +14,7 @@ from vstools import (
     get_y,
     join,
     normalize_planes,
+    get_neutral_value,
     scale_delta,
     vs,
 )
@@ -153,6 +154,8 @@ def overlay(
     assert check_variable(base_clip, overlay)
     assert check_variable(overlay_clip, overlay)
 
+    midgray = 0.5 if base_clip.format.sample_type is vs.FLOAT else get_neutral_value(base_clip)
+
     if mask is not None:
         assert check_variable(mask, overlay)
 
@@ -236,15 +239,15 @@ def overlay(
         case OverlayMode.GLOW:
             expr = "x plane_max >= x y y * plane_max x - / ?"
         case OverlayMode.GRAINEXTRACT:
-            expr = "x y - neutral +"
+            expr = "x y - {midgray} +"
         case OverlayMode.GRAINMERGE:
-            expr = "x y + neutral -"
+            expr = "x y + {midgray} -"
         case OverlayMode.HARDLIGHT:
-            expr = "y neutral < 2 y x * plane_max / * plane_max 2 plane_max y - plane_max x - * plane_max / * - ?"
+            expr = "y {midgray} < 2 y x * plane_max / * plane_max 2 plane_max y - plane_max x - * plane_max / * - ?"
         case OverlayMode.HARDMIX:
             expr = "x plane_max y - < 0 plane_max ?"
         case OverlayMode.HARDOVERLAY:
-            expr = "x plane_max >= plane_max plane_max y * 2 plane_max * 2 x * - / x neutral > * 2 x * y * plane_max / x neutral <= * + ?"
+            expr = "x plane_max >= plane_max plane_max y * 2 plane_max * 2 x * - / x {midgray} > * 2 x * y * plane_max / x {midgray} <= * + ?"
         case OverlayMode.HARMONIC:
             expr = "x 0 <= y 0 <= and 0 2 x * y * x y + / ?"
         case OverlayMode.HEAT:
@@ -254,17 +257,17 @@ def overlay(
         case OverlayMode.LIGHTEN:
             expr = "x y max"
         case OverlayMode.LINEARLIGHT:
-            expr = "y neutral < y 2 x * + plane_max - y 2 x neutral - * + ?"
+            expr = "y {midgray} < y 2 x * + plane_max - y 2 x {midgray} - * + ?"
         case OverlayMode.MULTIPLY:
             expr = "x y * plane_max /"
         case OverlayMode.NEGATION:
             expr = "plane_max plane_max x - y - abs -"
         case OverlayMode.OVERLAY:
-            expr = "x neutral < 2 x y * plane_max / * plane_max 2 plane_max x - plane_max y - * plane_max / * - ?"
+            expr = "x {midgray} < 2 x y * plane_max / * plane_max 2 plane_max x - plane_max y - * plane_max / * - ?"
         case OverlayMode.PHOENIX:
             expr = "x y min x y max - plane_max +"
         case OverlayMode.PINLIGHT:
-            expr = "y neutral < x 2 y * min x 2 y neutral - * max ?"
+            expr = "y {midgray} < x 2 y * min x 2 y {midgray} - * max ?"
         case OverlayMode.REFLECT:
             expr = "y plane_max >= y x x * plane_max y - / ?"
         case OverlayMode.SCREEN:
@@ -278,12 +281,12 @@ def overlay(
         case OverlayMode.SUBTRACT:
             expr = "x y -"
         case OverlayMode.VIVIDLIGHT:
-            expr = "x neutral < x 0 <= 2 x * plane_max plane_max y - range_size * 2 x * / - ? 2 x neutral - * plane_max >= 2 x neutral - * y range_size * plane_max 2 x neutral - * - / ? ?"
+            expr = "x {midgray} < x 0 <= 2 x * plane_max plane_max y - range_size * 2 x * / - ? 2 x {midgray} - * plane_max >= 2 x {midgray} - * y range_size * plane_max 2 x {midgray} - * - / ? ?"
         case _:
             raise vs.Error("overlay: invalid mode specified")
 
     if mode != OverlayMode.NORMAL:
-        overlay_clip = norm_expr([overlay_clip, base_clip], expr, planes)
+        overlay_clip = norm_expr([overlay_clip, base_clip], expr, planes, midgray=midgray)
 
     last = base_clip.std.MaskedMerge(overlay_clip, mask, planes, mask_first_plane)
     if base_orig is not None:
