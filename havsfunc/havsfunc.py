@@ -9,12 +9,12 @@ from vstools import (
     check_variable,
     core,
     get_depth,
-    get_neutral_value,
     get_peak_value,
     get_video_format,
     get_y,
     join,
     normalize_planes,
+    get_neutral_value,
     scale_delta,
     vs,
 )
@@ -154,13 +154,7 @@ def overlay(
     assert check_variable(base_clip, overlay)
     assert check_variable(overlay_clip, overlay)
 
-    if base_clip.format.sample_type is vs.INTEGER:
-        neutral = get_neutral_value(base_clip)
-        peak = get_peak_value(base_clip)
-        factor = 1 << get_depth(base_clip)
-    else:
-        neutral = 0.5
-        peak = factor = 1.0
+    midgray = 0.5 if base_clip.format.sample_type is vs.FLOAT else get_neutral_value(base_clip)
 
     if mask is not None:
         assert check_variable(mask, overlay)
@@ -223,77 +217,76 @@ def overlay(
         case OverlayMode.AVERAGE:
             expr = "x y + 2 /"
         case OverlayMode.BLEACH:
-            expr = f"{peak} y - {peak} x - + {peak} -"
+            expr = "plane_max y - plane_max x - + plane_max -"
         case OverlayMode.BURN:
-            expr = f"x 0 <= x {peak} {peak} y - {factor} * x / - ?"
+            expr = "x 0 <= x plane_max plane_max y - range_size * x / - ?"
         case OverlayMode.DARKEN:
             expr = "x y min"
         case OverlayMode.DIFFERENCE:
             expr = "x y - abs"
         case OverlayMode.DIVIDE:
-            expr = f"y 0 <= {peak} {peak} x * y / ?"
+            expr = "y 0 <= plane_max plane_max x * y / ?"
         case OverlayMode.DODGE:
-            expr = f"x {peak} >= x y {factor} * {peak} x - / ?"
+            expr = "x plane_max >= x y range_size * plane_max x - / ?"
         case OverlayMode.EXCLUSION:
-            expr = f"x y + 2 x * y * {peak} / -"
+            expr = "x y + 2 x * y * plane_max / -"
         case OverlayMode.EXTREMITY:
-            expr = f"{peak} x - y - abs"
+            expr = "plane_max x - y - abs"
         case OverlayMode.FREEZE:
-            expr = f"y 0 <= 0 {peak} {peak} x - dup * y / {peak} min - ?"
+            expr = "y 0 <= 0 plane_max plane_max x - dup * y / plane_max min - ?"
         case OverlayMode.GEOMETRIC:
             expr = "x 0 max y 0 max * sqrt"
         case OverlayMode.GLOW:
-            expr = f"x {peak} >= x y y * {peak} x - / ?"
+            expr = "x plane_max >= x y y * plane_max x - / ?"
         case OverlayMode.GRAINEXTRACT:
-            expr = f"x y - {neutral} +"
+            expr = "x y - {midgray} +"
         case OverlayMode.GRAINMERGE:
-            expr = f"x y + {neutral} -"
+            expr = "x y + {midgray} -"
         case OverlayMode.HARDLIGHT:
-            expr = f"y {neutral} < 2 y x * {peak} / * {peak} 2 {peak} y - {peak} x - * {peak} / * - ?"
+            expr = "y {midgray} < 2 y x * plane_max / * plane_max 2 plane_max y - plane_max x - * plane_max / * - ?"
         case OverlayMode.HARDMIX:
-            expr = f"x {peak} y - < 0 {peak} ?"
+            expr = "x plane_max y - < 0 plane_max ?"
         case OverlayMode.HARDOVERLAY:
-            expr = f"x {peak} >= {peak} {peak} y * 2 {peak} * 2 x * - / x {neutral} > * 2 x * y * {peak} / x {neutral} <= * + ?"
+            expr = "x plane_max >= plane_max plane_max y * 2 plane_max * 2 x * - / x {midgray} > * 2 x * y * plane_max / x {midgray} <= * + ?"
         case OverlayMode.HARMONIC:
             expr = "x 0 <= y 0 <= and 0 2 x * y * x y + / ?"
         case OverlayMode.HEAT:
-            expr = f"x 0 <= 0 {peak} {peak} y - dup * x / {peak} min - ?"
+            expr = "x 0 <= 0 plane_max plane_max y - dup * x / plane_max min - ?"
         case OverlayMode.INTERPOLATE:
-            pi = 3.14159265358979323846
-            expr = f"{peak} 2 x {pi} * {peak} / cos - y {pi} * {peak} / cos - * 0.25 *"
+            expr = "plane_max 2 x pi * plane_max / cos - y pi * plane_max / cos - * 0.25 *"
         case OverlayMode.LIGHTEN:
             expr = "x y max"
         case OverlayMode.LINEARLIGHT:
-            expr = f"y {neutral} < y 2 x * + {peak} - y 2 x {neutral} - * + ?"
+            expr = "y {midgray} < y 2 x * + plane_max - y 2 x {midgray} - * + ?"
         case OverlayMode.MULTIPLY:
-            expr = f"x y * {peak} /"
+            expr = "x y * plane_max /"
         case OverlayMode.NEGATION:
-            expr = f"{peak} {peak} x - y - abs -"
+            expr = "plane_max plane_max x - y - abs -"
         case OverlayMode.OVERLAY:
-            expr = f"x {neutral} < 2 x y * {peak} / * {peak} 2 {peak} x - {peak} y - * {peak} / * - ?"
+            expr = "x {midgray} < 2 x y * plane_max / * plane_max 2 plane_max x - plane_max y - * plane_max / * - ?"
         case OverlayMode.PHOENIX:
-            expr = f"x y min x y max - {peak} +"
+            expr = "x y min x y max - plane_max +"
         case OverlayMode.PINLIGHT:
-            expr = f"y {neutral} < x 2 y * min x 2 y {neutral} - * max ?"
+            expr = "y {midgray} < x 2 y * min x 2 y {midgray} - * max ?"
         case OverlayMode.REFLECT:
-            expr = f"y {peak} >= y x x * {peak} y - / ?"
+            expr = "y plane_max >= y x x * plane_max y - / ?"
         case OverlayMode.SCREEN:
-            expr = f"{peak} {peak} x - {peak} y - * {peak} / -"
+            expr = "plane_max plane_max x - plane_max y - * plane_max / -"
         case OverlayMode.SOFTDIFFERENCE:
-            expr = f"x y > y {peak} >= 0 x y - {peak} * {peak} y - / ? y 0 <= 0 y x - {peak} * y / ? ?"
+            expr = "x y > y plane_max >= 0 x y - plane_max * plane_max y - / ? y 0 <= 0 y x - plane_max * y / ? ?"
         case OverlayMode.SOFTLIGHT:
-            expr = f"x x * {peak} / 2 y x {peak} x - * {peak} / * {peak} / * +"
+            expr = "x x * plane_max / 2 y x plane_max x - * plane_max / * plane_max / * +"
         case OverlayMode.STAIN:
-            expr = f"2 {peak} * x - y -"
+            expr = "2 plane_max * x - y -"
         case OverlayMode.SUBTRACT:
             expr = "x y -"
         case OverlayMode.VIVIDLIGHT:
-            expr = f"x {neutral} < x 0 <= 2 x * {peak} {peak} y - {factor} * 2 x * / - ? 2 x {neutral} - * {peak} >= 2 x {neutral} - * y {factor} * {peak} 2 x {neutral} - * - / ? ?"
+            expr = "x {midgray} < x 0 <= 2 x * plane_max plane_max y - range_size * 2 x * / - ? 2 x {midgray} - * plane_max >= 2 x {midgray} - * y range_size * plane_max 2 x {midgray} - * - / ? ?"
         case _:
             raise vs.Error("overlay: invalid mode specified")
 
     if mode != OverlayMode.NORMAL:
-        overlay_clip = norm_expr([overlay_clip, base_clip], expr, planes)
+        overlay_clip = norm_expr([overlay_clip, base_clip], expr, planes, midgray=midgray)
 
     last = base_clip.std.MaskedMerge(overlay_clip, mask, planes, mask_first_plane)
     if base_orig is not None:
